@@ -802,6 +802,8 @@ func (p *noder) stmtFall(stmt syntax.Stmt, fallOK bool) *Node {
 			op = ODEFER
 		case syntax.Go:
 			op = OPROC
+		case syntax.Gosecure:
+			op = OGOSECURE
 		default:
 			panic("unhandled CallStmt")
 		}

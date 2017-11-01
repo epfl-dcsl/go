@@ -613,6 +613,12 @@ type (
 		Call *CallExpr
 	}
 
+	// A GosecureStmt node represent a gosecure statement.
+	GosecStmt struct {
+		Gosecure token.Pos // position of "gosecure" keywords.
+		Call     *CallExpr
+	}
+
 	// A DeferStmt node represents a defer statement.
 	DeferStmt struct {
 		Defer token.Pos // position of "defer" keyword

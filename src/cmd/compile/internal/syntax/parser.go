@@ -195,6 +195,7 @@ const stopset uint64 = 1<<_Break |
 	1<<_Fallthrough |
 	1<<_For |
 	1<<_Go |
+	1<<_Gosecure |
 	1<<_Goto |
 	1<<_If |
 	1<<_Return |
@@ -2025,6 +2026,9 @@ func (p *parser) stmtOrNil() Stmt {
 			s.Label = p.name()
 		}
 		return s
+
+	case _Gosecure:
+		return p.callStmt()
 
 	case _Go, _Defer:
 		return p.callStmt()

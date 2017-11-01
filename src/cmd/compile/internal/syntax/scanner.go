@@ -368,14 +368,23 @@ func (s *scanner) isIdentRune(c rune, first bool) bool {
 // hash is a perfect hash function for keywords.
 // It assumes that s has at least length 2.
 func hash(s []byte) uint {
-	return (uint(s[0])<<4 ^ uint(s[1]) + uint(len(s))) & uint(len(keywordMap)-1)
+	if v, ok := hashing[string(s)]; ok {
+		return v
+	}
+	return 0
+	//return (uint(s[0])<<4 ^ uint(s[1]) + uint(len(s))) & uint(len(keywordMap)-1)
 }
 
 var keywordMap [1 << 6]token // size must be power of two
+var hashing map[string]uint
 
 func init() {
+	hashing = make(map[string]uint)
+
 	// populate keywordMap
 	for tok := _Break; tok <= _Var; tok++ {
+		//TODO aghosn hack to fix the hash function:
+		hashing[tokstrings[tok]] = uint(tok)
 		h := hash([]byte(tokstrings[tok]))
 		if keywordMap[h] != 0 {
 			panic("imperfect hash")

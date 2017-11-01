@@ -105,6 +105,7 @@ const (
 
 	FUNC
 	GO
+	GOSEC
 	GOTO
 	IF
 	IMPORT
@@ -206,6 +207,7 @@ var tokens = [...]string{
 
 	FUNC:   "func",
 	GO:     "go",
+	GOSEC:  "gosec",
 	GOTO:   "goto",
 	IF:     "if",
 	IMPORT: "import",

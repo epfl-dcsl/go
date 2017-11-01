@@ -51,6 +51,7 @@ const (
 	_For
 	_Func
 	_Go
+	_Gosecure
 	_Goto
 	_If
 	_Import
@@ -76,8 +77,9 @@ const (
 	Goto        = _Goto
 
 	// for CallStmt
-	Go    = _Go
-	Defer = _Defer
+	Go       = _Go
+	Gosecure = _Gosecure
+	Defer    = _Defer
 )
 
 var tokstrings = [...]string{
@@ -123,6 +125,7 @@ var tokstrings = [...]string{
 	_For:         "for",
 	_Func:        "func",
 	_Go:          "go",
+	_Gosecure:    "gosecure",
 	_Goto:        "goto",
 	_If:          "if",
 	_Import:      "import",

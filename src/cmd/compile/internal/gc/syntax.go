@@ -570,6 +570,7 @@ const (
 	OIF       // if Ninit; Left { Nbody } else { Rlist }
 	OLABEL    // Left:
 	OPROC     // go Left (Left must be call)
+	OGOSECURE //gosecure Left (Left must be call)
 	ORANGE    // for List = range Right { Nbody }
 	ORETURN   // return List
 	OSELECT   // select { List } (List is list of OXCASE or OCASE)

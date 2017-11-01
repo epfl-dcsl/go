@@ -40,6 +40,8 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("compile: ")
 
+	//fmt.Println("using gooey compiler....................")
+
 	archInit, ok := archInits[objabi.GOARCH]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "compile: unknown architecture %q\n", objabi.GOARCH)
