@@ -288,6 +288,17 @@ func walkstmt(n *Node) *Node {
 		// make room for size & fn arguments.
 		adjustargs(n, 2*Widthptr)
 
+	case OGOSECURE:
+		switch n.Left.Op {
+		case OCALLFUNC:
+			n.Left = walkexpr(n.Left, &n.Ninit)
+		default:
+			Dump("nottop", n)
+		}
+
+		// make roo for size & fn arguments.
+		adjustargs(n, 2*Widthptr)
+
 	case ORETURN:
 		walkexprlist(n.List.Slice(), &n.Ninit)
 		if n.List.Len() == 0 {

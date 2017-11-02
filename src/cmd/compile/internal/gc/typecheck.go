@@ -2040,6 +2040,11 @@ func typecheck1(n *Node, top int) *Node {
 		n.Left = typecheck(n.Left, Etop|Erv)
 		checkdefergo(n)
 
+	case OGOSECURE:
+		ok |= Etop
+		n.Left = typecheck(n.Left, Etop|Erv)
+		checkdefergo(n)
+
 	case OFOR, OFORUNTIL:
 		ok |= Etop
 		typecheckslice(n.Ninit.Slice(), Etop)
@@ -2224,6 +2229,10 @@ func checkdefergo(n *Node) {
 	what := "defer"
 	if n.Op == OPROC {
 		what = "go"
+	}
+
+	if n.Op == OGOSECURE {
+		what = "gosecure"
 	}
 
 	switch n.Left.Op {

@@ -626,7 +626,7 @@ func orderstmt(n *Node, order *Order) {
 		cleantemp(t, order)
 
 	// Special: order arguments to inner call but not call itself.
-	case ODEFER, OPROC:
+	case ODEFER, OPROC, OGOSECURE:
 		t := marktemp(order)
 
 		switch n.Left.Op {
