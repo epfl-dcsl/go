@@ -430,7 +430,7 @@ func inlnode(n *Node) *Node {
 
 	switch n.Op {
 	// inhibit inlining of their argument
-	case ODEFER, OPROC:
+	case ODEFER, OPROC, OGOSECURE:
 		switch n.Left.Op {
 		case OCALLFUNC, OCALLMETH:
 			n.Left.SetNoInline(true)

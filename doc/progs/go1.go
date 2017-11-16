@@ -113,9 +113,9 @@ func compositeLiterals() {
 	}
 	// Struct values, fully qualified; always legal.
 	holiday1 := []Date{
-		Date{"Feb", 14},
-		Date{"Nov", 11},
-		Date{"Dec", 25},
+		{"Feb", 14},
+		{"Nov", 11},
+		{"Dec", 25},
 	}
 	// Struct values, type name elided; always legal.
 	holiday2 := []Date{
@@ -125,9 +125,9 @@ func compositeLiterals() {
 	}
 	// Pointers, fully qualified, always legal.
 	holiday3 := []*Date{
-		&Date{"Feb", 14},
-		&Date{"Nov", 11},
-		&Date{"Dec", 25},
+		{"Feb", 14},
+		{"Nov", 11},
+		{"Dec", 25},
 	}
 	// Pointers, type name elided; legal in Go 1.
 	holiday4 := []*Date{

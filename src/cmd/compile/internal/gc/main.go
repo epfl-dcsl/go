@@ -523,6 +523,9 @@ func Main(archInit func(*Arch)) {
 		errorexit()
 	}
 
+	//TODO aghosn
+	findGoSecure(xtop)
+
 	// Phase 5: Inlining
 	timings.Start("fe", "inlining")
 	if Debug_typecheckinl != 0 {
