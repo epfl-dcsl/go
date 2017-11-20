@@ -136,6 +136,8 @@ func PrintLast(path []*Pair) {
 
 	//TODO print the copy
 	fmt.Printf("The copy: %+v\n", ncpy)
+
+	fmt.Printf("The ninit and list %v, %v\n", ncpy.Ninit, ncpy.List)
 }
 
 func findGoSecure(ttop []*Node) {
