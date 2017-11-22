@@ -1,62 +1,101 @@
 package gc
 
+import (
+	"cmd/compile/internal/types"
+)
+
+// Global variables for the  current state.
+
+// Contains the k: gosecure call, v: fndcl
+var targetMap map[*Node]*Node
+
+// Generic functions that I can instrument.
+
+// genwalker is a generic walker for the Node type that visits all the children.
+// It takes as parameter a cond func that decides whether or not to apply
+// the act function on the node.
+func genwalker(n *Node, cond func(n *Node) bool, act func(n *Node)) {
+	if n == nil {
+		return
+	}
+	if cond(n) {
+		act(n)
+	}
+	genwalker(n.Left, cond, act)
+	genwalker(n.Right, cond, act)
+	genwalkerlist(n.Ninit, cond, act)
+	genwalkerlist(n.Nbody, cond, act)
+	genwalkerlist(n.List, cond, act)
+	genwalkerlist(n.Rlist, cond, act)
+}
+
+// genwalkerlist is a simple helper to call genwalker on all Nodes in a slice.
+func genwalkerlist(ns Nodes, cond func(n *Node) bool, act func(n *Node)) {
+	for _, n := range ns.Slice() {
+		genwalker(n, cond, act)
+	}
+}
+
+// Implementation of the actually actions and conditions for gosecure.
+
+// isGosecureNode returns true if Node n is a gosecure node, i.e.,
+// if it has Op == OGOSECURE.
+func isGosecureNode(n *Node) bool {
+	if n == nil {
+		return false
+	}
+	return n.Op == OGOSECURE
+}
+
+// findGosecureDef finds the callee of a gosecure node n.
+func findGosecureDef(n *Node) {
+	if n == nil {
+		return
+	}
+
+	if _, ok := targetMap[n]; ok {
+		yyerror("OGOSECURE node already in the map.")
+		return
+	}
+
+	if n.Left == nil || n.Left.Left == nil || n.Left.Left.Name == nil {
+		yyerror("OCALLFUNC or ONAME or Name node is nil in gosecure.")
+		return
+	}
+
+	defn := n.Left.Left.Name.Defn
+	if defn == nil {
+		//The function is from another package.
+		yyerror("Target of gosecure is in another package.")
+	}
+	targetMap[n] = defn
+}
+
+func resolveDfn(s *types.Sym) *Node {
+	return nil
+}
+
 // getCopy highjacks the inliner mechanism to generate a copy of the node.
 func getCopy(n *Node) *Node {
 	return inlcopy(n)
 }
 
-// getFnDecl returns the callee corresponding to a function call.
-func getdFnDecl(n *Node) *Node {
-	if n.Left == nil || n.Left.Op != OCALLFUNC {
-		panic("GOSECURE: Not a call function argument.")
-	}
-	if n.Left.Left == nil || n.Left.Left.Op != ONAME {
-		panic("GOSECURE: Missing name for the gosecure callee.")
-	}
-	oname := n.Left.Name
-	if oname == nil || oname.Defn == nil {
-		panic("GOSECURE: Name or Defn node is nul.")
-	}
-	return oname.Defn
-}
+// Non generic version of the walker
 
-func walkerList(n Nodes, res *[]*Node) {
-	for _, b := range n.Slice() {
-		walker(b, res)
-	}
-}
-
-// walker walks an AST node and finds the gosecure calls.
-// It appends a copy of the declaration nodes corresponding to the callee
-// of the gosecure calls to the res slice.
-//TODO aghosn should handle duplicates.
-func walker(n *Node, res *[]*Node) {
-	if n == nil {
-		return
-	}
-	//Found a gosecure call.
-	if n.Op == OGOSECURE {
-		fnDecl := getdFnDecl(n)
-		*res = append(*res, getCopy(fnDecl))
-		return
-	}
-
-	walker(n.Left, res)
-	walkerList(n.Ninit, res)
-	walkerList(n.Nbody, res)
-	walkerList(n.List, res)
-	walkerList(n.Rlist, res)
-	walker(n.Right, res)
+func gosecureWalker(n *Node) {
+	genwalker(n, isGosecureNode, findGosecureDef)
 }
 
 // findSecureNodes calls the walker on the ttop nodes.
-func findSecureNodes(ttop []*Node) {
-	res := make([]*Node, 0, 1)
-	for _, n := range ttop {
-		walker(n, &res)
+func GosecurePhase(ttop []*Node) {
+	if targetMap != nil {
+		yyerror("The target map wasn't nil before starting.")
 	}
 
-	//TODO package everything in a new synthetic package.
+	targetMap = make(map[*Node]*Node)
+	for _, n := range ttop {
+		gosecureWalker(n)
+	}
 }
 
 //TODO function to create a package out of these nodes by using the inlining.
