@@ -1,17 +1,13 @@
 package gc
 
-import (
-	"cmd/compile/internal/types"
-)
-
 // Global variables for the  current state.
 
-// Contains the k: gosecure call, v: fndcl
-var targetMap map[*Node]*Node
+// Contains the k: fndcl, v: list of call sites.
+var targetMap map[*Node]Nodes
 
 // Generic functions that I can instrument.
 
-// genwalker is a generic walker for the Node type that visits all the children.
+// genwalker is a generic walker for the Node type thgosecure callat visits all the children.
 // It takes as parameter a cond func that decides whether or not to apply
 // the act function on the node.
 func genwalker(n *Node, cond func(n *Node) bool, act func(n *Node)) {
@@ -68,11 +64,8 @@ func findGosecureDef(n *Node) {
 		//The function is from another package.
 		yyerror("Target of gosecure is in another package.")
 	}
-	targetMap[n] = defn
-}
-
-func resolveDfn(s *types.Sym) *Node {
-	return nil
+	entry := targetMap[defn]
+	entry.Append(n)
 }
 
 // getCopy highjacks the inliner mechanism to generate a copy of the node.
@@ -92,10 +85,19 @@ func GosecurePhase(ttop []*Node) {
 		yyerror("The target map wasn't nil before starting.")
 	}
 
-	targetMap = make(map[*Node]*Node)
+	targetMap = make(map[*Node]Nodes)
 	for _, n := range ttop {
 		gosecureWalker(n)
 	}
-}
 
-//TODO function to create a package out of these nodes by using the inlining.
+	// At that point we need to replace the targetMap with a copy.
+	// TODO aghosn check memory and liveliness for code below.
+	replacement := make(map[*Node]Nodes)
+	for k, v := range targetMap {
+		replacement[getCopy(k)] = v
+	}
+	targetMap = replacement
+
+	// Package the code.
+	// /enclpkg := obj.NewPkg("go.enclave", "enclave")
+}

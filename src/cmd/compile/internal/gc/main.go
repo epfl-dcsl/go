@@ -524,7 +524,8 @@ func Main(archInit func(*Arch)) {
 	}
 
 	//TODO aghosn
-	findGoSecure(xtop)
+	//aghosnInspect(xtop)
+	GosecurePhase(xtop)
 
 	// Phase 5: Inlining
 	timings.Start("fe", "inlining")
