@@ -425,6 +425,9 @@ type Package struct {
 	XTestGoFiles   []string                    // _test.go files outside package
 	XTestImports   []string                    // import paths from XTestGoFiles
 	XTestImportPos map[string][]token.Position // line information for XTestImports
+
+	// Gosecure information
+	GosecCallees map[string][]*ast.GosecStmt // The gosecure nodes sorted by package
 }
 
 // IsCommand reports whether the package is considered a
