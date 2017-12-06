@@ -120,6 +120,10 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 	p.init(fset, filename, text, mode)
 	f = p.parseFile()
 
+	if f.Name != nil && f.Name.Name == "main" {
+		f.GosecCalls = parseGosecCalls(fset, filename)
+	}
+
 	return
 }
 

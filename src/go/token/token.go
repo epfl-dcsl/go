@@ -207,7 +207,7 @@ var tokens = [...]string{
 
 	FUNC:   "func",
 	GO:     "go",
-	GOSEC:  "gosec",
+	GOSEC:  "gosecure",
 	GOTO:   "goto",
 	IF:     "if",
 	IMPORT: "import",

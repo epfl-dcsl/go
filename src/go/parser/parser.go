@@ -2175,6 +2175,8 @@ func (p *parser) parseStmt() (s ast.Stmt) {
 		}
 	case token.GO:
 		s = p.parseGoStmt()
+	case token.GOSEC:
+		s = p.parseGosecStmt()
 	case token.DEFER:
 		s = p.parseDeferStmt()
 	case token.RETURN:
@@ -2443,6 +2445,23 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
 	}
 
 	return p.parseGenDecl(p.tok, f)
+}
+
+// ----------------------------------------------------------------------------
+// Gosecure related parsing.
+
+// parseGoSecureCalls finds all the stmt that have a gosecure call.
+func (p *parser) parseGosecStmt() ast.Stmt {
+	if p.trace {
+		defer un(trace(p, "GosecureStmt"))
+	}
+	pos := p.expect(token.GOSEC)
+	call := p.parseCallExpr("gosecure")
+	p.expectSemi()
+	if call == nil {
+		return &ast.BadStmt{From: pos, To: pos + 8} // len("gosecure")
+	}
+	return &ast.GosecStmt{Gosecure: pos, Call: call}
 }
 
 // ----------------------------------------------------------------------------
