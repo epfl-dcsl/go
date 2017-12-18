@@ -88,6 +88,10 @@ type PackagePublic struct {
 	TestImports  []string `json:",omitempty"` // imports from TestGoFiles
 	XTestGoFiles []string `json:",omitempty"` // _test.go files outside package
 	XTestImports []string `json:",omitempty"` // imports from XTestGoFiles
+
+	// Gosecure dependencies
+	Gosectargets map[string][]string `json:",omitempty"`  // this package calls the following methods.
+	Goseccallees []string            `json:", omitempty"` // the callees within that package.
 }
 
 type PackageInternal struct {
@@ -212,6 +216,8 @@ func (p *Package) copyBuild(pp *build.Package) {
 	p.TestImports = pp.TestImports
 	p.XTestGoFiles = pp.XTestGoFiles
 	p.XTestImports = pp.XTestImports
+	// @aghosn copy the gosec callees. TODO(aghosn) maybe find where this is called and then do the propagation
+	p.Gosectargets = pp.Gosectargets
 	if IgnoreImports {
 		p.Imports = nil
 		p.TestImports = nil

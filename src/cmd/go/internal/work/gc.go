@@ -102,6 +102,7 @@ func (gcToolchain) gc(b *Builder, a *Action, archive string, importcfg []byte, a
 			}
 		}
 	}
+	//TODO(aghosn) here we can pass the packages for gosecure if we want.
 	args := []interface{}{cfg.BuildToolexec, base.Tool("compile"), "-o", ofile, "-trimpath", b.WorkDir, gcflags, gcargs, "-D", p.Internal.LocalPrefix}
 	if importcfg != nil {
 		if err := b.writeFile(objdir+"importcfg", importcfg); err != nil {
