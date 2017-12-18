@@ -427,7 +427,7 @@ type Package struct {
 	XTestImportPos map[string][]token.Position // line information for XTestImports
 
 	// Gosecure information
-	GosecCallees map[string][]*ast.GosecStmt // The gosecure nodes sorted by package
+	Gosectargets map[string][]string // The gosecure nodes sorted by package
 }
 
 // IsCommand reports whether the package is considered a
@@ -889,6 +889,9 @@ Found:
 		} else {
 			p.GoFiles = append(p.GoFiles, name)
 		}
+
+		// @aghosn add the gosecure callees.
+		p.Gosectargets = pf.GosecCalls
 	}
 	if badGoError != nil {
 		return p, badGoError

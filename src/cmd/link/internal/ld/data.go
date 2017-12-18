@@ -1750,6 +1750,7 @@ func (ctxt *Link) textbuildid() {
 	ctxt.Textp[0] = s
 }
 
+//TODO(aghosn) here we see how to add the section.
 // assign addresses to text
 func (ctxt *Link) textaddress() {
 	addsection(ctxt.Arch, &Segtext, ".text", 05)

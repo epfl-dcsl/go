@@ -305,6 +305,11 @@ func (b *Builder) CompileAction(mode, depMode BuildMode, p *load.Package) *Actio
 		a.built = a.Target
 
 		for _, p1 := range p.Internal.Imports {
+			if p.Gosectargets != nil {
+				if callees, ok := p.Gosectargets[p1.Name]; ok {
+					p1.Goseccallees = append(p1.Goseccallees, callees...)
+				}
+			}
 			a.Deps = append(a.Deps, b.CompileAction(depMode, depMode, p1))
 		}
 
