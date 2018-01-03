@@ -92,6 +92,7 @@ type PackagePublic struct {
 	// Gosecure dependencies
 	Gosectargets map[string][]string `json:",omitempty"`  // this package calls the following methods.
 	Goseccallees []string            `json:", omitempty"` // the callees within that package.
+	Efile        string              `json:", omitempty"` // the enclave binary
 }
 
 type PackageInternal struct {

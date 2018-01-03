@@ -183,6 +183,7 @@ var (
 	Segrelrodata sym.Segment
 	Segdata      sym.Segment
 	Segdwarf     sym.Segment
+	SegEnclave   sym.Segment //TODO(aghosn) added this.
 )
 
 /* whence for ldpkg */

@@ -313,6 +313,12 @@ func (b *Builder) CompileAction(mode, depMode BuildMode, p *load.Package) *Actio
 			a.Deps = append(a.Deps, b.CompileAction(depMode, depMode, p1))
 		}
 
+		if p.Name == "main" && len(p.Gosectargets) > 0 {
+			//TODO(aghosn) create my action here to generate the main
+			// and trigger the build for the enclave executable.
+			a.Deps = append(a.Deps, b.CreateEnclaveExec(p))
+		}
+
 		if p.Standard {
 			switch p.ImportPath {
 			case "builtin", "unsafe":

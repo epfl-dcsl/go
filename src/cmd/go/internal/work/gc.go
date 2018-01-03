@@ -444,7 +444,13 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string) 
 		dir, out = filepath.Split(out)
 	}
 
-	return b.run(dir, root.Package.ImportPath, nil, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
+	//TODO(aghosn) adding this to handle the linking of the enclave .out file.
+	args := []interface{}{cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg}
+	if root.Package.PackagePublic.Efile != "" {
+		args = append(args, "-lkenclave", root.Package.PackagePublic.Efile)
+	}
+	args = append(args, ldflags, mainpkg)
+	return b.run(dir, root.Package.ImportPath, nil, args...)
 }
 
 func (gcToolchain) ldShared(b *Builder, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {
