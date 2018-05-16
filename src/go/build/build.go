@@ -906,6 +906,9 @@ Found:
 	sort.Strings(p.AllTags)
 
 	p.Imports, p.ImportPos = cleanImports(imported)
+	if p.Gosectargets != nil && len(p.Gosectargets) > 0 {
+		p.Imports = append(p.Imports, "gosec")
+	}
 	p.TestImports, p.TestImportPos = cleanImports(testImported)
 	p.XTestImports, p.XTestImportPos = cleanImports(xTestImported)
 

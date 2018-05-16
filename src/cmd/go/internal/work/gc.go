@@ -449,6 +449,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string) 
 	if root.Package.PackagePublic.Efile != "" {
 		args = append(args, "-lkenclave", root.Package.PackagePublic.Efile)
 	}
+	if root.Package.PackagePublic.Relocencl {
+		args = append(args, "-relocencl")
+		args = append(args, "-E", "_encl0_amd64")
+	}
 	args = append(args, ldflags, mainpkg)
 	return b.run(dir, root.Package.ImportPath, nil, args...)
 }

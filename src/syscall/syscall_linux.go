@@ -916,6 +916,10 @@ func Munmap(b []byte) (err error) {
 	return mapper.Munmap(b)
 }
 
+func RMmap(addr uintptr, length, prot, flags, fd int, offset int64) (data []byte, err error) {
+	return mapper.RMmap(addr, length, prot, flags, fd, offset)
+}
+
 //sys	Madvise(b []byte, advice int) (err error)
 //sys	Mprotect(b []byte, prot int) (err error)
 //sys	Mlock(b []byte) (err error)

@@ -57,10 +57,22 @@ func argv_index(argv **byte, i int32) *byte {
 	return *(**byte)(add(unsafe.Pointer(argv), uintptr(i)*sys.PtrSize))
 }
 
+var isEnclave bool = false
+
 func args(c int32, v **byte) {
-	argc = c
-	argv = v
-	sysargs(c, v)
+	if c == -1 {
+		isEnclave = true
+		ptrArgv := (***byte)(unsafe.Pointer(v))
+		argv = *ptrArgv
+		argc = 1
+		c = argc
+		v = argv
+		sysargs(c, v)
+	} else {
+		argc = c
+		argv = v
+		sysargs(c, v)
+	}
 }
 
 func goargs() {
@@ -90,6 +102,10 @@ func goenvs_unix() {
 
 func environ() []string {
 	return envs
+}
+
+func ENVIRON() []string {
+	return environ()
 }
 
 // TODO: These should be locals in testAtomic64, but we don't 8-byte

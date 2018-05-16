@@ -742,6 +742,10 @@ var (
 	sched      schedt
 	newprocs   int32
 
+	// For the gosecure part.
+	// This is a dedicated osthread that will launch the enclave.
+	secp *p
+
 	// Information about what cpu features are available.
 	// Set on startup in asm_{386,amd64,amd64p32}.s.
 	// Packages outside the runtime should not use these

@@ -18,15 +18,23 @@ const (
 package main
 
 import(
+	"sync"
 	{{range .Imports}}
 	{{ printf "%q" . }}{{end}}
 )
 
 func main() {
-	// Starting the function.
+	var wg sync.WaitGroup
+	// Starting the functions.
 	{{range .Functions}}
-	go {{ . }}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		{{ . }}()
+	}()
 	{{end}}
+
+	wg.Wait()
 }
 `
 )
@@ -89,7 +97,7 @@ func (b *Builder) gosec(a *Action) (err error) {
 		return err
 	}
 	efile := dir + "/enclave.out"
-	args := []string{"-o", efile, fname}
+	args := []string{"-o", efile, "-relocencl", fname}
 	cmd := CmdBuild
 	cmd.Flag.Parse(args)
 	args = cmd.Flag.Args()

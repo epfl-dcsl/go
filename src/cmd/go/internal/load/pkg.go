@@ -93,6 +93,7 @@ type PackagePublic struct {
 	Gosectargets map[string][]string `json:",omitempty"`  // this package calls the following methods.
 	Goseccallees []string            `json:", omitempty"` // the callees within that package.
 	Efile        string              `json:", omitempty"` // the enclave binary
+	Relocencl    bool                `json:", omitempty"` // false if no relocation, true if reloc
 }
 
 type PackageInternal struct {
@@ -942,6 +943,7 @@ func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 		addImport("syscall")
 	}
 
+	//TODO(aghosn) maybe add the dependency here instead.
 	// The linker loads implicit dependencies.
 	if p.Name == "main" && !p.Internal.ForceLibrary {
 		for _, dep := range LinkerDeps(p) {

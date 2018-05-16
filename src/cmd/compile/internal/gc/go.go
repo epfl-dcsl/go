@@ -126,6 +126,8 @@ var unsafepkg *types.Pkg // package unsafe
 var trackpkg *types.Pkg // fake package for field tracking
 
 var mappkg *types.Pkg // fake package for map zero value
+
+var Gosecpkg *types.Pkg // fake package for the gosecload function.
 var zerosize int64
 
 var myimportpath string
@@ -270,6 +272,7 @@ var (
 
 	Newproc,
 	Deferproc,
+	Gosecload,
 	Deferreturn,
 	Duffcopy,
 	Duffzero,

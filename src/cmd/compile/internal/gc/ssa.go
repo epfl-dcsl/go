@@ -73,6 +73,7 @@ func initssaconfig() {
 	// Set up some runtime functions we'll need to call.
 	Newproc = sysfunc("newproc")
 	Deferproc = sysfunc("deferproc")
+	Gosecload = Gosecpkg.Lookup("Gosecload").Linksym()
 	Deferreturn = sysfunc("deferreturn")
 	Duffcopy = sysfunc("duffcopy")
 	Duffzero = sysfunc("duffzero")
@@ -607,7 +608,7 @@ func (s *state) stmt(n *Node) {
 
 	case OGOSECURE:
 		//TODO aghosn For the moment make it a go routine.
-		s.call(n.Left, callGo)
+		s.call(n.Left, callGosecure)
 
 	case OAS2DOTTYPE:
 		res, resok := s.dottype(n.Rlist.First(), true)
@@ -2553,6 +2554,7 @@ const (
 	callNormal callKind = iota
 	callDefer
 	callGo
+	callGosecure
 )
 
 var intrinsics map[intrinsicKey]intrinsicBuilder
@@ -3240,6 +3242,9 @@ func (s *state) call(n *Node, k callKind) *ssa.Value {
 		call = s.newValue1A(ssa.OpStaticCall, types.TypeMem, Deferproc, s.mem())
 	case k == callGo:
 		call = s.newValue1A(ssa.OpStaticCall, types.TypeMem, Newproc, s.mem())
+	case k == callGosecure:
+		call = s.newValue1A(ssa.OpStaticCall, types.TypeMem, Gosecload, s.mem())
+		//call = s.newValue1A(ssa.OpStaticCall, types.TypeMem, Newproc, s.mem())
 	case closure != nil:
 		codeptr = s.newValue2(ssa.OpLoad, types.Types[TUINTPTR], closure, s.mem())
 		call = s.newValue3(ssa.OpClosureCall, types.TypeMem, codeptr, closure, s.mem())

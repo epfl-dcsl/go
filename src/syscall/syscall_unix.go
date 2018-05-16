@@ -69,6 +69,35 @@ func (m *mmapper) Mmap(fd int, offset int64, length int, prot int, flags int) (d
 	return b, nil
 }
 
+func (m *mmapper) RMmap(ptr uintptr, length, prot, flags, fd int, offset int64) (data []byte, err error) {
+	if length <= 0 {
+		return nil, EINVAL
+	}
+
+	// Map the requested memory.
+	addr, errno := m.mmap(ptr, uintptr(length), prot, flags, fd, offset)
+	if errno != nil {
+		return nil, errno
+	}
+
+	// Slice memory layout
+	var sl = struct {
+		addr uintptr
+		len  int
+		cap  int
+	}{addr, length, length}
+
+	// Use unsafe to turn sl into a []byte.
+	b := *(*[]byte)(unsafe.Pointer(&sl))
+
+	// Register mapping in m and return it.
+	p := &b[cap(b)-1]
+	m.Lock()
+	defer m.Unlock()
+	m.active[p] = b
+	return b, nil
+}
+
 func (m *mmapper) Munmap(data []byte) (err error) {
 	if len(data) == 0 || len(data) != cap(data) {
 		return EINVAL

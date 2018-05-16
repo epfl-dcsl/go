@@ -479,7 +479,7 @@ func mlookup(v uintptr, base *uintptr, size *uintptr, sp **mspan) int32 {
 	return 1
 }
 
-// Initialize the heap.
+// Initialize the heap. (TODO(aghosn) here I had a problem with the unlocked)
 func (h *mheap) init(spansStart, spansBytes uintptr) {
 	h.treapalloc.init(unsafe.Sizeof(treapNode{}), nil, nil, &memstats.other_sys)
 	h.spanalloc.init(unsafe.Sizeof(mspan{}), recordspan, unsafe.Pointer(h), &memstats.mspan_sys)

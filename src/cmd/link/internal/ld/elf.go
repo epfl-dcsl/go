@@ -1696,13 +1696,13 @@ func (ctxt *Link) doelf() {
 		addgonote(ctxt, ".note.go.buildid", ELF_NOTE_GOBUILDID_TAG, []byte(*flagBuildid))
 	}
 
-	if *lkenclave != "" {
+	if *Lkenclave != "" {
 		Addstring(shstrtab, ".encl")
-		encl, err := ioutil.ReadFile(*lkenclave)
+		encl, err := ioutil.ReadFile(*Lkenclave)
 		if err != nil {
 			log.Fatalf(err.Error())
 		}
-		if err = os.Remove(*lkenclave); err != nil {
+		if err = os.Remove(*Lkenclave); err != nil {
 			log.Fatalf(err.Error())
 		}
 		addgonote(ctxt, ".encl", 5, encl)
@@ -1823,7 +1823,7 @@ func Asmbelf(ctxt *Link, symo int64) {
 			sh.flags = SHF_ALLOC
 		}
 
-		if *lkenclave != "" {
+		if *Lkenclave != "" {
 			sh := elfshname(".encl")
 			sh.type_ = SHT_NOTE
 			sh.flags = SHF_ALLOC

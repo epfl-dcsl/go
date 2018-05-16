@@ -38,6 +38,9 @@ var (
 	BuildWork              bool // -work flag
 	BuildX                 bool // -x flag
 
+	//@aghosn added for enclave relocation.
+	Relocencl bool
+
 	DebugActiongraph string // -debug-actiongraph flag (undocumented, unstable)
 )
 

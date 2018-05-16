@@ -95,7 +95,8 @@ var (
 	memprofilerate = flag.Int64("memprofilerate", 0, "set runtime.MemProfileRate to `rate`")
 
 	//TODO(aghosn) flags for the enclave.
-	lkenclave = flag.String("lkenclave", "", "existing enclave binary to include.")
+	Lkenclave = flag.String("lkenclave", "", "existing enclave binary to include.")
+	Relocencl = flag.Bool("relocencl", false, "relocate the enclave base address.")
 )
 
 // Main is the main entry point for the linker code.
@@ -233,8 +234,8 @@ func Main(arch *sys.Arch, theArch Arch) {
 		ctxt.Logf("%d liveness data\n", liveness)
 	}
 
-	//TODO(aghosn) adding the enclave to the elf if lkenclave exists.
-	if *lkenclave != "" {
+	//TODO(aghosn) adding the enclave to the elf if lkenclave option is passed.
+	if *Lkenclave != "" {
 		ctxt.addenclave()
 	}
 	ctxt.Bso.Flush()

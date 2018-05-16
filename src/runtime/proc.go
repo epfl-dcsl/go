@@ -480,11 +480,11 @@ func schedinit() {
 	moduledataverify()
 	stackinit()
 	mallocinit()
-	mcommoninit(_g_.m)
-	alginit()       // maps must not be used before this call
-	modulesinit()   // provides activeModules
-	typelinksinit() // uses maps, activeModules
-	itabsinit()     // uses activeModules
+	mcommoninit(_g_.m) // TODO(aghosn) apparently the stack is allocated here.
+	alginit()          // maps must not be used before this call
+	modulesinit()      // provides activeModules
+	typelinksinit()    // uses maps, activeModules
+	itabsinit()        // uses activeModules
 
 	msigsave(_g_.m)
 	initSigmask = _g_.m.sigmask
