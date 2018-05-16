@@ -1,45 +1,14 @@
-# The Go Programming Language
+# GOSECURE: TEE support in the go programming language
 
-Go is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
+This fork of the go compiler aims at providing a new keyword, `gosecure`, that allows to spawn routines executing inside a TEE (intel sgx for the moment). 
 
-![Gopher image](doc/gopher/fiveyears.jpg)
-*Gopher image by [Renee French][rf], licensed under [Creative Commons 3.0 Attributions license][cc3-by].*
+## What we have so far
 
-Our canonical Git repository is located at https://go.googlesource.com/go.
-There is a mirror of the repository at https://github.com/golang/go.
+1. Generate a separate binary that resides in a different part of the address space and contains code that executes inside the TEE.
+2. A way to load and execute (outside of the enclave) this binary in a dedicated thread.
 
-Unless otherwise noted, the Go source files are distributed under the
-BSD-style license found in the LICENSE file.
+## What we need to do
 
-### Download and Install
-
-#### Binary Distributions
-
-Official binary distributions are available at https://golang.org/dl/.
-
-After downloading a binary release, visit https://golang.org/doc/install
-or load doc/install.html in your web browser for installation
-instructions.
-
-#### Install From Source
-
-If a binary distribution is not available for your combination of
-operating system and architecture, visit
-https://golang.org/doc/install/source or load doc/install-source.html
-in your web browser for source installation instructions.
-
-### Contributing
-
-Go is the work of hundreds of contributors. We appreciate your help!
-
-To contribute, please read the contribution guidelines:
-	https://golang.org/doc/contribute.html
-
-Note that the Go project does not use GitHub pull requests, and that
-we use the issue tracker for bug reports and proposals only. See
-https://golang.org/wiki/Questions for a list of places to ask
-questions about the Go language.
-
-[rf]: https://reneefrench.blogspot.com/
-[cc3-by]: https://creativecommons.org/licenses/by/3.0/
+1. Implement cooperative scheduling between two runtimes to allow the usage of (slightly modified0 go channels). 
+2. Modify the enclave runtime to submit syscalls via a channel.
+3. Create an SGX enclave to host the binary we created.
