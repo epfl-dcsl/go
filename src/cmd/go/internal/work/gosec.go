@@ -18,23 +18,22 @@ const (
 package main
 
 import(
-	"sync"
+	"gosec"
 	{{range .Imports}}
 	{{ printf "%q" . }}{{end}}
 )
 
 func main() {
-	var wg sync.WaitGroup
 	// Starting the functions.
 	{{range .Functions}}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		{{ . }}()
+	func() {
+		gosec.RegisterSecureFunction({{ . }})
 	}()
-	{{end}}
 
-	wg.Wait()
+	//go {{ . }}()
+	{{end}}
+	go func() {for{}}()
+	gosec.EcallServer()
 }
 `
 )

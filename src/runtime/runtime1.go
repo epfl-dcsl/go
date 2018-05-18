@@ -47,8 +47,9 @@ func gotraceback() (level int32, all, crash bool) {
 }
 
 var (
-	argc int32
-	argv **byte
+	argc   int32
+	argv   **byte
+	Cooprt *CooperativeRuntime
 )
 
 // nosplit for use in linux startup sysargs
@@ -63,7 +64,8 @@ func args(c int32, v **byte) {
 	if c == -1 {
 		isEnclave = true
 		ptrArgv := (***byte)(unsafe.Pointer(v))
-		argv = *ptrArgv
+		Cooprt = (*CooperativeRuntime)(unsafe.Pointer((*ptrArgv)))
+		argv = Cooprt.argv
 		argc = 1
 		c = argc
 		v = argv
