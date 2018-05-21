@@ -3188,6 +3188,7 @@ func malg(stacksize int32) *g {
 		newg.stackguard0 = newg.stack.lo + _StackGuard
 		newg.stackguard1 = ^uintptr(0)
 	}
+	newg.isencl = isEnclave
 	return newg
 }
 

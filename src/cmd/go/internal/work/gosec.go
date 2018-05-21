@@ -32,7 +32,6 @@ func main() {
 
 	//go {{ . }}()
 	{{end}}
-	go func() {for{}}()
 	gosec.EcallServer()
 }
 `

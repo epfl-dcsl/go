@@ -47,6 +47,8 @@ type hchan struct {
 	// (in particular, do not ready a G), as this can deadlock
 	// with stack shrinking.
 	lock mutex
+
+	isencl bool
 }
 
 type waitq struct {
@@ -111,6 +113,7 @@ func makechan(t *chantype, size int) *hchan {
 	if debugChan {
 		print("makechan: chan=", c, "; elemsize=", elem.size, "; elemalg=", elem.alg, "; dataqsiz=", size, "\n")
 	}
+	c.isencl = isEnclave
 	return c
 }
 
@@ -220,6 +223,10 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	mysg.releasetime = 0
 	if t0 != 0 {
 		mysg.releasetime = -1
+	}
+
+	if c.isencl != gp.isencl {
+		print("Crossing the domains send.\n")
 	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
@@ -504,6 +511,10 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	mysg.releasetime = 0
 	if t0 != 0 {
 		mysg.releasetime = -1
+	}
+
+	if c.isencl != gp.isencl {
+		print("Crossing the domains recv.\n")
 	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
