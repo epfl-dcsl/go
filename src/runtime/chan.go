@@ -56,6 +56,30 @@ type waitq struct {
 	last  *sudog
 }
 
+// checkinterdomain detects inter domain crossing and panics is trusted struct
+// is referenced from untrusted (sanity check, this will just err with sgx).
+func checkinterdomain(gb, og bool) bool {
+	if !gb && og {
+		panic("An untrusted routine is trying to access a trusted channel")
+	}
+	return gb != og
+}
+
+func acquireSudogFromPool() *sudog {
+	//TODO @aghosn do that atomically
+	for i, x := range Cooprt.pool {
+		if x.available != 0 {
+			x.available = 0
+			x.wg.id = int32(i)
+			x.isencl = isEnclave
+			return x.wg
+		}
+	}
+	//TODO @aghosn should come up with something here.
+	panic("Ran out of sudog in the pool.")
+	return nil
+}
+
 //go:linkname reflect_makechan reflect.makechan
 func reflect_makechan(t *chantype, size int) *hchan {
 	return makechan(t, size)
@@ -219,15 +243,22 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 
 	// Block on the channel. Some receiver will complete our operation for us.
 	gp := getg()
-	mysg := acquireSudog()
+
+	// @aghosn special case when inter-domain communication.
+	var mysg *sudog = nil
+	if checkinterdomain(gp.isencl, c.isencl) {
+		// Blocking on a send from enclave.
+		// take a sudog from the free list and use it.
+		mysg = acquireSudogFromPool()
+	} else {
+		mysg = acquireSudog()
+	}
+
 	mysg.releasetime = 0
 	if t0 != 0 {
 		mysg.releasetime = -1
 	}
 
-	if c.isencl != gp.isencl {
-		print("Crossing the domains send.\n")
-	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
 	mysg.elem = ep
@@ -289,6 +320,17 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if sg.elem != nil {
 		sendDirect(c.elemtype, sg, ep)
 		sg.elem = nil
+	}
+	//TODO @aghosn here need to check what type of sg it is.
+	// If it has an id, it means it comes from a pool.
+	//Wait, if we are in the same domain it should be fine to reschedule directly.
+	// So makeready should actually return something to know if we skip or not.
+	if sg.id != -1 && !Cooprt.tryGoReady(sg) {
+		unlockf()
+		if sg.releasetime != 0 {
+			sg.releasetime = cputicks()
+		}
+		return
 	}
 	gp := sg.g
 	unlockf()
@@ -507,15 +549,20 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 
 	// no sender available: block on this channel.
 	gp := getg()
-	mysg := acquireSudog()
+
+	// @aghosn for inter-domain communication.
+	var mysg *sudog = nil
+	if checkinterdomain(gp.isencl, c.isencl) {
+		mysg = acquireSudogFromPool()
+	} else {
+		mysg = acquireSudog()
+	}
+
 	mysg.releasetime = 0
 	if t0 != 0 {
 		mysg.releasetime = -1
 	}
 
-	if c.isencl != gp.isencl {
-		print("Crossing the domains recv.\n")
-	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
 	mysg.elem = ep
@@ -590,11 +637,22 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
 	sg.elem = nil
+	if sg.id != -1 && !Cooprt.tryGoReady(sg) {
+		unlockf()
+		if sg.releasetime != 0 {
+			sg.releasetime = cputicks()
+		}
+		return
+	}
 	gp := sg.g
 	unlockf()
 	gp.param = unsafe.Pointer(sg)
 	if sg.releasetime != 0 {
 		sg.releasetime = cputicks()
+	}
+	if sg.id != -1 {
+		//TODO @aghosn special case here.
+		// use the isencl from g to put it in the correct queue.
 	}
 	goready(gp, skip+1)
 }

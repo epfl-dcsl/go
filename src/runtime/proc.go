@@ -334,6 +334,7 @@ func acquireSudog() *sudog {
 	if s.elem != nil {
 		throw("acquireSudog: found s.elem != nil in cache")
 	}
+	s.id = -1
 	releasem(mp)
 	return s
 }
