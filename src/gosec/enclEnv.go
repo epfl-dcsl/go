@@ -1,7 +1,6 @@
 package gosec
 
 import (
-	"fmt"
 	"reflect"
 	"runtime"
 )
@@ -21,7 +20,6 @@ func EcallServer() {
 		for i := range call.Args {
 			ptr := call.Args[i]
 			val := (reflect.NewAt(tpes.In(i), ptr)).Elem()
-			fmt.Printf("The shit shit %v\n", val)
 			args = append(args, val)
 		}
 		go fn.Call(args)

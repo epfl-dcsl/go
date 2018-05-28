@@ -2493,9 +2493,11 @@ top:
 			traceGoUnpark(gp, 0)
 		}
 	}
+
 	if gp == nil && gcBlackenEnabled != 0 {
 		gp = gcController.findRunnableGCWorker(_g_.m.p.ptr())
 	}
+
 	if gp == nil {
 		// Check the global runnable queue once in a while to ensure fairness.
 		// Otherwise two goroutines can completely occupy the local runqueue
@@ -2576,6 +2578,12 @@ func park_m(gp *g) {
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
+
+	//@aghosn check for crossdomain routines.
+	lock(&sched.lock)
+	migrateCrossDomain()
+	unlock(&sched.lock)
+
 	schedule()
 }
 
@@ -2588,6 +2596,7 @@ func goschedImpl(gp *g) {
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
 	lock(&sched.lock)
+	migrateCrossDomain()
 	globrunqput(gp)
 	unlock(&sched.lock)
 

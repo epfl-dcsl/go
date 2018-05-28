@@ -9,6 +9,12 @@ type ECallAttr struct {
 	Args []unsafe.Pointer
 }
 
+type EcallAttr2 struct {
+	Id   int32
+	Siz  int32
+	argp *uint8 //TODO @aghosn not sure about this one.
+}
+
 type poolSudog struct {
 	available int
 	wg        *sudog
@@ -23,13 +29,32 @@ type CooperativeRuntime struct {
 	//TODO @aghosn need a lock here. Mutex should be enough
 	// but might need to avoid futex call? Should only happen when last goroutine
 	// goes to sleep, right?
-	etoo *sudog //Blocked TODO @aghosn might need pointer to chan?
-	otoe *sudog
 
 	readyE waitq //Ready to be rescheduled
 	readyO waitq
 
 	pool [50]poolSudog //TODO @aghosn pool of sudog structs allocated in non-trusted.
+}
+
+// migrateCrossDomain takes ready routines from the cross domain queue and puts
+// them in the global run queue.
+// Scheduler must be locked, TODO @aghosn probably should try locking the Cooprt.
+func migrateCrossDomain() {
+	if Cooprt == nil {
+		return
+	}
+	var queue *waitq = nil
+	if isEnclave {
+		queue = &(Cooprt.readyE)
+	} else {
+		queue = &(Cooprt.readyO)
+	}
+
+	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
+		globrunqput(sg.g)
+		sg.g = nil
+		Cooprt.pool[sg.id].available = 1
+	}
 }
 
 func (c *CooperativeRuntime) tryGoReady(sg *sudog) bool {
@@ -61,8 +86,6 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan ECallAttr), -1, argv
-	Cooprt.etoo, Cooprt.otoe = nil, nil
-	//Cooprt.readyE, Cooprt.readyO = nil, nil
 	for i := range Cooprt.pool {
 		Cooprt.pool[i].wg = &sudog{}
 		Cooprt.pool[i].wg.id = int32(i)

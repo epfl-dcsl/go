@@ -19,12 +19,21 @@ package main
 
 import(
 	"gosec"
+	"runtime"
 	{{range .Imports}}
 	{{ printf "%q" . }}{{end}}
 )
 
+func __ff() {
+	for {
+		runtime.Gosched()
+	}
+}
+
 func main() {
 	// Starting the functions.
+
+	go __ff()
 	{{range .Functions}}
 	func() {
 		gosec.RegisterSecureFunction({{ . }})
