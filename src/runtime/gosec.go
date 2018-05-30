@@ -10,9 +10,9 @@ type ECallAttr struct {
 }
 
 type EcallAttr2 struct {
-	Id   int32
+	Name string
 	Siz  int32
-	argp *uint8 //TODO @aghosn not sure about this one.
+	Argp *uint8 //TODO @aghosn not sure about this one.
 }
 
 type poolSudog struct {
@@ -22,9 +22,10 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall chan ECallAttr
-	argc  int32
-	argv  **byte
+	Ecall  chan ECallAttr
+	Ecall2 chan EcallAttr2
+	argc   int32
+	argv   **byte
 
 	//TODO @aghosn need a lock here. Mutex should be enough
 	// but might need to avoid futex call? Should only happen when last goroutine
@@ -86,6 +87,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan ECallAttr), -1, argv
+	Cooprt.Ecall2 = make(chan EcallAttr2)
 	for i := range Cooprt.pool {
 		Cooprt.pool[i].wg = &sudog{}
 		Cooprt.pool[i].wg.id = int32(i)
@@ -103,7 +105,10 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
-func Newproc(siz int32, ptr uintptr) {
+func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	fn := &funcval{ptr}
-	newproc(siz, fn)
+	pc := getcallerpc()
+	systemstack(func() {
+		newproc1(fn, argp, siz, pc)
+	})
 }

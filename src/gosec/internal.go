@@ -5,13 +5,24 @@ import (
 	"debug/elf"
 	"log"
 	"os"
+	"runtime"
+	"unsafe"
 )
+
+const ptrSize = 4 << (^uintptr(0) >> 63)
 
 func check(e error) {
 	if e != nil {
 		log.Fatalln(e.Error())
 	}
 }
+
+type funcval struct {
+	fn uintptr
+	// variable-size, fn-specific data here
+}
+
+var isInit bool = false
 
 func LoadEnclave() {
 	p, err := elf.Open(os.Args[0])
@@ -49,11 +60,29 @@ func LoadEnclave() {
 	_, err = encl.Write(bts)
 	check(err)
 
-	//TODO here I should start loading the thing within the correct address space.
+	//Start loading the program within the correct address space.
+	isInit = true
 	loadProgram(name)
-
 }
 
-func Gosecload() {
-	LoadEnclave()
+//go:nosplit
+func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(p) + x)
+}
+
+// Gosecload has the same signature as newproc().
+// It creates the enclave if it does not exist yet, and write to the cooperative channel.
+func Gosecload(size int32, fn *funcval) {
+	argp := add(unsafe.Pointer(&fn), ptrSize)
+	pc := runtime.FuncForPC(fn.fn)
+	if pc == nil {
+		log.Fatalln("Unable to find the name for the func at address ", fn.fn)
+	}
+	log.Println("Receiving a size ", size, " and fn is ", fn.fn, "and name ", pc.Name())
+	log.Println("The address is ", (*uint8)(argp))
+	if !isInit {
+		LoadEnclave()
+	}
+
+	runtime.Cooprt.Ecall2 <- runtime.EcallAttr2{pc.Name(), size, (*uint8)(argp)}
 }

@@ -3223,7 +3223,7 @@ func (s *state) call(n *Node, k callKind) *ssa.Value {
 		s.vars[&memVar] = s.newValue3A(ssa.OpStore, types.TypeMem, types.Types[TUINTPTR], addr, rcvr, s.mem())
 	}
 
-	// Defer/go args
+	// Defer/go/gosecure args
 	if k != callNormal {
 		// Write argsize and closure (args to Newproc/Deferproc).
 		argStart := Ctxt.FixedFrameSize()
@@ -3231,6 +3231,7 @@ func (s *state) call(n *Node, k callKind) *ssa.Value {
 		addr := s.constOffPtrSP(s.f.Config.Types.UInt32Ptr, argStart)
 		s.vars[&memVar] = s.newValue3A(ssa.OpStore, types.TypeMem, types.Types[TUINT32], addr, argsize, s.mem())
 		addr = s.constOffPtrSP(s.f.Config.Types.UintptrPtr, argStart+int64(Widthptr))
+		//TODO @aghosn here we can pass the shitty shit to gosecure. Write an ID instead?
 		s.vars[&memVar] = s.newValue3A(ssa.OpStore, types.TypeMem, types.Types[TUINTPTR], addr, closure, s.mem())
 		stksize += 2 * int64(Widthptr)
 	}
