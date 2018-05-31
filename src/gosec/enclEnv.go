@@ -4,7 +4,6 @@ import (
 	"log"
 	"reflect"
 	"runtime"
-	"unsafe"
 )
 
 // Slice of gosecure targets.
@@ -36,9 +35,6 @@ func EcallServer2() {
 		//TODO here create the buffer of memory that will be used for the call.
 		//We need to carefully copy the content and replace the function pointer.
 		if fn := secureMap[call.Name]; fn != nil {
-			log.Println("Making a call: ", call.Name, "argp is at", call.Argp)
-			a := (*int)(unsafe.Pointer(call.Argp))
-			log.Println("The value there ", *a)
 			fn(call.Siz, call.Argp)
 		} else {
 			log.Fatalln("Unable to find secure func ", call.Name)

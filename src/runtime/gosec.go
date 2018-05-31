@@ -13,6 +13,7 @@ type EcallAttr2 struct {
 	Name string
 	Siz  int32
 	Argp *uint8 //TODO @aghosn not sure about this one.
+	Buf  []uint8
 }
 
 type poolSudog struct {
