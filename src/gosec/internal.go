@@ -94,7 +94,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		LoadEnclave()
 	}
 	//Copy the stack frame inside a buffer.
-	attrib := runtime.EcallAttr2{}
+	attrib := runtime.EcallAttr{}
 	attrib.Name, attrib.Siz = pc.Name(), size
 	attrib.Buf, attrib.Argp = nil, nil
 	if size > 0 {
@@ -103,5 +103,5 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
 
-	runtime.Cooprt.Ecall2 <- attrib
+	runtime.Cooprt.Ecall <- attrib
 }

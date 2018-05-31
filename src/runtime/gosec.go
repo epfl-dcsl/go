@@ -4,12 +4,7 @@ import (
 	"unsafe"
 )
 
-type ECallAttr struct {
-	Id   int32
-	Args []unsafe.Pointer
-}
-
-type EcallAttr2 struct {
+type EcallAttr struct {
 	Name string
 	Siz  int32
 	Argp *uint8 //TODO @aghosn not sure about this one.
@@ -23,10 +18,9 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall  chan ECallAttr
-	Ecall2 chan EcallAttr2
-	argc   int32
-	argv   **byte
+	Ecall chan EcallAttr
+	argc  int32
+	argv  **byte
 
 	//TODO @aghosn need a lock here. Mutex should be enough
 	// but might need to avoid futex call? Should only happen when last goroutine
@@ -87,8 +81,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
-	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan ECallAttr), -1, argv
-	Cooprt.Ecall2 = make(chan EcallAttr2)
+	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
 	for i := range Cooprt.pool {
 		Cooprt.pool[i].wg = &sudog{}
 		Cooprt.pool[i].wg.id = int32(i)

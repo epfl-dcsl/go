@@ -36,10 +36,10 @@ func main() {
 	go __ff()
 	{{range .Functions}}
 
-	gosec.RegisterSecureFunction2({{ . }})
+	gosec.RegisterSecureFunction({{ . }})
 
 	{{end}}
-	gosec.EcallServer2()
+	gosec.EcallServer()
 }
 `
 )
