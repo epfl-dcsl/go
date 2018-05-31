@@ -82,7 +82,10 @@ func bufcopy(dest []uint8, src *uint8, size int32) {
 // It creates the enclave if it does not exist yet, and write to the cooperative channel.
 //go:nosplit
 func Gosecload(size int32, fn *funcval, b uint8) {
-	argp := &b
+	var argp *uint8 = nil
+	if size > 0 {
+		argp = &b
+	}
 	pc := runtime.FuncForPC(fn.fn)
 	if pc == nil {
 		log.Fatalln("Unable to find the name for the func at address ", fn.fn)
@@ -93,8 +96,12 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	//Copy the stack frame inside a buffer.
 	attrib := runtime.EcallAttr2{}
 	attrib.Name, attrib.Siz = pc.Name(), size
-	attrib.Buf = make([]uint8, size, size)
-	bufcopy(attrib.Buf, argp, size)
-	attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
+	attrib.Buf, attrib.Argp = nil, nil
+	if size > 0 {
+		attrib.Buf = make([]uint8, size, size)
+		bufcopy(attrib.Buf, argp, size)
+		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
+	}
+
 	runtime.Cooprt.Ecall2 <- attrib
 }
