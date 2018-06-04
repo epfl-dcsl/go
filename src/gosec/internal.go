@@ -65,6 +65,14 @@ func LoadEnclave() {
 	loadProgram(name)
 }
 
+// Spins on the scheduler. Avoids triggering the deadlock detector when routines
+// are blocked on cross domain channels.
+func avoidDeadlock() {
+	for {
+		runtime.Gosched()
+	}
+}
+
 //go:nosplit
 func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(p) + x)
@@ -92,6 +100,8 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	}
 	if !isInit {
 		LoadEnclave()
+		// We run this to avoid triggering the deadlock detector.
+		go avoidDeadlock()
 	}
 	//Copy the stack frame inside a buffer.
 	attrib := runtime.EcallAttr{}
@@ -102,6 +112,5 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		bufcopy(attrib.Buf, argp, size)
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
-
 	runtime.Cooprt.Ecall <- attrib
 }

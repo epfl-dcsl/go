@@ -25,6 +25,7 @@ type CooperativeRuntime struct {
 	//TODO @aghosn need a lock here. Mutex should be enough
 	// but might need to avoid futex call? Should only happen when last goroutine
 	// goes to sleep, right?
+	sl *secspinlock
 
 	readyE waitq //Ready to be rescheduled
 	readyO waitq
@@ -32,13 +33,25 @@ type CooperativeRuntime struct {
 	pool [50]poolSudog //TODO @aghosn pool of sudog structs allocated in non-trusted.
 }
 
+// checkinterdomain detects inter domain crossing and panics if foreign has
+// higher protection than local. Returns true if local and foreign belong to
+// different domains.
+// This function is called when writting to a channel for example.
+func checkinterdomain(rlocal, rforeign bool) bool {
+	if !rlocal && rforeign {
+		panic("An untrusted routine is trying to access a trusted channel")
+	}
+	return rlocal != rforeign
+}
+
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
-// Scheduler must be locked, TODO @aghosn probably should try locking the Cooprt.
+// Scheduler must be locked, as well as the Cooprt.
 func migrateCrossDomain() {
 	if Cooprt == nil {
 		return
 	}
+	Cooprt.sl.Lock()
 	var queue *waitq = nil
 	if isEnclave {
 		queue = &(Cooprt.readyE)
@@ -46,33 +59,97 @@ func migrateCrossDomain() {
 		queue = &(Cooprt.readyO)
 	}
 
+	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
+		panic("One successful entering of the loop")
 		globrunqput(sg.g)
-		sg.g = nil
-		Cooprt.pool[sg.id].available = 1
 	}
+	Cooprt.sl.Unlock()
 }
 
-func (c *CooperativeRuntime) tryGoReady(sg *sudog) bool {
-	// Can we treat it as same domain. If so, use the go channel regular code.
-	// TODO @aghosn do not forget to modify  goready
-	if c.pool[sg.id].isencl == isEnclave {
-		return true
+func acquireSudogFromPool() *sudog {
+	Cooprt.sl.Lock()
+	for i, x := range Cooprt.pool {
+		if x.available != 0 {
+			x.available = 0
+			x.wg.id = int32(i)
+			x.isencl = isEnclave
+			Cooprt.sl.Unlock()
+			return x.wg
+		}
 	}
-	// Do not release the sudog yet. This will be done when we reschedule g.
+	//TODO @aghosn should come up with something here.
+	Cooprt.sl.Unlock()
+	panic("Ran out of sudog in the pool.")
+	return nil
+}
+
+// crossReleaseSudog calls the appropriate releaseSudog version depending on whether
+// the sudog is a crossdomain one or not.
+func crossReleaseSudog(sg *sudog) {
+	// Check if this is not from the pool and is same domain (regular path)
+	if isReschedulable(sg) {
+		print("Fast release!\n")
+		releaseSudog(sg)
+		return
+	}
+
+	// This is called from someone who just woke up.
+	// We are executing and are in the correct domain.
+	// Hence this is our first check: id != -1 implies we are in the enclave
+	if sg.id != -1 && !isEnclave {
+		panic("We have a pool sudog containing a non enclave element.")
+	}
+
+	// Second step is if we are from the pool (and we are inside the enclave),
+	// We are runnable again. We just release the sudog from the pool.
+	Cooprt.sl.Lock()
+	Cooprt.pool[sg.id].isencl = false
+	Cooprt.pool[sg.id].available = 1
+	Cooprt.sl.Unlock()
+}
+
+// isReschedulable checks if a sudog can be directly rescheduled.
+// For that, we require the sudog to not belong to the pool and for the unblocking
+// routine to belong to the same domain as this sudog.
+func isReschedulable(sg *sudog) bool {
+	if sg == nil {
+		panic("Calling isReschedulable with nil sudog.")
+	}
+	return (sg.id == -1 && !checkinterdomain(isEnclave, sg.g.isencl))
+}
+
+// crossGoready takes a sudog and makes it ready to be rescheduled.
+// It picks the proper ready queue for the sudog in the cooperative runtime.
+// This method should be called only once the isReschedulable returned false.
+func (c *CooperativeRuntime) crossGoready(sg *sudog) {
+	c.sl.Lock()
+	// We are about to make ready a sudog that is not from the pool.
+	// This can happen only when non-trusted has blocked on a channel.
+	if sg.id == -1 {
+		if sg.g.isencl || sg.g.isencl == isEnclave {
+			panic("Misspredicted the crossdomain scenario.")
+		}
+		print("We enqueue a real sudog!\n")
+		c.readyO.enqueue(sg)
+		c.sl.Unlock()
+		return
+	}
+
+	// We have a sudog from the pool.
+	print("We enqueue a fake sudog!\n")
 	if c.pool[sg.id].isencl {
 		c.readyE.enqueue(sg)
 	} else {
 		c.readyO.enqueue(sg)
 	}
-	return false
+	c.sl.Unlock()
 }
 
 func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
-	//if secp != nil {
-	//	throw("secp is already allocated.\n")
-	//}
-	//throw("Okay we are here.")
+	if isEnclave {
+		panic("Should not allocate enclave from the enclave.")
+	}
 	addrArgc := stack - unsafe.Sizeof(argc)
 	addrArgv := addrArgc - unsafe.Sizeof(argv)
 
@@ -82,6 +159,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
 		Cooprt.pool[i].wg = &sudog{}
 		Cooprt.pool[i].wg.id = int32(i)
@@ -105,4 +183,9 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	systemstack(func() {
 		newproc1(fn, argp, siz, pc)
 	})
+}
+
+// To remove
+func GetIsEnclave() bool {
+	return isEnclave
 }

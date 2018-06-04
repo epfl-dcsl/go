@@ -56,30 +56,6 @@ type waitq struct {
 	last  *sudog
 }
 
-// checkinterdomain detects inter domain crossing and panics is trusted struct
-// is referenced from untrusted (sanity check, this will just err with sgx).
-func checkinterdomain(gb, og bool) bool {
-	if !gb && og {
-		panic("An untrusted routine is trying to access a trusted channel")
-	}
-	return gb != og
-}
-
-func acquireSudogFromPool() *sudog {
-	//TODO @aghosn do that atomically
-	for i, x := range Cooprt.pool {
-		if x.available != 0 {
-			x.available = 0
-			x.wg.id = int32(i)
-			x.isencl = isEnclave
-			return x.wg
-		}
-	}
-	//TODO @aghosn should come up with something here.
-	panic("Ran out of sudog in the pool.")
-	return nil
-}
-
 //go:linkname reflect_makechan reflect.makechan
 func reflect_makechan(t *chantype, size int) *hchan {
 	return makechan(t, size)
@@ -287,7 +263,8 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 		blockevent(mysg.releasetime-t0, 2)
 	}
 	mysg.c = nil
-	releaseSudog(mysg)
+
+	crossReleaseSudog(mysg)
 	return true
 }
 
@@ -321,17 +298,18 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		sendDirect(c.elemtype, sg, ep)
 		sg.elem = nil
 	}
-	//TODO @aghosn here need to check what type of sg it is.
-	// If it has an id, it means it comes from a pool.
-	//Wait, if we are in the same domain it should be fine to reschedule directly.
-	// So makeready should actually return something to know if we skip or not.
-	if sg.id != -1 && !Cooprt.tryGoReady(sg) {
+
+	if !isReschedulable(sg) {
+		//TODO @aghosn don't know what to do with the gp.param.
 		unlockf()
 		if sg.releasetime != 0 {
 			sg.releasetime = cputicks()
 		}
+		print("from send")
+		Cooprt.crossGoready(sg)
 		return
 	}
+
 	gp := sg.g
 	unlockf()
 	gp.param = unsafe.Pointer(sg)
@@ -586,7 +564,8 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	closed := gp.param == nil
 	gp.param = nil
 	mysg.c = nil
-	releaseSudog(mysg)
+
+	crossReleaseSudog(mysg)
 	return true, !closed
 }
 
@@ -637,22 +616,21 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
 	sg.elem = nil
-	if sg.id != -1 && !Cooprt.tryGoReady(sg) {
+	if !isReschedulable(sg) {
+		//TODO @aghosn don't know what to do with gp.param
 		unlockf()
 		if sg.releasetime != 0 {
 			sg.releasetime = cputicks()
 		}
+		Cooprt.crossGoready(sg)
 		return
 	}
+
 	gp := sg.g
 	unlockf()
 	gp.param = unsafe.Pointer(sg)
 	if sg.releasetime != 0 {
 		sg.releasetime = cputicks()
-	}
-	if sg.id != -1 {
-		//TODO @aghosn special case here.
-		// use the isencl from g to put it in the correct queue.
 	}
 	goready(gp, skip+1)
 }

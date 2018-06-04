@@ -341,6 +341,9 @@ func acquireSudog() *sudog {
 
 //go:nosplit
 func releaseSudog(s *sudog) {
+	if s.id != -1 {
+		throw("runtime: sudog from pool released.")
+	}
 	if s.elem != nil {
 		throw("runtime: sudog with non-nil elem")
 	}
