@@ -12,9 +12,9 @@ type EcallAttr struct {
 }
 
 type poolSudog struct {
-	available int
 	wg        *sudog
 	isencl    bool
+	available int
 }
 
 type CooperativeRuntime struct {
@@ -30,7 +30,8 @@ type CooperativeRuntime struct {
 	readyE waitq //Ready to be rescheduled
 	readyO waitq
 
-	pool [50]poolSudog //TODO @aghosn pool of sudog structs allocated in non-trusted.
+	//pool of sudog structs allocated in non-trusted.
+	pool [50]*poolSudog
 }
 
 // checkinterdomain detects inter domain crossing and panics if foreign has
@@ -61,13 +62,21 @@ func migrateCrossDomain() {
 
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
-		panic("One successful entering of the loop")
-		globrunqput(sg.g)
+		if isEnclave != sg.g.isencl {
+			panic("We do not access the correct queue -> SGX memory error.")
+		}
+		gp := sg.g
+		gp.param = unsafe.Pointer(sg)
+		goready(gp, 3+1)
+		//globrunqput(sg.g)
 	}
 	Cooprt.sl.Unlock()
 }
 
 func acquireSudogFromPool() *sudog {
+	if !isEnclave {
+		panic("Acquiring fake sudog from non-trusted domain.")
+	}
 	Cooprt.sl.Lock()
 	for i, x := range Cooprt.pool {
 		if x.available != 0 {
@@ -89,7 +98,6 @@ func acquireSudogFromPool() *sudog {
 func crossReleaseSudog(sg *sudog) {
 	// Check if this is not from the pool and is same domain (regular path)
 	if isReschedulable(sg) {
-		print("Fast release!\n")
 		releaseSudog(sg)
 		return
 	}
@@ -130,14 +138,16 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panic("Misspredicted the crossdomain scenario.")
 		}
-		print("We enqueue a real sudog!\n")
 		c.readyO.enqueue(sg)
 		c.sl.Unlock()
 		return
 	}
 
+	// TODO remove this check once we run in SGX
+	if c.pool[sg.id].isencl != sg.g.isencl {
+		panic("The fake sudog does not reflect the domain of its g.")
+	}
 	// We have a sudog from the pool.
-	print("We enqueue a fake sudog!\n")
 	if c.pool[sg.id].isencl {
 		c.readyE.enqueue(sg)
 	} else {
@@ -161,10 +171,8 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
-		Cooprt.pool[i].wg = &sudog{}
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
 		Cooprt.pool[i].wg.id = int32(i)
-		Cooprt.pool[i].available = 1
-		Cooprt.pool[i].isencl = false
 	}
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))

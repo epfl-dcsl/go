@@ -226,6 +226,9 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 		// Blocking on a send from enclave.
 		// take a sudog from the free list and use it.
 		mysg = acquireSudogFromPool()
+		if !gp.isencl || !isEnclave {
+			panic("Acquiring sudog from the pool in wrong environment.")
+		}
 	} else {
 		mysg = acquireSudog()
 	}
@@ -305,7 +308,6 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		if sg.releasetime != 0 {
 			sg.releasetime = cputicks()
 		}
-		print("from send")
 		Cooprt.crossGoready(sg)
 		return
 	}

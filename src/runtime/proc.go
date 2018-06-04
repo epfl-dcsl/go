@@ -2582,11 +2582,8 @@ func park_m(gp *g) {
 		}
 	}
 
-	//@aghosn check for crossdomain routines.
-	lock(&sched.lock)
+	//TODO @aghosn check for crossdomain routines.
 	migrateCrossDomain()
-	unlock(&sched.lock)
-
 	schedule()
 }
 
@@ -2598,8 +2595,8 @@ func goschedImpl(gp *g) {
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
-	lock(&sched.lock)
 	migrateCrossDomain()
+	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)
 
