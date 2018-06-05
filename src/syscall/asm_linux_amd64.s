@@ -14,7 +14,7 @@
 // Note that this differs from "standard" ABI convention, which
 // would pass 4th arg in CX, not R10.
 
-TEXT	·Syscall(SB),NOSPLIT,$0-56
+TEXT	·SSyscall(SB),NOSPLIT,$0-56
 	CALL	runtime·entersyscall(SB)
 	MOVQ	a1+8(FP), DI
 	MOVQ	a2+16(FP), SI
