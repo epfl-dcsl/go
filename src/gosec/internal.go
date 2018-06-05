@@ -5,13 +5,24 @@ import (
 	"debug/elf"
 	"log"
 	"os"
+	"runtime"
+	"unsafe"
 )
+
+const ptrSize = 4 << (^uintptr(0) >> 63)
 
 func check(e error) {
 	if e != nil {
 		log.Fatalln(e.Error())
 	}
 }
+
+type funcval struct {
+	fn uintptr
+	// variable-size, fn-specific data here
+}
+
+var isInit bool = false
 
 func LoadEnclave() {
 	p, err := elf.Open(os.Args[0])
@@ -49,11 +60,57 @@ func LoadEnclave() {
 	_, err = encl.Write(bts)
 	check(err)
 
-	//TODO here I should start loading the thing within the correct address space.
+	//Start loading the program within the correct address space.
+	isInit = true
 	loadProgram(name)
-
 }
 
-func Gosecload() {
-	LoadEnclave()
+// Spins on the scheduler. Avoids triggering the deadlock detector when routines
+// are blocked on cross domain channels.
+func avoidDeadlock() {
+	for {
+		runtime.Gosched()
+	}
+}
+
+//go:nosplit
+func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(p) + x)
+}
+
+func bufcopy(dest []uint8, src *uint8, size int32) {
+	ptr := unsafe.Pointer(src)
+	for i := 0; i < int(size); i++ {
+		lptr := (*uint8)(add(ptr, uintptr(i)*unsafe.Sizeof(uint8(0))))
+		dest[i] = *lptr
+	}
+}
+
+// Gosecload has the same signature as newproc().
+// It creates the enclave if it does not exist yet, and write to the cooperative channel.
+//go:nosplit
+func Gosecload(size int32, fn *funcval, b uint8) {
+	var argp *uint8 = nil
+	if size > 0 {
+		argp = &b
+	}
+	pc := runtime.FuncForPC(fn.fn)
+	if pc == nil {
+		log.Fatalln("Unable to find the name for the func at address ", fn.fn)
+	}
+	if !isInit {
+		LoadEnclave()
+		// We run this to avoid triggering the deadlock detector.
+		go avoidDeadlock()
+	}
+	//Copy the stack frame inside a buffer.
+	attrib := runtime.EcallAttr{}
+	attrib.Name, attrib.Siz = pc.Name(), size
+	attrib.Buf, attrib.Argp = nil, nil
+	if size > 0 {
+		attrib.Buf = make([]uint8, size, size)
+		bufcopy(attrib.Buf, argp, size)
+		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
+	}
+	runtime.Cooprt.Ecall <- attrib
 }

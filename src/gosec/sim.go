@@ -9,7 +9,6 @@ import (
 	"log"
 	"runtime"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -44,7 +43,6 @@ func loadProgram(path string) {
 
 	//fn := unsafe.Pointer(uintptr(0x1879e0))
 	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
-	time.Sleep(10)
 }
 
 func mapSections(secs []*elf.Section) {

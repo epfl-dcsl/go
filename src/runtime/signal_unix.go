@@ -82,6 +82,10 @@ func initsig(preinit bool) {
 		signalsOK = true
 	}
 
+	if isEnclave && !preinit {
+		return
+	}
+
 	// For c-archive/c-shared this is called by libpreinit with
 	// preinit == true.
 	if (isarchive || islibrary) && !preinit {

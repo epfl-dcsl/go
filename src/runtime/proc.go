@@ -334,12 +334,16 @@ func acquireSudog() *sudog {
 	if s.elem != nil {
 		throw("acquireSudog: found s.elem != nil in cache")
 	}
+	s.id = -1
 	releasem(mp)
 	return s
 }
 
 //go:nosplit
 func releaseSudog(s *sudog) {
+	if s.id != -1 {
+		throw("runtime: sudog from pool released.")
+	}
 	if s.elem != nil {
 		throw("runtime: sudog with non-nil elem")
 	}
@@ -2492,9 +2496,11 @@ top:
 			traceGoUnpark(gp, 0)
 		}
 	}
+
 	if gp == nil && gcBlackenEnabled != 0 {
 		gp = gcController.findRunnableGCWorker(_g_.m.p.ptr())
 	}
+
 	if gp == nil {
 		// Check the global runnable queue once in a while to ensure fairness.
 		// Otherwise two goroutines can completely occupy the local runqueue
@@ -2575,6 +2581,9 @@ func park_m(gp *g) {
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
+
+	//TODO @aghosn check for crossdomain routines.
+	migrateCrossDomain()
 	schedule()
 }
 
@@ -2586,6 +2595,7 @@ func goschedImpl(gp *g) {
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
+	migrateCrossDomain()
 	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)
@@ -3188,6 +3198,7 @@ func malg(stacksize int32) *g {
 		newg.stackguard0 = newg.stack.lo + _StackGuard
 		newg.stackguard1 = ^uintptr(0)
 	}
+	newg.isencl = isEnclave
 	return newg
 }
 

@@ -299,6 +299,7 @@ type sudog struct {
 	// For semaphores, all fields (including the ones above)
 	// are only accessed when holding a semaRoot lock.
 
+	id          int32 //TODO @aghosn id in the pool (-1) if does not apply
 	acquiretime int64
 	releasetime int64
 	ticket      uint32
@@ -395,6 +396,8 @@ type g struct {
 	// and check for debt in the malloc hot path. The assist ratio
 	// determines how this corresponds to scan work debt.
 	gcAssistBytes int64
+
+	isencl bool
 }
 
 type m struct {
