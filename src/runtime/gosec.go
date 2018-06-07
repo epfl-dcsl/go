@@ -11,6 +11,38 @@ type EcallAttr struct {
 	Buf  []uint8
 }
 
+type OcallReq struct {
+	Trap uintptr
+	A1   uintptr
+	A2   uintptr
+	A3   uintptr
+	Id   int
+}
+
+type OcallRes struct {
+	R1  uintptr
+	R2  uintptr
+	Err uintptr
+}
+
+type AllocAttr struct {
+	Siz int
+	Buf []byte
+	Id  int
+}
+
+type poolSysChan struct {
+	id        int
+	available int
+	c         chan OcallRes
+}
+
+type poolAllocChan struct {
+	id        int
+	available int
+	c         chan *AllocAttr
+}
+
 type poolSudog struct {
 	wg        *sudog
 	isencl    bool
@@ -18,9 +50,12 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall chan EcallAttr
-	argc  int32
-	argv  **byte
+	Ecall     chan EcallAttr
+	Ocall     chan OcallReq
+	OAllocReq chan AllocAttr
+
+	argc int32
+	argv **byte
 
 	//TODO @aghosn need a lock here. Mutex should be enough
 	// but might need to avoid futex call? Should only happen when last goroutine
@@ -32,6 +67,14 @@ type CooperativeRuntime struct {
 
 	//pool of sudog structs allocated in non-trusted.
 	pool [50]*poolSudog
+
+	//pool of answer channels.
+	sysPool   [10]*poolSysChan
+	allocPool [10]*poolAllocChan
+}
+
+func IsEnclave() bool {
+	return isEnclave
 }
 
 // checkinterdomain detects inter domain crossing and panics if foreign has
@@ -156,6 +199,70 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	c.sl.Unlock()
 }
 
+func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
+	c.sl.Lock()
+	for i, s := range c.sysPool {
+		if s.available == 1 {
+			c.sysPool[i].available = 0
+			c.sysPool[i].id = i
+			c.sl.Unlock()
+			return i, c.sysPool[i].c
+		}
+	}
+	c.sl.Unlock()
+	panic("Ran out of syspool channels.")
+	return -1, nil
+}
+
+func (c *CooperativeRuntime) ReleaseSysPool(id int) {
+	if id < 0 || id >= len(c.sysPool) {
+		panic("Trying to release out of range syspool")
+	}
+	if c.sysPool[id].available != 0 {
+		panic("Trying to release an available channel")
+	}
+
+	c.sl.Lock()
+	c.sysPool[id].available = 0
+	c.sl.Unlock()
+}
+
+func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
+	c.sysPool[id].c <- r
+}
+
+func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
+	c.sl.Lock()
+	for i, s := range c.allocPool {
+		if s.available == 1 {
+			c.allocPool[i].available = 0
+			c.allocPool[i].id = i
+			c.sl.Unlock()
+			return i, c.allocPool[i].c
+		}
+	}
+	c.sl.Unlock()
+	panic("Ran out of allocpool channels.")
+	return -1, nil
+}
+
+func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
+	if id < 0 || id >= len(c.allocPool) {
+		panic("Trying to release out of range syspool")
+	}
+	if c.allocPool[id].available != 0 {
+		panic("Trying to release an available channel")
+	}
+
+	c.sl.Lock()
+	c.allocPool[id].available = 0
+	c.sl.Unlock()
+}
+
+func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
+	c.allocPool[id].c <- r
+}
+
 func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
@@ -169,10 +276,20 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ocall = make(chan OcallReq)
+	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
 		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
 		Cooprt.pool[i].wg.id = int32(i)
+	}
+
+	for i := range Cooprt.sysPool {
+		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
+	}
+
+	for i := range Cooprt.allocPool {
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
 	}
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
