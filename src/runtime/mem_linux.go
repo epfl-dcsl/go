@@ -58,6 +58,23 @@ func mmap_fixed(v unsafe.Pointer, n uintptr, prot, flags, fd int32, offset uint3
 // prevents us from allocating more stack.
 //go:nosplit
 func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
+	//TODO @aghosn doesn't work
+	if isEnclave {
+		Cooprt.sl.Lock()
+		if Cooprt.currHead+n > Cooprt.mmStart+POOLMEM {
+			throw("Unable to sysAlloc in enclave, ran out of pool memory")
+		}
+		res := Cooprt.currHead
+		const mask = uintptr(0xFFFFFFFFFFFFF000)
+		naddr := (Cooprt.currHead + n) & mask
+		if naddr < Cooprt.currHead+n {
+			naddr += 0x1000
+		}
+		Cooprt.currHead = naddr
+		Cooprt.sl.Unlock()
+		mSysStatInc(sysStat, n)
+		return unsafe.Pointer(res)
+	}
 	p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 	if err != 0 {
 		if err == _EACCES {

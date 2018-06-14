@@ -79,7 +79,14 @@ func oCallServer() {
 	for {
 		select {
 		case sys := <-runtime.Cooprt.Ocall:
-			r1, r2, err := syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+			var r1 uintptr
+			var r2 uintptr
+			var err syscall.Errno
+			if sys.Big {
+				r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+			} else {
+				r1, r2, err = syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+			}
 			res := runtime.OcallRes{r1, r2, uintptr(err)}
 			go runtime.Cooprt.SysSend(sys.Id, res)
 

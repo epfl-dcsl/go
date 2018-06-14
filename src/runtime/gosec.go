@@ -12,10 +12,14 @@ type EcallAttr struct {
 }
 
 type OcallReq struct {
+	Big  bool
 	Trap uintptr
 	A1   uintptr
 	A2   uintptr
 	A3   uintptr
+	A4   uintptr
+	A5   uintptr
+	A6   uintptr
 	Id   int
 }
 
@@ -71,12 +75,17 @@ type CooperativeRuntime struct {
 	//pool of answer channels.
 	sysPool   [10]*poolSysChan
 	allocPool [10]*poolAllocChan
+
+	//Memory pool to satisfy the nil mmap calls.
+	mmStart  uintptr
+	currHead uintptr
 }
 
 const (
 	IsSim = true
 	//TODO @aghosn this must be exactly the same as in amd64/obj.go
 	ENCLMASK = 0x040000000000
+	POOLMEM  = uintptr(0x1000 * 300)
 )
 
 func IsEnclave() bool {
@@ -297,6 +306,13 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	for i := range Cooprt.allocPool {
 		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
 	}
+
+	p, err := mmap(nil, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	if err != 0 {
+		throw("Unable to mmap memory pool for the enclave.")
+	}
+	Cooprt.mmStart = uintptr(p)
+	Cooprt.currHead = uintptr(p)
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))

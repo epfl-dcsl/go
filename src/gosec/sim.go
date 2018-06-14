@@ -36,7 +36,7 @@ func loadProgram(path string) {
 
 	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
-	// Leave one page buffer between the bss and stack.
+	// Leave one page buffer between the bss and stack. TODO @aghosn bug here we're off one page in secs.
 	addr := uintptr(secs.baseAddr) + uintptr(secs.size) + 2*PSIZE
 	size := int(0x8000)
 	_, err = syscall.RMmap(addr, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
