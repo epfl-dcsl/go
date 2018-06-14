@@ -181,6 +181,17 @@ func sysFault(v unsafe.Pointer, n uintptr) {
 }
 
 func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
+	if isEnclave {
+		if addr, ok := enclaveTransPrealloc(uintptr(v)); ok {
+			*reserved = false
+			return unsafe.Pointer(addr)
+		}
+		//TODO detect cases we do not handle.
+		print("XXX: unhandled address: ")
+		print(uintptr(v))
+		print("\n\n")
+	}
+
 	// On 64-bit, people with ulimit -v set complain if we reserve too
 	// much address space. Instead, assume that the reservation is okay
 	// if we can reserve at least 64K and check the assumption in SysMap.
@@ -193,6 +204,7 @@ func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 			}
 			return nil
 		}
+
 		munmap(p, 64<<10)
 		*reserved = false
 		return v
@@ -211,6 +223,9 @@ func sysMap(v unsafe.Pointer, n uintptr, reserved bool, sysStat *uint64) {
 
 	// On 64-bit, we don't actually have v reserved, so tread carefully.
 	if !reserved {
+		if isEnclave && enclaveIsMapped(uintptr(v), n) {
+			return
+		}
 		p, err := mmap_fixed(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 		if err == _ENOMEM {
 			throw("runtime: out of memory")

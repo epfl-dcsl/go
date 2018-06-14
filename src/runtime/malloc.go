@@ -295,6 +295,9 @@ func mallocinit() {
 			default:
 				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
 			}
+			// TODO @aghosn, here we try to allocate at 0xc0... but does not work
+			// so we move on to 0x1c0... which should not fail. We interpose in
+			// SysReserve to get the value that we want and relocate the alloc.
 			p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
 			if p != 0 {
 				break
@@ -303,6 +306,9 @@ func mallocinit() {
 	}
 
 	if p == 0 {
+		if isEnclave {
+			throw("mallocinit assumption about address space failed!")
+		}
 		// On a 32-bit machine, we can't typically get away
 		// with a giant virtual address space reservation.
 		// Instead we map the memory information bitmap
@@ -351,6 +357,8 @@ func mallocinit() {
 				// expansion.
 				p = round(procBrk+(1<<20), 1<<20)
 			}
+			//TODO @aghosn this one is not called in default case because we did
+			// not fail above, so p != 0.
 			p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
 			if p != 0 {
 				break

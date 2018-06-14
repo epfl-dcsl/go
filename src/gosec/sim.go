@@ -12,9 +12,12 @@ import (
 	"unsafe"
 )
 
+const simSTACK = uintptr(0xe41ffd8000)
+
 func loadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
+	secs := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
 	var aggreg []*elf.Section
 	for _, sec := range file.Sections {
@@ -31,18 +34,32 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
-	//TODO(aghosn) try to allocate the stack.
+	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
-	addr := uintptr(0xe41ffd8000)
+	// Leave one page buffer between the bss and stack.
+	addr := uintptr(secs.baseAddr) + uintptr(secs.size) + 2*PSIZE
 	size := int(0x8000)
 	_, err = syscall.RMmap(addr, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
 	check(err)
+
+	// Handle the preallocation of some memory regions
+	enclavePreallocate()
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
 
 	//fn := unsafe.Pointer(uintptr(0x1879e0))
 	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
+}
+
+func enclavePreallocate() {
+	prot := _PROT_READ | _PROT_WRITE
+	flags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+
+	for _, v := range runtime.EnclavePreallocated {
+		_, err := syscall.RMmap(v.Addr, int(v.Size), prot, flags, -1, 0)
+		check(err)
+	}
 }
 
 func mapSections(secs []*elf.Section) {

@@ -73,6 +73,12 @@ type CooperativeRuntime struct {
 	allocPool [10]*poolAllocChan
 }
 
+const (
+	IsSim = true
+	//TODO @aghosn this must be exactly the same as in amd64/obj.go
+	ENCLMASK = 0x040000000000
+)
+
 func IsEnclave() bool {
 	return isEnclave
 }
@@ -310,7 +316,59 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	})
 }
 
-// To remove
+// TODO @aghosn To remove
 func GetIsEnclave() bool {
 	return isEnclave
+}
+
+// Functions and datastructures used during the runtime init.
+
+// Addresses that we need to allocate before hand.
+type Relocation struct {
+	Addr uintptr
+	Size uintptr
+}
+
+var (
+	//sgxPreallocated = [2]uintptr{0x1C000000000, 0x1C420000000}
+	EnclavePreallocated = map[uintptr]Relocation{
+		0xC000000000: Relocation{(0xC000000000 + ENCLMASK), 0x1000},
+		0xC41FFF8000: Relocation{(0xC41FFF8000 + ENCLMASK), 0x108000},
+	}
+
+	relocKey = [2]uintptr{0xC000000000, 0xC41FFF8000}
+	relocVal = [2]uintptr{0xC000000000 + ENCLMASK, 0xC41FFF8000 + ENCLMASK}
+	relocSiz = [2]uintptr{0x1000, 0x108000}
+)
+
+// enclaveTransPrealloc checks if a given address was preallocated for the runtime.
+// It is used to avoid calling mmap during the runtime initialization.
+// It returns a boolean and the corresponding address.
+// You can see it as a level of indirection that relocates the mmap regions
+// at runtime. At this time, the allocation of a map is not possible.
+// As a result, we have to duplicate the map that we have above.
+func enclaveTransPrealloc(n uintptr) (uintptr, bool) {
+	for idx, val := range relocKey {
+		if n == val {
+			return relocVal[idx], (isEnclave && true)
+		}
+
+		if n >= val && n < val+relocSiz[idx] {
+			reloc := relocVal[idx] + (n - val)
+			return reloc, (isEnclave && true)
+		}
+	}
+
+	print("\nUnable to find a relocation\n")
+	return uintptr(0), false
+}
+
+func enclaveIsMapped(ptr uintptr, n uintptr) bool {
+	for idx, val := range relocVal {
+		if ptr >= val && ptr+n <= val+relocSiz[idx] {
+			return true
+		}
+	}
+
+	return false
 }

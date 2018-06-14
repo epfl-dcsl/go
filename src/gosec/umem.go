@@ -176,6 +176,13 @@ func memset(b []byte, val byte) {
 	}
 }
 
+func memsetstruct(dest unsafe.Pointer, val byte, size uintptr) {
+	for i := uintptr(0); i < size; i++ {
+		ptr := (*byte)(unsafe.Pointer(uintptr(dest) + i))
+		*ptr = val
+	}
+}
+
 func memcpy(dest, source, l uintptr) {
 	for i := uintptr(0); i < l; i++ {
 		d := (*byte)(unsafe.Pointer(dest + i))

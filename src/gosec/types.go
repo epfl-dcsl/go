@@ -167,21 +167,27 @@ type secs_t struct {
 	eid_reserved           secs_eid_reserved_t
 }
 
+type miscselect_t struct {
+	value     uint8
+	reversed2 [3]uint8
+}
+
+type attributes_t struct {
+	value     uint8
+	reserved4 [7]uint8
+	xfrm      uint64
+}
+
 // TODO(aghosn) fix this: reserved and eid/pad should overlap according to the sgx reference
 type secs_eid_reserved_t struct {
 	eid_pad  secs_eid_pad_t
-	reserved [3828]uint8 //!< Reserve 8 bytes for update counter.
+	reserved [3836]uint8 //!< Reserve 8 bytes for update counter.
 }
 
 // (ref 2.7, table 2-2)
 type secs_eid_pad_t struct {
 	eid     uint64     //!< Enclave Identifier
-	padding [44]uint64 //!< Padding pattern from Signature
-}
-
-type miscselect_t struct {
-	value     uint8
-	reversed2 [3]uint8
+	padding [352]uint8 //!< Padding pattern from Signature
 }
 
 func (m *miscselect_t) getExitinfo() uint8 {
@@ -198,12 +204,6 @@ func (m *miscselect_t) getReversed1() uint8 {
 
 func (m *miscselect_t) setReserved1(v uint8) {
 	m.value &= (v | 0x1)
-}
-
-type attributes_t struct {
-	value     uint8
-	reserved4 [7]uint8
-	xfrm      uint64
 }
 
 func (a *attributes_t) getReserved1() uint8 {
