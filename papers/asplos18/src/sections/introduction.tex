@@ -9,3 +9,45 @@
 \item we propose a design that removes these limitations.
 
 \end{itemize}
+
+\subsection{The Cloud and SGX}
+
+The Cloud cannot be trusted.
+Multi-tenant, one compromises a machine, several clients are hurt.
+New technologies appear to allow clients to run there code without trusting the operating system or the hypervisor.
+Unit of trust is the hardware provided by Intel.
+Compared to dedicated hardware modules, this is general purpose.
+Describe SGX a little bit.
+
+Research demonstrated that the technology can be leveraged to implement a whole spectrum of things.
+Ranging from pushing some of the computation inside the enclave, to putting a whole operating system.
+
+However, not adopted in the industry yet because hard to use.
+
+\subsection{SGX limitations}
+
+The performance limitations.
+Crossing domains is expensive, \sgxcycles cycles~\cite{DBLP:conf/IEEEwisa/ZhaoSTZX16}, which corresponds to \sgxlatency.
+Due to the decryption/encryption, integrity protection, the bandwidth within the enclave is divided by \sgxbwpenalty.
+Any code dependency is hard to satisfy inside the enclave, dynamic loading is almost impossible, libc is a modified limited one.
+Limited amount of memory available (so should put code rather than data?), sanitizing cross domain arguments is a pain.
+
+Understanding the computational model, properly partitioning the code, limited resources, makes it hard.
+The Intel SDK enforces the programmer to think in terms of entry and exits.
+But does not enforce memory, type or semantic guarantees. (HOW DO I FORMULATE THIS).
+
+Some projects\cite{DBLP:conf/usenix/LindPMOAKRGEKFP17} propose to tag the data, which then thanks to static analysis identifies which portion of the code should go in SGX.
+However does not provide guarantees for performance, try to optimize a little by reducing the number of crossings.
+
+Most of the research projects focused on what could be done in SGX, not how it should be done.
+
+\subsection{Our proposal}
+
+WHAT SHOULD BE PRESENT IN THIS PART: focus on code that should run inside the enclave.
+Integrate SGX to a programming language in a semantically meaningful way that allows good performance.
+Reduce the number of crossings, allow cooperation between enclave and non-enclave, no dynamic libraries.
+We focus on what code to put inside the enclave, allow communication between enclave and non enclave using native typed channels.
+Statically compiled pure Go code (no dependencies).
+Few MB necessary.
+Everything is compiled together as one unit, so typed checked together.
+System call interposition using channels.
