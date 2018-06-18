@@ -21,7 +21,7 @@ const (
 )
 
 type sgx_enclave_create struct {
-	src uintptr
+	src uint64
 }
 
 type sgx_enclave_init struct {
@@ -31,8 +31,10 @@ type sgx_enclave_init struct {
 }
 
 type sgx_enclave_add_page struct {
-	addr, src, secinfo uintptr
-	mrmask             uint16
+	addr    uint64
+	src     uint64
+	secinfo uint64
+	mrmask  uint16
 }
 
 type isgx_secinfo struct {

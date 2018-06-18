@@ -2,15 +2,17 @@ package gosec
 
 import (
 	"debug/elf"
+	"log"
 	"os"
 	"runtime"
+	"syscall"
 	"unsafe"
 )
 
 const (
 	SGX_SSTACK     = uintptr(0xe41ffd8000)
 	SGX_SSTACK_SIZ = int(0x8000)
-	SGX_PATH       = "/dev/sgx"
+	SGX_PATH       = "/dev/isgx"
 	PSIZE          = uintptr(0x1000)
 )
 
@@ -58,10 +60,63 @@ func sgxLoadProgram(path string) {
 // SGXEcreate is the first thing we need to execute.
 // It is called to instantiate the enclave.
 func SGXEcreate() {
-	//secs := &secs_t{}
-	//TODO @aghosn check if needed.
-	//memsetstruct(unsafe.Pointer(secs), byte(0), unsafe.Sizeof(*secs))
+	//TODO @aghosn for the moment create a dumb enclave just to see what happens.
+	addr := uintptr(0x060000000000)
+	prot := int32(_PROT_READ | _PROT_WRITE)
+	ptr, err := runtime.RMmap(unsafe.Pointer(addr), 0x1000, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
+	if err != 0 || addr != uintptr(ptr) {
+		log.Fatalln("Unable to allocate fake address.")
+	}
+	// Unmap the address, we know that it is free.
+	//syscall.RMunmap(ptr, 0x1000)
 
+	secs := &secs_t{}
+	secs.ssaFrameSize = 1
+	secs.size = 2 * 0x1000
+	secs.baseAddr = uint64(addr)
+
+	// TODO @aghosn The ones coming from the sigstruct.
+	//secs.attributes
+	//secs.miscselect
+	//secs.isvprodID
+	//secs.isvsvn
+	//secs.mrEnclave
+	//secs.mrSigner
+
+	parms := &sgx_enclave_create{}
+	parms.src = uint64(uintptr(unsafe.Pointer(secs)))
+
+	secs.attributes.xfrm = 0x7
+	ptr2 := uintptr(unsafe.Pointer(parms))
+	r1, r2, err2 := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_CREATE), ptr2)
+	if err2 != 0 {
+		log.Fatalf("Failed IOCTL to SGX ECREATE with errno: %v\n", err2)
+	}
+
+	log.Printf("The three values after the ioctl create %v %x %v\n", r1, r2, err2)
+}
+
+//TODO @aghosn just trying to add a single page to the enclave.
+func SGXEAdd() {
+	parm := &sgx_enclave_add_page{}
+	parm.addr = uint64(0x060000000000)
+	//try to allocate a buffer for the original content
+	buf := make([]byte, 4096)
+	for i, _ := range buf {
+		buf[i] = 2
+	}
+	parm.src = uint64(uintptr(unsafe.Pointer(&buf[0])))
+	parm.mrmask = 0xffff
+
+	secinfo := &isgx_secinfo{}
+	secinfo.flags |= SGX_SECINFO_R | SGX_SECINFO_W
+
+	parm.secinfo = uint64(uintptr(unsafe.Pointer(secinfo)))
+	ptr := uintptr(unsafe.Pointer(secinfo))
+	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), ptr)
+	if err != 0 {
+		log.Fatalf("Failed IOCTL to SGX ADD PAGE with errno: %v\n", err)
+	}
 }
 
 // SGX hidden methods

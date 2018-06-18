@@ -41,12 +41,18 @@ func loadProgram(path string) {
 	size := int(0x8000)
 	_, err = syscall.RMmap(addr, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
 	check(err)
+	//TODO check that we actually got the correct stack address.
 
 	// Handle the preallocation of some memory regions
 	enclavePreallocate()
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
+
+	//TODO remove this. Just trying it out.
+	sgxInit()
+	SGXEcreate()
+	SGXEAdd()
 
 	//fn := unsafe.Pointer(uintptr(0x1879e0))
 	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
