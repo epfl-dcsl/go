@@ -57,72 +57,60 @@ func sgxLoadProgram(path string) {
 	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
 }
 
-// SGXEcreate is the first thing we need to execute.
-// It is called to instantiate the enclave.
-func SGXEcreate() {
-	//TODO @aghosn for the moment create a dumb enclave just to see what happens.
+//TODO remove this is just to try to create an enclave.
+func SGXFull() {
 	addr := uintptr(0x060000000000)
-	prot := int32(_PROT_READ | _PROT_WRITE)
-	ptr, err := runtime.RMmap(unsafe.Pointer(addr), 0x1000, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
+	siz := uintptr(0x100000)
+	prot := int32(_PROT_NONE)
+	ptr, err := runtime.RMmap(unsafe.Pointer(addr), siz, prot, _MAP_SHARED, int32(sgxFd.Fd()), 0)
 	if err != 0 || addr != uintptr(ptr) {
-		log.Fatalln("Unable to allocate fake address.")
+		log.Fatalln("Unable to mmap the original page.")
 	}
-	// Unmap the address, we know that it is free.
-	//syscall.RMunmap(ptr, 0x1000)
 
 	secs := &secs_t{}
-	secs.ssaFrameSize = 1
-	secs.size = 2 * 0x1000
+	secs.size = uint64(siz)
 	secs.baseAddr = uint64(addr)
+	secs.xfrm = 0x7
+	secs.ssaFrameSize = 1
+	secs.attributes = 0x04
 
-	// TODO @aghosn The ones coming from the sigstruct.
-	//secs.attributes
-	//secs.miscselect
-	//secs.isvprodID
-	//secs.isvsvn
-	//secs.mrEnclave
-	//secs.mrSigner
-
+	// ECREATE
 	parms := &sgx_enclave_create{}
 	parms.src = uint64(uintptr(unsafe.Pointer(secs)))
-
-	secs.attributes.xfrm = 0x7
 	ptr2 := uintptr(unsafe.Pointer(parms))
-	r1, r2, err2 := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_CREATE), ptr2)
-	if err2 != 0 {
-		log.Fatalf("Failed IOCTL to SGX ECREATE with errno: %v\n", err2)
+	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_CREATE), ptr2)
+	if ret != 0 {
+		log.Fatalln("Unable to call ecreate.")
 	}
 
-	log.Printf("The three values after the ioctl create %v %x %v\n", r1, r2, err2)
-}
-
-//TODO @aghosn just trying to add a single page to the enclave.
-func SGXEAdd() {
-	parm := &sgx_enclave_add_page{}
-	parm.addr = uint64(0x060000000000)
-	//try to allocate a buffer for the original content
-	buf := make([]byte, 4096)
-	for i, _ := range buf {
-		buf[i] = 2
+	// EADD
+	_, _, ret = syscall.Syscall(syscall.SYS_MPROTECT, addr, siz, _PROT_READ)
+	if ret != 0 {
+		log.Fatalln("Unable to perform the mprotect.")
 	}
-	parm.src = uint64(uintptr(unsafe.Pointer(&buf[0])))
-	parm.mrmask = 0xffff
+
+	content, err := runtime.RMmap(nil, 0x1000, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	if err != 0 {
+		log.Fatalln("Unable to mmap the second page.")
+	}
+	memsetstruct(unsafe.Pointer(content), 2, 0x1000)
+	eadd := &sgx_enclave_add_page{}
+	eadd.addr = uint64(addr)
+	eadd.src = uint64(uintptr(content))
+	eadd.mrmask = uint16(0xfff)
 
 	secinfo := &isgx_secinfo{}
-	secinfo.flags |= SGX_SECINFO_R | SGX_SECINFO_W
+	secinfo.flags = SGX_SECINFO_R | SGX_SECINFO_REG
 
-	parm.secinfo = uint64(uintptr(unsafe.Pointer(secinfo)))
-	ptr := uintptr(unsafe.Pointer(secinfo))
-	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), ptr)
-	if err != 0 {
-		log.Fatalf("Failed IOCTL to SGX ADD PAGE with errno: %v\n", err)
+	eadd.secinfo = uint64(uintptr(unsafe.Pointer(secinfo)))
+	_, _, ret = syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), uintptr(unsafe.Pointer(eadd)))
+	if ret != 0 {
+		log.Fatalln("Unable to add a page.")
 	}
 }
 
-// SGX hidden methods
-
 // palign does a page align.
-// If lower is true, it takes the lower address to start (align up)
+// If lower is true, it takes the lower address to start (align up)errno 0
 // Otherwise it takes the greater page alignment address (align down)
 func palign(addr uint64, lower bool) uint64 {
 	const mask = uint64(0xFFFFFFFFFFFFF000)

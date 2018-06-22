@@ -51,8 +51,7 @@ func loadProgram(path string) {
 
 	//TODO remove this. Just trying it out.
 	sgxInit()
-	SGXEcreate()
-	SGXEAdd()
+	SGXFull()
 
 	//fn := unsafe.Pointer(uintptr(0x1879e0))
 	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)

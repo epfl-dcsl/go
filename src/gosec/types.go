@@ -1,6 +1,7 @@
 package gosec
 
 const (
+	_PROT_NONE   = 0x0
 	_PROT_READ   = 0x1
 	_PROT_WRITE  = 0x2
 	_PROT_EXEC   = 0x4
@@ -17,6 +18,8 @@ const (
 	SGX_IOC_ENCLAVE_CREATE   = ((1 << 30) | (SGX_MAGIC << 8) | (0) | (8 << 16))
 	SGX_IOC_ENCLAVE_ADD_PAGE = ((1 << 30) | (SGX_MAGIC << 8) | (0x01) | (26 << 16))
 	SGX_IOC_ENCLAVE_INIT     = ((1 << 30) | (SGX_MAGIC << 8) | (0x02) | (24 << 16))
+
+	SGX_ATTR_MODE64BIT = 0x04
 )
 
 type enclave_thread_t struct {
@@ -156,8 +159,9 @@ type secs_t struct {
 	ssaFrameSize           uint32 //!< Size of 1 SSA frame in pages(incl. XSAVE)
 	miscselect             miscselect_t
 	reserved1              [24]uint8
-	attributes             attributes_t //!< Attributes of Enclave: (pg 2-4)
-	mrEnclave              [32]uint8    //!< Measurement Reg of encl. build process
+	attributes             uint64 //!< Attributes of Enclave: (pg 2-4)
+	xfrm                   uint64
+	mrEnclave              [32]uint8 //!< Measurement Reg of encl. build process
 	reserved2              [32]uint8
 	mrSigner               [32]uint8 //!< Measurement Reg extended with pub key that verified the enclave
 	reserved3              [96]uint8
