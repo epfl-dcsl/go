@@ -204,9 +204,8 @@ func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 			return unsafe.Pointer(addr)
 		}
 		//TODO detect cases we do not handle.
-		print("XXX: unhandled address: ")
-		print(uintptr(v))
-		print("\n\n")
+		print("XXX: unhandled address: ", v, "\n")
+		throw("runtime: enclave error mmap in sysReserve.")
 	}
 
 	// On 64-bit, people with ulimit -v set complain if we reserve too
@@ -240,8 +239,15 @@ func sysMap(v unsafe.Pointer, n uintptr, reserved bool, sysStat *uint64) {
 
 	// On 64-bit, we don't actually have v reserved, so tread carefully.
 	if !reserved {
-		if isEnclave && enclaveIsMapped(uintptr(v), n) {
-			return
+		if isEnclave {
+			if enclaveIsMapped(uintptr(v), n) {
+				print("runtime: successful mmap for ", v, "\n")
+				return
+			} else {
+				print("runtime: Enclave address space unallocated ", v, "\n")
+				//TODO @aghosn should re-enable this when I manage to fix the problem.
+				//throw("runtime: enclave address space mmap error.")
+			}
 		}
 		p, err := mmap_fixed(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 		if err == _ENOMEM {
