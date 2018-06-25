@@ -307,8 +307,9 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
 	}
 
-	p, err := mmap(nil, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
-	if err != 0 {
+	buffstart := unsafe.Pointer(membufaddr)
+	p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	if err != 0 || uintptr(p) != membufaddr {
 		throw("Unable to mmap memory pool for the enclave.")
 	}
 	Cooprt.mmStart = uintptr(p)
@@ -347,14 +348,17 @@ type Relocation struct {
 
 var (
 	//sgxPreallocated = [2]uintptr{0x1C000000000, 0x1C420000000}
+	//Previous 0xC000000000 0xC41FFF8000
 	EnclavePreallocated = map[uintptr]Relocation{
-		0xC000000000: Relocation{(0xC000000000 + ENCLMASK), 0x1000},
-		0xC41FFF8000: Relocation{(0xC41FFF8000 + ENCLMASK), 0x108000},
+		0xC000000000: Relocation{(0xC00000000 + ENCLMASK), 0x1000},
+		0xC41FFF8000: Relocation{(0xC00000000 + 0x1000*2 + ENCLMASK), 0x108000},
 	}
 
 	relocKey = [2]uintptr{0xC000000000, 0xC41FFF8000}
-	relocVal = [2]uintptr{0xC000000000 + ENCLMASK, 0xC41FFF8000 + ENCLMASK}
+	relocVal = [2]uintptr{0xC00000000 + ENCLMASK, 0xC00000000 + 0x1000*2 + ENCLMASK}
 	relocSiz = [2]uintptr{0x1000, 0x108000}
+
+	membufaddr = uintptr(0xC00000000 + ENCLMASK + 0x010000000)
 )
 
 // enclaveTransPrealloc checks if a given address was preallocated for the runtime.

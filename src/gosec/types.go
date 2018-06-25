@@ -1,15 +1,16 @@
 package gosec
 
 const (
-	_PROT_NONE   = 0x0
-	_PROT_READ   = 0x1
-	_PROT_WRITE  = 0x2
-	_PROT_EXEC   = 0x4
-	_MAP_SHARED  = 0x01
-	_MAP_PRIVATE = 0x02
-	_MAP_FIXED   = 0x10
-	_MAP_ANON    = 0x20
-	SGX_MAGIC    = 0xA4
+	_PROT_NONE     = 0x0
+	_PROT_READ     = 0x1
+	_PROT_WRITE    = 0x2
+	_PROT_EXEC     = 0x4
+	_MAP_SHARED    = 0x01
+	_MAP_PRIVATE   = 0x02
+	_MAP_FIXED     = 0x10
+	_MAP_ANON      = 0x20
+	_MAP_NORESERVE = 0x4000
+	SGX_MAGIC      = 0xA4
 
 	ERR_SGX_INVALID_EINIT_TOKEN = 16
 	ERR_SGX_INVALID_CPUSVN      = 32

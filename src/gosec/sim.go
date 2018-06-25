@@ -17,7 +17,7 @@ const simSTACK = uintptr(0xe41ffd8000)
 func loadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
-	secs := sgxCreateSecs(file)
+	_, wrap := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
 	var aggreg []*elf.Section
 	for _, sec := range file.Sections {
@@ -28,23 +28,11 @@ func loadProgram(path string) {
 			aggreg = append(aggreg, sec)
 			continue
 		}
-		mapSections(aggreg)
+		mapSections(aggreg, nil)
 		aggreg = nil
 		aggreg = append(aggreg, sec)
 	}
-	mapSections(aggreg)
-
-	// try to allocate the stack.
-	prot := _PROT_READ | _PROT_WRITE
-	// Leave one page buffer between the bss and stack. TODO @aghosn bug here we're off one page in secs.
-	addr := uintptr(secs.baseAddr) + uintptr(secs.size) + 2*PSIZE
-	size := int(0x8000)
-	_, err = syscall.RMmap(addr, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
-	check(err)
-	//TODO check that we actually got the correct stack address.
-
-	// Handle the preallocation of some memory regions
-	enclavePreallocate()
+	mapSections(aggreg, nil)
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
@@ -53,8 +41,7 @@ func loadProgram(path string) {
 	sgxInit()
 	SGXFull()
 
-	//fn := unsafe.Pointer(uintptr(0x1879e0))
-	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
+	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn)
 }
 
 func enclavePreallocate() {
@@ -67,7 +54,10 @@ func enclavePreallocate() {
 	}
 }
 
-func mapSections(secs []*elf.Section) {
+// mapSections mmaps the elf sections.
+// If wrap nil, simple mmap. Otherwise, mmap to another address space specified
+// by wrap.mmask for SGX.
+func mapSections(secs []*elf.Section, wrap *sgx_wrapper) {
 	if len(secs) == 0 {
 		return
 	}

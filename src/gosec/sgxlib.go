@@ -10,10 +10,8 @@ import (
 )
 
 const (
-	SGX_SSTACK     = uintptr(0xe41ffd8000)
-	SGX_SSTACK_SIZ = int(0x8000)
-	SGX_PATH       = "/dev/isgx"
-	PSIZE          = uintptr(0x1000)
+	SGX_PATH = "/dev/isgx"
+	PSIZE    = uintptr(0x1000)
 )
 
 var (
@@ -21,16 +19,13 @@ var (
 )
 
 func sgxLoadProgram(path string) {
-	//TODO @aghosn ecreate the enclave first.
-	//Func ecreate.
-	//Maybe need to aggregate size etc. firs
-
-	//TODO @aghosn get the token here.
-
-	//TODO @aghosn do the einit.
 	file, err := elf.Open(path)
 	check(err)
 	defer func() { check(file.Close()) }()
+
+	secs, wrap := sgxCreateSecs(file)
+	log.Println("damn: ", secs, " - ", wrap)
+
 	var aggreg []*elf.Section
 	for _, sec := range file.Sections {
 		if sec.Flags&elf.SHF_ALLOC != elf.SHF_ALLOC {
@@ -41,34 +36,30 @@ func sgxLoadProgram(path string) {
 			continue
 		}
 
-		//TODO do an MMap for the section, then do the eadd.
+		mapSections(aggreg, wrap)
 		aggreg = nil
 		aggreg = append(aggreg, sec)
 	}
-	//TODO do an MMap for the section, then do the eadd for aggreg again
-	//prot := _PROT_READ | _PROT_WRITE
-	addr := SGX_SSTACK
-	size := SGX_SSTACK_SIZ
-	//TODO map the stack inside the enclave.
+	mapSections(aggreg, wrap)
 
 	//TODO change that as well, we need to create thread, move to a function
 	// that does the eenter.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
+	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn)
 }
 
 //TODO remove this is just to try to create an enclave.
 func SGXFull() {
 	addr := uintptr(0x060000000000)
-	siz := uintptr(0x100000)
+	siz := uintptr(0x001000000000)
 	prot := int32(_PROT_NONE)
 	ptr, err := runtime.RMmap(unsafe.Pointer(addr), siz, prot, _MAP_SHARED, int32(sgxFd.Fd()), 0)
 	if err != 0 || addr != uintptr(ptr) {
-		log.Fatalln("Unable to mmap the original page.")
+		log.Fatalln("Unable to mmap the original page: ", err)
 	}
 
 	secs := &secs_t{}
-	secs.size = uint64(siz)
+	secs.size = uint64(0x001000000000) //uint64(siz)
 	secs.baseAddr = uint64(addr)
 	secs.xfrm = 0x7
 	secs.ssaFrameSize = 1
@@ -80,7 +71,7 @@ func SGXFull() {
 	ptr2 := uintptr(unsafe.Pointer(parms))
 	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_CREATE), ptr2)
 	if ret != 0 {
-		log.Fatalln("Unable to call ecreate.")
+		log.Fatalln("Failed in call to ecreate: ", ret)
 	}
 
 	// EADD
@@ -125,7 +116,7 @@ func palign(addr uint64, lower bool) uint64 {
 // sgxCreateSecs generates the SGX SECS struct according to the file.
 // It goes through the elf and computes the range of addresses needed for the
 // enclave ELRANGE. That includes the heap and the system stack.
-func sgxCreateSecs(file *elf.File) *secs_t {
+func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	var aggreg []*elf.Section
 	fnFilter := func(e *elf.Section) bool {
 		return e.Flags&elf.SHF_ALLOC == elf.SHF_ALLOC
@@ -151,10 +142,31 @@ func sgxCreateSecs(file *elf.File) *secs_t {
 	//TODO @aghosn now allocate the heap with its size,
 	// and the system stack. Also need to keep track of it somehow.
 	// Need to make it page aligned.
-	sec := &secs_t{}
-	sec.baseAddr = palign(baseAddr, true)
-	sec.size = palign(endAddr-baseAddr, false)
-	return sec
+	secs := &secs_t{}
+	secs.baseAddr = palign(baseAddr, true)
+	secs.size = palign(endAddr-baseAddr, false)
+
+	// Mmap the stack as well, and update the secs.
+	sprot := _PROT_READ | _PROT_WRITE
+	saddr := uintptr(secs.baseAddr) + uintptr(secs.size) + 2*PSIZE
+	ssize := int(0x8000)
+	_, err := syscall.RMmap(saddr, ssize, sprot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
+	check(err)
+	secs.size = palign(uint64(saddr+uintptr(ssize)-uintptr(secs.baseAddr)), false)
+
+	// Mmap the preallocations.
+	pflags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+	for _, v := range runtime.EnclavePreallocated {
+		_, err := syscall.RMmap(v.Addr, int(v.Size), sprot, pflags, -1, 0)
+		check(err)
+		end := uintptr(secs.baseAddr) + uintptr(secs.size)
+		if end < v.Addr+v.Size {
+			secs.size = palign(uint64(v.Addr+v.Size-uintptr(secs.baseAddr)), false)
+		}
+	}
+	//TODO put a mask.
+	wrapper := &sgx_wrapper{uintptr(secs.baseAddr), uintptr(secs.size), saddr, uintptr(ssize), 0x3b}
+	return secs, wrapper
 }
 
 func sgxInit() int {

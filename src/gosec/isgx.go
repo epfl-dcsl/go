@@ -41,3 +41,11 @@ type isgx_secinfo struct {
 	flags    uint64
 	reserved [7]uint64
 }
+
+type sgx_wrapper struct {
+	base  uintptr
+	siz   uintptr
+	stack uintptr
+	ssiz  uintptr
+	mmask uintptr
+}
