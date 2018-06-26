@@ -28,19 +28,21 @@ func loadProgram(path string) {
 			aggreg = append(aggreg, sec)
 			continue
 		}
-		mapSections(aggreg, nil)
+		mapSections(aggreg)
 		aggreg = nil
 		aggreg = append(aggreg, sec)
 	}
-	mapSections(aggreg, nil)
+	mapSections(aggreg)
 
+	// mmap the stack
+	// try to allocate the stack.
+	prot := _PROT_READ | _PROT_WRITE
+	_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	check(err)
+
+	enclavePreallocate()
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-
-	//TODO remove this. Just trying it out.
-	sgxInit()
-	SGXFull()
-
 	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn)
 }
 
@@ -57,7 +59,7 @@ func enclavePreallocate() {
 // mapSections mmaps the elf sections.
 // If wrap nil, simple mmap. Otherwise, mmap to another address space specified
 // by wrap.mmask for SGX.
-func mapSections(secs []*elf.Section, wrap *sgx_wrapper) {
+func mapSections(secs []*elf.Section) {
 	if len(secs) == 0 {
 		return
 	}
@@ -68,6 +70,7 @@ func mapSections(secs []*elf.Section, wrap *sgx_wrapper) {
 	if start >= end {
 		log.Fatalf("Error, sections are not ordered: %#x - %#x", start, end)
 	}
+
 	prot := _PROT_READ | _PROT_WRITE
 	b, err := syscall.RMmap(start, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
 	check(err)

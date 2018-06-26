@@ -308,7 +308,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	}
 
 	buffstart := unsafe.Pointer(membufaddr)
-	p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_FIXED|_MAP_ANON|_MAP_PRIVATE, -1, 0)
 	if err != 0 || uintptr(p) != membufaddr {
 		throw("Unable to mmap memory pool for the enclave.")
 	}

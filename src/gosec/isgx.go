@@ -47,5 +47,5 @@ type sgx_wrapper struct {
 	siz   uintptr
 	stack uintptr
 	ssiz  uintptr
-	mmask uintptr
+	alloc []byte
 }
