@@ -46,7 +46,7 @@ func sgxLoadProgram(path string) {
 	srcRegion.alloc = ptr
 
 	// Mprotect and EADD stack and preallocated.
-	sgxStackPreallocEadd(wrap, srcRegion)
+	sgxStackPreallocEadd(secs, wrap, srcRegion)
 
 	// EADD the different parts, mmap them at different offsets.
 	var aggreg []*elf.Section
@@ -59,13 +59,14 @@ func sgxLoadProgram(path string) {
 			continue
 		}
 
-		sgxMapSections(aggreg, wrap, srcRegion)
+		sgxMapSections(secs, aggreg, wrap, srcRegion)
 		aggreg = nil
 		aggreg = append(aggreg, sec)
 	}
-	sgxMapSections(aggreg, wrap, srcRegion)
+	sgxMapSections(secs, aggreg, wrap, srcRegion)
 
 	// TODO @aghosn do the EINIT
+	sgxHashFinalize()
 
 	// TODO do the unmap of srcRegion
 
@@ -208,27 +209,27 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	return secs, wrapper
 }
 
-func sgxStackPreallocEadd(wrap, srcRegion *sgx_wrapper) {
+func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
 	_, _, err := syscall.Syscall(syscall.SYS_MPROTECT, wrap.stack, wrap.ssiz, prot)
 	if err != 0 {
 		log.Fatalln("gosec: unable to mprotect the stack: ", err)
 	}
 
-	sgxAddRegion(wrap.stack, srcRegion.stack, wrap.ssiz, prot)
+	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot)
 
 	for _, v := range runtime.EnclavePreallocated {
 		_, _, err := syscall.Syscall(syscall.SYS_MPROTECT, v.Addr, v.Size, prot)
 		if err != 0 {
 			log.Fatalf("gosec: unable to mprotect %x, size %x, %v\n", v.Addr, v.Size, err)
 		}
-		sgxAddRegion(v.Addr, transposeOut(v.Addr), v.Size, prot)
+		sgxAddRegion(secs, v.Addr, transposeOut(v.Addr), v.Size, prot)
 	}
 }
 
-func sgxAddRegion(addr, src, siz, prot uintptr) {
+func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr) {
 	for x, y := addr, src; x < addr+siz; x, y = x+PSIZE, y+PSIZE {
-		sgxEadd(x, y, prot)
+		sgxEadd(secs, x, y, prot)
 	}
 }
 
@@ -246,7 +247,7 @@ func transposeIn(addr uintptr) uintptr {
 	return (addr - MMMASK + ENCLMASK)
 }
 
-func sgxMapSections(secs []*elf.Section, wrap, srcRegion *sgx_wrapper) {
+func sgxMapSections(sgxsec *secs_t, secs []*elf.Section, wrap, srcRegion *sgx_wrapper) {
 	if len(secs) == 0 {
 		return
 	}
@@ -281,7 +282,7 @@ func sgxMapSections(secs []*elf.Section, wrap, srcRegion *sgx_wrapper) {
 		prot |= _PROT_EXEC
 	}
 
-	sgxAddRegion(start, transposeOut(start), uintptr(size), uintptr(prot))
+	sgxAddRegion(sgxsec, start, transposeOut(start), uintptr(size), uintptr(prot))
 }
 
 func sgxInit() int {
@@ -291,6 +292,8 @@ func sgxInit() int {
 	var err error
 	sgxFd, err = os.OpenFile(SGX_PATH, os.O_RDWR, 0)
 	check(err)
+	// Initialize the signature.
+	sgxHashInit()
 	return 0
 }
 
@@ -314,9 +317,11 @@ func sgxEcreate(secs *secs_t) {
 		log.Println("The secs: ", secs)
 		log.Fatalln("Failed in call to ecreate: ", ret)
 	}
+
+	sgxHashEcreate(secs)
 }
 
-func sgxEadd(daddr, oaddr, prot uintptr) {
+func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr) {
 	eadd := &sgx_enclave_add_page{}
 	eadd.addr = uint64(daddr)
 	eadd.src = uint64(uintptr(oaddr))
@@ -339,4 +344,7 @@ func sgxEadd(daddr, oaddr, prot uintptr) {
 		log.Println("Unable to add a page: ", daddr)
 		panic("Shit")
 	}
+
+	// Add it to the hash.
+	sgxHashEadd(secs, secinfo, daddr)
 }
