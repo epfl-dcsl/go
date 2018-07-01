@@ -67,6 +67,7 @@ func sgxLoadProgram(path string) {
 
 	// TODO @aghosn do the EINIT
 	sgxHashFinalize()
+	sgxTokenGetAesm(secs)
 
 	// TODO do the unmap of srcRegion
 

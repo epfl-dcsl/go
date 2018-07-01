@@ -75,3 +75,16 @@ type metadata_t struct {
 	//dirs                 [DIR_NUM]data_directory_t
 	data [18592]uint8
 }
+
+type LaunchTokenRequest struct {
+	MrEnclave        []byte  `protobuf:"bytes,1,req,name=mr_enclave,json=mrEnclave" json:"mr_enclave,omitempty"`
+	MrSigner         []byte  `protobuf:"bytes,2,req,name=mr_signer,json=mrSigner" json:"mr_signer,omitempty"`
+	SeAttributes     []byte  `protobuf:"bytes,3,req,name=se_attributes,json=seAttributes" json:"se_attributes,omitempty"`
+	Timeout          *uint32 `protobuf:"varint,9,opt,name=timeout" json:"timeout,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+type AESM_message struct {
+	size uint32
+	data []byte
+}

@@ -3,6 +3,12 @@ package gosec
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/gob"
+	"os"
+)
+
+const (
+	target = "/tmp/gobdump.dat"
 )
 
 var data2hash []byte = nil
@@ -131,7 +137,6 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 	for i := offset; i < len(tmp); i++ {
 		tmp[i] = byte(0)
 	}
-
 	// Add it to the signature.
 	data2hash = append(data2hash, tmp...)
 }
@@ -141,6 +146,35 @@ func sgxHashFinalize() {
 	for i := 0; i < SGX_HASH_SIZE; i++ {
 		meta.enclave_css.body.enclave_hash.m[i] = sig[i]
 	}
+}
+
+func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
+	tokenreq := &LaunchTokenRequest{}
+	tokenreq.MrSigner = []byte("trying") // key modulus.
+	tokenreq.MrEnclave = meta.enclave_css.body.enclave_hash.m[:]
+
+	seattrib := make([]byte, 0)
+
+	attrib := make([]byte, 8)
+	binary.LittleEndian.PutUint64(attrib, secs.attributes)
+	seattrib = append(seattrib, attrib...)
+
+	xflags := make([]byte, 8)
+	binary.LittleEndian.PutUint64(xflags, secs.xfrm)
+	seattrib = append(seattrib, xflags...)
+
+	tokenreq.SeAttributes = seattrib
+	return tokenreq
+}
+
+func sgxTokenGetAesm(secs *secs_t) {
+	request := sgxTokenGetRequest(secs)
+	f, err := os.Create("/tmp/gobdump.dat")
+	check(err)
+
+	enc := gob.NewEncoder(f)
+	err = enc.Encode(request)
+	check(err)
 }
 
 func memcpy_s(dst, src []byte, off, s int) {
