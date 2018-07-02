@@ -189,7 +189,7 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	secs.size = uint64(ENCLSIZE)
 	secs.xfrm = 0x7
 	secs.ssaFrameSize = 1
-	secs.attributes = 0x04
+	secs.attributes = 0x06
 
 	// Check the stack as well
 	saddr := uintptr(palign(endAddr, false)) + 2*PSIZE

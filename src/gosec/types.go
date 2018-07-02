@@ -173,8 +173,8 @@ type secs_t struct {
 }
 
 type miscselect_t struct {
-	value     uint8
-	reversed2 [3]uint8
+	Value     uint8
+	Reversed2 [3]uint8
 }
 
 type attributes_t struct {
@@ -196,19 +196,19 @@ type secs_eid_pad_t struct {
 }
 
 func (m *miscselect_t) getExitinfo() uint8 {
-	return m.value & 0x1
+	return m.Value & 0x1
 }
 
 func (m *miscselect_t) seExitinfo(v uint8) {
-	setBit(&m.value, v, 0)
+	setBit(&m.Value, v, 0)
 }
 
 func (m *miscselect_t) getReversed1() uint8 {
-	return m.value & 0xFE
+	return m.Value & 0xFE
 }
 
 func (m *miscselect_t) setReserved1(v uint8) {
-	m.value &= (v | 0x1)
+	m.Value &= (v | 0x1)
 }
 
 func (a *attributes_t) getReserved1() uint8 {

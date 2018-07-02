@@ -17,33 +17,33 @@ var meta *metadata_t
 func sgxHashInit() {
 	data2hash = make([]byte, 0)
 	meta = &metadata_t{}
-	meta.magic_num = METADATA_MAGIC
-	meta.version = METADATA_VERSION
-	meta.tcs_policy = 1
-	meta.max_save_buffer_size = 2632
-	meta.desired_misc_select = 0
-	meta.tcs_min_pool = 1
+	meta.Magic_num = METADATA_MAGIC
+	meta.Version = METADATA_VERSION
+	meta.Tcs_policy = 1
+	meta.Max_save_buffer_size = 2632
+	meta.Desired_misc_select = 0
+	meta.Tcs_min_pool = 1
 }
 
 func sgxSign(secs *secs_t) *metadata_t {
 	meta := &metadata_t{}
-	meta.magic_num = METADATA_MAGIC
-	meta.version = METADATA_VERSION
-	meta.tcs_policy = 1
-	meta.ssa_frame_size = 1
-	meta.max_save_buffer_size = 2632
-	meta.desired_misc_select = 0
-	meta.tcs_min_pool = 1
-	meta.enclave_size = secs.size
-	meta.attributes.flags = secs.attributes
-	meta.attributes.xfrm = secs.xfrm
+	meta.Magic_num = METADATA_MAGIC
+	meta.Version = METADATA_VERSION
+	meta.Tcs_policy = 1
+	meta.Ssa_frame_size = 1
+	meta.Max_save_buffer_size = 2632
+	meta.Desired_misc_select = 0
+	meta.Tcs_min_pool = 1
+	meta.Enclave_size = secs.size
+	meta.Attributes.Flags = secs.attributes
+	meta.Attributes.Xfrm = secs.xfrm
 
 	// Populate the signature
-	setHeader(&meta.enclave_css.header)
-	setKey(&meta.enclave_css.key)
-	setBody(&meta.enclave_css.body)
-	meta.enclave_css.body.attributes.flags = secs.attributes
-	meta.enclave_css.body.attributes.xfrm = secs.xfrm
+	setHeader(&meta.Enclave_css.Header)
+	setKey(&meta.Enclave_css.Key)
+	setBody(&meta.Enclave_css.Body)
+	meta.Enclave_css.Body.Attributes.Flags = secs.attributes
+	meta.Enclave_css.Body.Attributes.Xfrm = secs.xfrm
 	//TODO set the mask as well, need to handle it better.
 
 	return nil
@@ -53,21 +53,21 @@ func setHeader(h *css_header_t) {
 	header1 := [12]uint8{6, 0, 0, 0, 0xE1, 0, 0, 0, 0, 0, 1, 0}
 	header2 := [16]uint8{1, 1, 0, 0, 0x60, 0, 0, 0, 0x60, 0, 0, 0, 1, 0, 0, 0}
 	for i := range header1 {
-		h.header[i] = header1[i]
+		h.Header[i] = header1[i]
 	}
 
 	for i := range header2 {
-		h.header2[i] = header2[i]
+		h.Header2[i] = header2[i]
 	}
 
-	h.tpe = 0
-	h.module_vendor = 0
+	h.Tpe = 0
+	h.Module_vendor = 0
 	//TODO modify this afterwards.
-	h.date = 0x27061820
-	h.hw_version = 0
+	h.Date = 0x27061820
+	h.Hw_version = 0
 	// Make sure they are zeroed.
-	for i := range h.reserved {
-		h.reserved[i] = 0
+	for i := range h.Reserved {
+		h.Reserved[i] = 0
 	}
 }
 
@@ -76,18 +76,18 @@ func setKey(k *css_key_t) {
 }
 
 func setBody(b *css_body_t) {
-	b.misc_mask.value = 0xff
-	for i := range b.misc_mask.reversed2 {
-		b.misc_mask.reversed2[i] = 0xff
+	b.Misc_mask.Value = 0xff
+	for i := range b.Misc_mask.Reversed2 {
+		b.Misc_mask.Reversed2[i] = 0xff
 	}
-	b.isv_prod_id = 0
-	b.isv_svn = 42
+	b.Isv_prod_id = 0
+	b.Isv_svn = 42
 }
 
 func sgxHashEcreate(secs *secs_t) {
-	meta.enclave_size = secs.size
-	meta.attributes.flags = secs.attributes
-	meta.attributes.xfrm = secs.xfrm
+	meta.Enclave_size = secs.size
+	meta.Attributes.Flags = secs.attributes
+	meta.Attributes.Xfrm = secs.xfrm
 
 	tmp := make([]byte, 64)
 	offset := 0
@@ -144,14 +144,14 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 func sgxHashFinalize() {
 	sig := sha256.Sum256(data2hash)
 	for i := 0; i < SGX_HASH_SIZE; i++ {
-		meta.enclave_css.body.enclave_hash.m[i] = sig[i]
+		meta.Enclave_css.Body.Enclave_hash.M[i] = sig[i]
 	}
 }
 
 func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
 	tokenreq := &LaunchTokenRequest{}
 	tokenreq.MrSigner = []byte("trying") // key modulus.
-	tokenreq.MrEnclave = meta.enclave_css.body.enclave_hash.m[:]
+	tokenreq.MrEnclave = meta.Enclave_css.Body.Enclave_hash.M[:]
 
 	seattrib := make([]byte, 0)
 
@@ -169,10 +169,16 @@ func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
 
 func sgxTokenGetAesm(secs *secs_t) {
 	request := sgxTokenGetRequest(secs)
-	f, err := os.Create("/tmp/gobdump.dat")
+
+	f, err := os.Create("/tmp/gobdump_meta.dat")
+	check(err)
+	enc := gob.NewEncoder(f)
+	err = enc.Encode(meta)
 	check(err)
 
-	enc := gob.NewEncoder(f)
+	f2, err := os.Create("/tmp/gobdump_req.dat")
+	check(err)
+	enc = gob.NewEncoder(f2)
 	err = enc.Encode(request)
 	check(err)
 }
