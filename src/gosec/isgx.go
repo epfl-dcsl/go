@@ -25,9 +25,9 @@ type sgx_enclave_create struct {
 }
 
 type sgx_enclave_init struct {
-	addr       uintptr
-	sigstruct  uintptr
-	einittoken uintptr
+	addr       uint64
+	sigstruct  uint64
+	einittoken uint64
 }
 
 type sgx_enclave_add_page struct {

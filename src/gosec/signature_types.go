@@ -11,6 +11,11 @@ const (
 	SE_EXPONENT_SIZE = 4   /* RSA public key exponent size in bytes */
 )
 
+type TokenGob struct {
+	Token []byte
+	Meta  metadata_t
+}
+
 type sgx_measurement_t struct {
 	M [SGX_HASH_SIZE]uint8
 }

@@ -65,9 +65,10 @@ func sgxLoadProgram(path string) {
 	}
 	sgxMapSections(secs, aggreg, wrap, srcRegion)
 
-	// TODO @aghosn do the EINIT
+	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
-	sgxTokenGetAesm(secs)
+	tok := sgxTokenGetAesm(secs)
+	sgxEinit(secs, &tok)
 
 	// TODO do the unmap of srcRegion
 
@@ -343,9 +344,23 @@ func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr) {
 	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), uintptr(unsafe.Pointer(eadd)))
 	if ret != 0 {
 		log.Println("Unable to add a page: ", daddr)
-		panic("Shit")
+		panic("Stopping execution before adding a page.")
 	}
 
 	// Add it to the hash.
 	sgxHashEadd(secs, secinfo, daddr)
+}
+
+func sgxEinit(secs *secs_t, tok *TokenGob) {
+	parm := &sgx_enclave_init{}
+	parm.addr = secs.baseAddr
+	parm.sigstruct = uint64(uintptr(unsafe.Pointer(&tok.Meta.Enclave_css)))
+	parm.einittoken = uint64(uintptr(unsafe.Pointer(&tok.Token[0])))
+
+	ptr := uintptr(unsafe.Pointer(parm))
+	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_INIT), ptr)
+	if ret != 0 {
+		log.Println("gosec: sgxEinit failed with return code ", ret)
+		panic("Stopping the execution before performing einit.")
+	}
 }

@@ -1,10 +1,13 @@
 package gosec
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/gob"
+	"io/ioutil"
 	"os"
+	"os/exec"
 )
 
 const (
@@ -167,7 +170,7 @@ func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
 	return tokenreq
 }
 
-func sgxTokenGetAesm(secs *secs_t) {
+func sgxTokenGetAesm(secs *secs_t) TokenGob {
 	request := sgxTokenGetRequest(secs)
 
 	f, err := os.Create("/tmp/gobdump_meta.dat")
@@ -181,6 +184,20 @@ func sgxTokenGetAesm(secs *secs_t) {
 	enc = gob.NewEncoder(f2)
 	err = enc.Encode(request)
 	check(err)
+
+	cmd := exec.Command("serializer", "")
+	err = cmd.Run()
+	check(err)
+
+	// Read the token.
+	b, err := ioutil.ReadFile("/tmp/go_enclave.token")
+	check(err)
+
+	dec := gob.NewDecoder(bytes.NewReader(b))
+	var token TokenGob
+	err = dec.Decode(&token)
+	check(err)
+	return token
 }
 
 func memcpy_s(dst, src []byte, off, s int) {
