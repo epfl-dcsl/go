@@ -9,85 +9,73 @@ import (
 	"os"
 	"os/exec"
 	"time"
+	"unsafe"
 )
 
 const (
-	target = "/tmp/gobdump.dat"
+	target           = "/tmp/gobdump.dat"
+	_enclaveCssSize  = uintptr(1808)
+	_miscselectSize  = uintptr(4)
+	_attribSize      = uintptr(16)
+	_measurementSize = uintptr(SGX_HASH_SIZE)
 )
 
 var data2hash []byte = nil
 var meta *metadata_t
 
+func checkStructSize() {
+	if unsafe.Sizeof(enclave_css_t{}) != _enclaveCssSize {
+		panic("Wrong size for the enclave css.")
+	}
+
+	if unsafe.Sizeof(miscselect_t{}) != _miscselectSize {
+		panic("Wrong size for the miscseclect")
+	}
+
+	if unsafe.Sizeof(sgx_attributes_t{}) != _attribSize {
+		panic("Wrong size for the sgx_attributes.")
+	}
+
+	if unsafe.Sizeof(sgx_measurement_t{}) != _measurementSize {
+		panic("Wrong size for the sgx_measurement")
+	}
+}
+
 func sgxHashInit() {
+	checkStructSize()
 	data2hash = make([]byte, 0)
 	meta = &metadata_t{}
-	setHeader(&meta.Enclave_css.Header)
-	setBody(&meta.Enclave_css.Body)
+	setHeader(&meta.Enclave_css)
+	setBody(&meta.Enclave_css)
 	meta.Magic_num = METADATA_MAGIC
 	meta.Version = METADATA_VERSION
 	meta.Tcs_policy = 1
 	meta.Max_save_buffer_size = 2632
 	meta.Desired_misc_select = 0
 	meta.Tcs_min_pool = 1
+
 }
 
-//func sgxSign(secs *secs_t) *metadata_t {
-//	meta := &metadata_t{}
-//	meta.Magic_num = METADATA_MAGIC
-//	meta.Version = METADATA_VERSION
-//	meta.Tcs_policy = 1
-//	meta.Ssa_frame_size = 1
-//	meta.Max_save_buffer_size = 2632
-//	meta.Desired_misc_select = 0
-//	meta.Tcs_min_pool = 1
-//	meta.Enclave_size = secs.size
-//	meta.Attributes.Flags = secs.attributes
-//	meta.Attributes.Xfrm = secs.xfrm
-//
-//	// Populate the signature
-//	setHeader(&meta.Enclave_css.Header)
-//	setKey(&meta.Enclave_css.Key)
-//	setBody(&meta.Enclave_css.Body)
-//	meta.Enclave_css.Body.Attributes.Flags = secs.attributes
-//	meta.Enclave_css.Body.Attributes.Xfrm = secs.xfrm
-//	//TODO set the mask as well, need to handle it better.
-//
-//	return nil
-//}
-
-func setHeader(h *css_header_t) {
-	header1 := [12]uint8{6, 0, 0, 0, 0xE1, 0, 0, 0, 0, 0, 1, 0}
-	header2 := [16]uint8{1, 1, 0, 0, 0x60, 0, 0, 0, 0x60, 0, 0, 0, 1, 0, 0, 0}
-	for i := range header1 {
-		h.Header[i] = header1[i]
-	}
-
-	for i := range header2 {
-		h.Header2[i] = header2[i]
-	}
-
-	h.Tpe = 0
-	h.Module_vendor = 0
+func setHeader(e *enclave_css_t) {
+	e.Header = [12]uint8{6, 0, 0, 0, 0xE1, 0, 0, 0, 0, 0, 1, 0}
+	e.Header2 = [16]uint8{1, 1, 0, 0, 0x60, 0, 0, 0, 0x60, 0, 0, 0, 1, 0, 0, 0}
+	e.Tpe = 0
+	e.Module_vendor = 0
 	year, month, day := time.Now().Date()
-	h.Date = uint32(day + (int(month) << 8) + (year % 100 << 16) + (year / 100 << 24))
-	h.Hw_version = 0
-	// Make sure they are zeroed.
-	for i := range h.Reserved {
-		h.Reserved[i] = 0
+	e.Date = uint32(day + (int(month) << 8) + (year % 100 << 16) + (year / 100 << 24))
+	e.Hw_version = 0
+	for i := range e.Reserved {
+		e.Reserved[i] = 0
 	}
 }
 
-//func setKey(k *css_key_t) {
-//	//TODO nothing to do for now.
-//}
-
-func setBody(b *css_body_t) {
-	b.Misc_mask.Value = 0xff
-	for i := range b.Misc_mask.Reversed2 {
-		b.Misc_mask.Reversed2[i] = 0xff
+func setBody(e *enclave_css_t) {
+	e.Misc_mask.Value = 0xff
+	for i := range e.Misc_mask.Reversed2 {
+		e.Misc_mask.Reversed2[i] = 0xff
 	}
-	b.Isv_prod_id = 0
-	b.Isv_svn = 42
+	e.Isv_prod_id = 0
+	e.Isv_svn = 42
 }
 
 func sgxHashEcreate(secs *secs_t) {
@@ -150,14 +138,14 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 func sgxHashFinalize() {
 	sig := sha256.Sum256(data2hash)
 	for i := 0; i < SGX_HASH_SIZE; i++ {
-		meta.Enclave_css.Body.Enclave_hash.M[i] = sig[i]
+		meta.Enclave_css.Enclave_hash.M[i] = sig[i]
 	}
 }
 
 func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
 	tokenreq := &LaunchTokenRequest{}
 	tokenreq.MrSigner = []byte("trying") // key modulus.
-	tokenreq.MrEnclave = meta.Enclave_css.Body.Enclave_hash.M[:]
+	tokenreq.MrEnclave = meta.Enclave_css.Enclave_hash.M[:]
 
 	seattrib := make([]byte, 0)
 
