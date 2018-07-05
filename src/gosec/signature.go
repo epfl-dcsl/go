@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"time"
 )
 
 const (
@@ -20,37 +21,39 @@ var meta *metadata_t
 func sgxHashInit() {
 	data2hash = make([]byte, 0)
 	meta = &metadata_t{}
-	meta.Magic_num = METADATA_MAGIC
-	meta.Version = METADATA_VERSION
-	meta.Tcs_policy = 1
-	meta.Max_save_buffer_size = 2632
-	meta.Desired_misc_select = 0
-	meta.Tcs_min_pool = 1
-}
-
-func sgxSign(secs *secs_t) *metadata_t {
-	meta := &metadata_t{}
-	meta.Magic_num = METADATA_MAGIC
-	meta.Version = METADATA_VERSION
-	meta.Tcs_policy = 1
-	meta.Ssa_frame_size = 1
-	meta.Max_save_buffer_size = 2632
-	meta.Desired_misc_select = 0
-	meta.Tcs_min_pool = 1
-	meta.Enclave_size = secs.size
-	meta.Attributes.Flags = secs.attributes
-	meta.Attributes.Xfrm = secs.xfrm
-
-	// Populate the signature
 	setHeader(&meta.Enclave_css.Header)
-	setKey(&meta.Enclave_css.Key)
 	setBody(&meta.Enclave_css.Body)
-	meta.Enclave_css.Body.Attributes.Flags = secs.attributes
-	meta.Enclave_css.Body.Attributes.Xfrm = secs.xfrm
-	//TODO set the mask as well, need to handle it better.
-
-	return nil
+	meta.Magic_num = METADATA_MAGIC
+	meta.Version = METADATA_VERSION
+	meta.Tcs_policy = 1
+	meta.Max_save_buffer_size = 2632
+	meta.Desired_misc_select = 0
+	meta.Tcs_min_pool = 1
 }
+
+//func sgxSign(secs *secs_t) *metadata_t {
+//	meta := &metadata_t{}
+//	meta.Magic_num = METADATA_MAGIC
+//	meta.Version = METADATA_VERSION
+//	meta.Tcs_policy = 1
+//	meta.Ssa_frame_size = 1
+//	meta.Max_save_buffer_size = 2632
+//	meta.Desired_misc_select = 0
+//	meta.Tcs_min_pool = 1
+//	meta.Enclave_size = secs.size
+//	meta.Attributes.Flags = secs.attributes
+//	meta.Attributes.Xfrm = secs.xfrm
+//
+//	// Populate the signature
+//	setHeader(&meta.Enclave_css.Header)
+//	setKey(&meta.Enclave_css.Key)
+//	setBody(&meta.Enclave_css.Body)
+//	meta.Enclave_css.Body.Attributes.Flags = secs.attributes
+//	meta.Enclave_css.Body.Attributes.Xfrm = secs.xfrm
+//	//TODO set the mask as well, need to handle it better.
+//
+//	return nil
+//}
 
 func setHeader(h *css_header_t) {
 	header1 := [12]uint8{6, 0, 0, 0, 0xE1, 0, 0, 0, 0, 0, 1, 0}
@@ -65,8 +68,8 @@ func setHeader(h *css_header_t) {
 
 	h.Tpe = 0
 	h.Module_vendor = 0
-	//TODO modify this afterwards.
-	h.Date = 0x27061820
+	year, month, day := time.Now().Date()
+	h.Date = uint32(day + (int(month) << 8) + (year % 100 << 16) + (year / 100 << 24))
 	h.Hw_version = 0
 	// Make sure they are zeroed.
 	for i := range h.Reserved {
@@ -74,9 +77,9 @@ func setHeader(h *css_header_t) {
 	}
 }
 
-func setKey(k *css_key_t) {
-	//TODO nothing to do for now.
-}
+//func setKey(k *css_key_t) {
+//	//TODO nothing to do for now.
+//}
 
 func setBody(b *css_body_t) {
 	b.Misc_mask.Value = 0xff
@@ -175,6 +178,7 @@ func sgxTokenGetAesm(secs *secs_t) TokenGob {
 
 	f, err := os.Create("/tmp/gobdump_meta.dat")
 	check(err)
+
 	enc := gob.NewEncoder(f)
 	err = enc.Encode(meta)
 	check(err)
