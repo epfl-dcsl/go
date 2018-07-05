@@ -14,7 +14,7 @@ const ptrSize = 4 << (^uintptr(0) >> 63)
 
 func check(e error) {
 	if e != nil {
-		log.Fatalln(e.Error())
+		panic(e.Error())
 	}
 }
 
