@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sort"
 	"syscall"
 	"unsafe"
 )
@@ -18,6 +19,20 @@ const (
 
 	MMMASK = 0x050000000000
 )
+
+type SortedElfSections []*elf.Section
+
+func (s SortedElfSections) Len() int {
+	return len(s)
+}
+
+func (s SortedElfSections) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s SortedElfSections) Less(i, j int) bool {
+	return s[i].Addr < s[j].Addr
+}
 
 var (
 	sgxFd *os.File = nil
@@ -45,8 +60,8 @@ func sgxLoadProgram(path string) {
 	check(ret)
 	srcRegion.alloc = ptr
 
-	// Mprotect and EADD stack and preallocated.
-	sgxStackPreallocEadd(secs, wrap, srcRegion)
+	// Check that the sections are sorted now.
+	sort.Sort(SortedElfSections(file.Sections))
 
 	// EADD the different parts, mmap them at different offsets.
 	var aggreg []*elf.Section
@@ -64,6 +79,9 @@ func sgxLoadProgram(path string) {
 		aggreg = append(aggreg, sec)
 	}
 	sgxMapSections(secs, aggreg, wrap, srcRegion)
+
+	// Mprotect and EADD stack and preallocated.
+	sgxStackPreallocEadd(secs, wrap, srcRegion)
 
 	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
@@ -360,35 +378,6 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 	if unsafe.Sizeof(*signature) != uintptr(1808) {
 		panic("gosec: the enclave_css is not the proper size.")
 	}
-	//// Set up everything inside the header.
-	//signature.Header = tok.Meta.Enclave_css.Header.Header
-	//signature.Tpe = tok.Meta.Enclave_css.Header.Tpe
-	//signature.Module_vendor = tok.Meta.Enclave_css.Header.Module_vendor
-	//signature.Date = tok.Meta.Enclave_css.Header.Date
-	//signature.Header2 = tok.Meta.Enclave_css.Header.Header2
-	//signature.Hw_version = tok.Meta.Enclave_css.Header.Hw_version
-	//signature.Reserved = tok.Meta.Enclave_css.Header.Reserved
-
-	//// Set up everything inside the key.
-	//signature.Modulus = tok.Meta.Enclave_css.Key.Modulus
-	//signature.Exponent = tok.Meta.Enclave_css.Key.Exponent
-	//signature.Signature = tok.Meta.Enclave_css.Key.Signature
-
-	//// Set up everything inside the body
-	//signature.Misc_select = tok.Meta.Enclave_css.Body.Misc_select
-	//signature.Misc_mask = tok.Meta.Enclave_css.Body.Misc_mask
-	//signature.Reserved2 = tok.Meta.Enclave_css.Body.Reserved
-	//signature.Attributes = tok.Meta.Enclave_css.Body.Attributes
-	//signature.Attribute_mask = tok.Meta.Enclave_css.Body.Attribute_mask
-	//signature.Enclave_hash = tok.Meta.Enclave_css.Body.Enclave_hash
-	//signature.Reserved3 = tok.Meta.Enclave_css.Body.Reserved2
-	//signature.Isv_prod_id = tok.Meta.Enclave_css.Body.Isv_prod_id
-	//signature.Isv_svn = tok.Meta.Enclave_css.Body.Isv_svn
-
-	//// Set up everything inside the buffer.
-	//signature.Reserved4 = tok.Meta.Enclave_css.Buffer.Reserved
-	//signature.Q1 = tok.Meta.Enclave_css.Buffer.Q1
-	//signature.Q2 = tok.Meta.Enclave_css.Buffer.Q2
 
 	parm.sigstruct = uint64(uintptr(unsafe.Pointer(signature)))
 	parm.einittoken = uint64(uintptr(unsafe.Pointer(&tok.Token[0])))

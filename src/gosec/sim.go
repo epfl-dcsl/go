@@ -8,6 +8,7 @@ import (
 	"debug/elf"
 	"log"
 	"runtime"
+	"sort"
 	"syscall"
 	"unsafe"
 )
@@ -20,6 +21,10 @@ func loadProgram(path string) {
 	check(err)
 	_, wrap := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
+
+	// Check that the sections are sorted now.
+	sort.Sort(SortedElfSections(file.Sections))
+
 	var aggreg []*elf.Section
 	for _, sec := range file.Sections {
 		if sec.Flags&elf.SHF_ALLOC != elf.SHF_ALLOC {

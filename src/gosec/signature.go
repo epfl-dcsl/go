@@ -87,9 +87,16 @@ func sgxHashEcreate(secs *secs_t) {
 	offset := 0
 
 	eheader := []byte("ECREATE\000")
+	if len(eheader) != 8 {
+		panic("header has incorrect size.")
+	}
 	memcpy_s(tmp, eheader, offset, 8)
 	offset += 8
 
+	//ssaFS := make([]byte, 8)
+	//binary.LittleEndian.PutUint64(ssaFS, uint64(secs.ssaFrameSize))
+	//memcpy_s(tmp, ssaFS, offset, 8)
+	//offset += 8
 	ssaFS := make([]byte, 4)
 	binary.LittleEndian.PutUint32(ssaFS, secs.ssaFrameSize)
 	memcpy_s(tmp, ssaFS, offset, 4)
@@ -115,6 +122,9 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 	offset := 0
 
 	eheader := []byte("EADD\000\000\000\000")
+	if len(eheader) != 8 {
+		panic("EADD hash has not the correct size.")
+	}
 	memcpy_s(tmp, eheader, offset, 8)
 	offset += 8
 
@@ -127,9 +137,12 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 	flags := make([]byte, 8)
 	binary.LittleEndian.PutUint64(flags, secinfo.flags)
 	memcpy_s(tmp, flags, offset, 8)
+	offset += 8
 
+	base := unsafe.Pointer(&secinfo.reserved)
 	for i := offset; i < len(tmp); i++ {
-		tmp[i] = byte(0)
+		val := (*byte)(unsafe.Pointer(uintptr(base) + uintptr(i-offset)))
+		tmp[i] = *val
 	}
 	// Add it to the signature.
 	data2hash = append(data2hash, tmp...)
@@ -140,6 +153,10 @@ func sgxHashFinalize() {
 	for i := 0; i < SGX_HASH_SIZE; i++ {
 		meta.Enclave_css.Enclave_hash.M[i] = sig[i]
 	}
+
+	//Do a dump of the measurement here.
+	err := ioutil.WriteFile("/tmp/gosec_measurement.dat", data2hash, 0644)
+	check(err)
 }
 
 func sgxTokenGetRequest(secs *secs_t) *LaunchTokenRequest {
