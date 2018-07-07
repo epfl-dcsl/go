@@ -146,6 +146,46 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 	}
 	// Add it to the signature.
 	data2hash = append(data2hash, tmp...)
+
+	//TODO remove afterwards
+	sgxHashEExtendRegion(secs, daddr)
+}
+
+func sgxHashEExtend(secs *secs_t, daddr uintptr) {
+	if daddr < uintptr(secs.baseAddr) || daddr > uintptr(secs.baseAddr)+uintptr(secs.size) {
+		panic("gosec: invalid daddr out of range.")
+	}
+	tmp := make([]byte, 320)
+	offset := 0
+
+	eheader := []byte("EEXTEND\000")
+	if len(eheader) != 8 {
+		panic("EEXTEND has not the correct size.")
+	}
+	memcpy_s(tmp, eheader, offset, 8)
+	offset += 8
+
+	off := uint64(uint64(daddr) - secs.baseAddr)
+	encloff := make([]byte, 8)
+	binary.LittleEndian.PutUint64(encloff, off)
+	memcpy_s(tmp, encloff, offset, 8)
+	offset += 8
+
+	// TODO 48 0 bytes.
+	offset += 48
+	base := transposeOut(daddr)
+	for i := uintptr(0); i < uintptr(256); i++ {
+		val := (*byte)(unsafe.Pointer(base + i))
+		tmp[int(i)+offset] = *val
+	}
+	data2hash = append(data2hash, tmp...)
+}
+
+// Adds a full page to the eextend
+func sgxHashEExtendRegion(secs *secs_t, daddr uintptr) {
+	for i := uintptr(0); i < PSIZE; i += uintptr(256) {
+		sgxHashEExtend(secs, daddr+i)
+	}
 }
 
 func sgxHashFinalize() {

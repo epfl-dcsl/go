@@ -99,14 +99,25 @@ func sgxLoadProgram(path string) {
 
 //TODO remove this is just to try to create an enclave.
 func SGXFull() {
+	sgxInit()
 	//addr := uintptr(0x040000000000)
 	addr := uintptr(ENCLMASK)
 	//siz := uintptr(0x001000000000)
-	siz := uintptr(ENCLSIZE)
-	prot := int32(_PROT_NONE)
+	siz := uintptr(0x8000)
+	prot := int32(_PROT_READ | _PROT_WRITE | _PROT_EXEC)
 	ptr, err := runtime.RMmap(unsafe.Pointer(addr), siz, prot, _MAP_SHARED, int32(sgxFd.Fd()), 0)
 	if err != 0 || addr != uintptr(ptr) {
 		log.Fatalln("Unable to mmap the original page: ", err)
+	}
+
+	// Allocate the transposed region.
+	srcReg, ers := syscall.RMmap(transposeOut(addr), int(siz), _PROT_READ|_PROT_WRITE|_PROT_EXEC,
+		_MAP_ANON|_MAP_FIXED|_MAP_PRIVATE|_MAP_NORESERVE, -1, 0)
+	check(ers)
+
+	// Fill the region with 42.
+	for i := 0; i < len(srcReg); i++ {
+		srcReg[i] = byte(42)
 	}
 
 	secs := &secs_t{}
@@ -114,7 +125,9 @@ func SGXFull() {
 	secs.baseAddr = uint64(addr)
 	secs.xfrm = 0x7
 	secs.ssaFrameSize = 1
-	secs.attributes = 0x04
+	secs.attributes = 0x06
+
+	sgxHashEcreate(secs)
 
 	// ECREATE
 	parms := &sgx_enclave_create{}
@@ -125,32 +138,17 @@ func SGXFull() {
 		log.Fatalln("Failed in call to ecreate: ", ret)
 	}
 
-	// EADD
-	addr = 0x040000172000
-	siz = 0x8000
-	_, _, ret = syscall.Syscall(syscall.SYS_MPROTECT, addr, siz, _PROT_READ)
-	if ret != 0 {
-		log.Fatalln("Unable to perform the mprotect.")
-	}
+	// EADD all the pages.
+	sgxAddRegion(secs, addr, transposeOut(addr), siz-PSIZE, uintptr(prot), SGX_SECINFO_REG)
 
-	content, err := runtime.RMmap(nil, 0x1000, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
-	if err != 0 {
-		log.Fatalln("Unable to mmap the second page.")
-	}
-	memsetstruct(unsafe.Pointer(content), 2, 0x1000)
-	eadd := &sgx_enclave_add_page{}
-	eadd.addr = uint64(addr)
-	eadd.src = uint64(uintptr(content))
-	eadd.mrmask = uint16(0xfff)
+	// EADD the TCS
+	sgxAddRegion(secs, addr+siz-PSIZE, transposeOut(addr+siz-PSIZE), PSIZE, uintptr(_PROT_NONE), SGX_SECINFO_TCS)
 
-	secinfo := &isgx_secinfo{}
-	secinfo.flags = SGX_SECINFO_R | SGX_SECINFO_REG
-
-	eadd.secinfo = uint64(uintptr(unsafe.Pointer(secinfo)))
-	_, _, ret = syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), uintptr(unsafe.Pointer(eadd)))
-	if ret != 0 {
-		log.Fatalln("Unable to add a page.")
-	}
+	// Get the token.
+	sgxHashFinalize()
+	tok := sgxTokenGetAesm(secs)
+	sgxEinit(secs, &tok)
+	panic("Dead")
 }
 
 // palign does a page align.
@@ -236,20 +234,20 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 		log.Fatalln("gosec: unable to mprotect the stack: ", err)
 	}
 
-	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot)
+	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot, SGX_SECINFO_REG)
 
 	for _, v := range runtime.EnclavePreallocated {
 		_, _, err := syscall.Syscall(syscall.SYS_MPROTECT, v.Addr, v.Size, prot)
 		if err != 0 {
 			log.Fatalf("gosec: unable to mprotect %x, size %x, %v\n", v.Addr, v.Size, err)
 		}
-		sgxAddRegion(secs, v.Addr, transposeOut(v.Addr), v.Size, prot)
+		sgxAddRegion(secs, v.Addr, transposeOut(v.Addr), v.Size, prot, SGX_SECINFO_REG)
 	}
 }
 
-func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr) {
+func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr, tpe uint64) {
 	for x, y := addr, src; x < addr+siz; x, y = x+PSIZE, y+PSIZE {
-		sgxEadd(secs, x, y, prot)
+		sgxEadd(secs, x, y, prot, tpe)
 	}
 }
 
@@ -302,7 +300,7 @@ func sgxMapSections(sgxsec *secs_t, secs []*elf.Section, wrap, srcRegion *sgx_wr
 		prot |= _PROT_EXEC
 	}
 
-	sgxAddRegion(sgxsec, start, transposeOut(start), uintptr(size), uintptr(prot))
+	sgxAddRegion(sgxsec, start, transposeOut(start), uintptr(size), uintptr(prot), SGX_SECINFO_REG)
 }
 
 func sgxInit() int {
@@ -341,14 +339,18 @@ func sgxEcreate(secs *secs_t) {
 	sgxHashEcreate(secs)
 }
 
-func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr) {
+func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr, tpe uint64) {
 	eadd := &sgx_enclave_add_page{}
 	eadd.addr = uint64(daddr)
 	eadd.src = uint64(uintptr(oaddr))
-	eadd.mrmask = uint16(0xfff)
+	//eadd.mrmask = uint16(0xfff)
+	eadd.mrmask = uint16(0xffff)
+	//if tpe == SGX_SECINFO_TCS {
+	//	eadd.mrmask = uint16(0xffff)
+	//}
 
 	secinfo := &isgx_secinfo{}
-	secinfo.flags = SGX_SECINFO_REG
+	secinfo.flags = tpe
 	if prot&_PROT_EXEC != 0 {
 		secinfo.flags |= SGX_SECINFO_X
 	}
