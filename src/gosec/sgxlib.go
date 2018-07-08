@@ -345,9 +345,9 @@ func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr, tpe uint64) {
 	eadd.src = uint64(uintptr(oaddr))
 	//eadd.mrmask = uint16(0xfff)
 	eadd.mrmask = uint16(0xffff)
-	//if tpe == SGX_SECINFO_TCS {
-	//	eadd.mrmask = uint16(0xffff)
-	//}
+	if prot&_PROT_WRITE != 0 {
+		eadd.mrmask = uint16(0x0)
+	}
 
 	secinfo := &isgx_secinfo{}
 	secinfo.flags = tpe

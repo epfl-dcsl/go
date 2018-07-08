@@ -34,7 +34,7 @@ type sgx_enclave_add_page struct {
 	addr    uint64
 	src     uint64
 	secinfo uint64
-	mrmask  uint16
+	mrmask  uint16 //bitmask for the 256 byte chunks that are to be measured
 }
 
 type isgx_secinfo struct {

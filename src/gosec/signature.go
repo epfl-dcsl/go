@@ -147,8 +147,10 @@ func sgxHashEadd(secs *secs_t, secinfo *isgx_secinfo, daddr uintptr) {
 	// Add it to the signature.
 	data2hash = append(data2hash, tmp...)
 
-	//TODO remove afterwards
-	sgxHashEExtendRegion(secs, daddr)
+	if secinfo.flags&SGX_SECINFO_W == 0 {
+		sgxHashEExtendRegion(secs, daddr)
+	}
+
 }
 
 func sgxHashEExtend(secs *secs_t, daddr uintptr) {
