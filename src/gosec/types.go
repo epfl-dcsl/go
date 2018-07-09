@@ -115,42 +115,18 @@ type enclave_parms_t struct {
 	regs         jmp_buf
 }
 
-// XXX:Separate reserved -> reserved1, reserved2 to remove warning
-type tcs_flags_t struct {
-	value     uint32
-	reserved2 uint32
-}
-
-func (t *tcs_flags_t) getDbgoptin() uint32 {
-	return t.value & 0x1
-}
-
-func (t *tcs_flags_t) setDbgoptin(v uint32) {
-	t.value >>= 1
-	t.value <<= 1
-	t.value |= (v & 0x1)
-}
-
-func (t *tcs_flags_t) getReserved1() uint32 {
-	return (t.value >> 1)
-}
-
-func (t *tcs_flags_t) setReserved1(v uint32) {
-	t.value = (t.value & 0x1) | (v << 1)
-}
-
 type tcs_t struct {
-	reserved1 uint64
-	flags     tcs_flags_t //!< Thread's Execution Flags
-	ossa      uint64
-	cssa      uint32
-	nssa      uint32
-	oentry    uint64
-	reserved2 uint64
-	ofsbasgx  uint64 //!< Added to Base Address of Enclave to get FS Address
-	ogsbasgx  uint64 //!< Added to Base Address of Enclave to get GS Address
-	fslimit   uint32
-	gslimit   uint32
+	reserved1 uint64 // 0
+	flags     uint64 /* (8)bit 0: DBGOPTION */
+	ossa      uint64 /* (16)State Save Area */
+	cssa      uint32 /* (24)Current SSA slot */
+	nssa      uint32 /* (28)Number of SSA slots */
+	oentry    uint64 /* (32)Offset in enclave to which control is transferred on EENTER if enclave INACTIVE state */
+	reserved2 uint64 /* (40) */
+	ofsbasgx  uint64 /* (48)When added to the base address of the enclave, produces the base address FS segment inside the enclave */
+	ogsbasgx  uint64 /* (56)When added to the base address of the enclave, produces the base address GS segment inside the enclave */
+	fslimit   uint32 /* (64)Size to become the new FS limit in 32-bit mode */
+	gslimit   uint32 /* (68)Size to become the new GS limit in 32-bit mode */
 	reserved3 [503]uint64
 }
 

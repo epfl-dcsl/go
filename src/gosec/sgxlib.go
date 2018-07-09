@@ -51,7 +51,7 @@ func sgxLoadProgram(path string) {
 
 	// Allocate the equivalent region for the eadd page.
 	srcRegion := &sgx_wrapper{transposeOut(wrap.base), wrap.siz,
-		transposeOut(wrap.stack), wrap.ssiz, nil}
+		transposeOut(wrap.stack), wrap.ssiz, transposeOut(wrap.tcs), nil}
 
 	src := srcRegion.base
 	prot := int(_PROT_READ | _PROT_WRITE)
@@ -142,6 +142,7 @@ func SGXFull() {
 	sgxAddRegion(secs, addr, transposeOut(addr), siz-PSIZE, uintptr(prot), SGX_SECINFO_REG)
 
 	// EADD the TCS
+	log.Println("The size of the tcs struct ", unsafe.Sizeof(tcs_t{}))
 	sgxAddRegion(secs, addr+siz-PSIZE, transposeOut(addr+siz-PSIZE), PSIZE, uintptr(_PROT_NONE), SGX_SECINFO_TCS)
 
 	// Get the token.
@@ -215,6 +216,10 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 		log.Fatalln("gosec: stack goes beyond enclave limits.")
 	}
 
+	//Check the tcs, ssa, etc..
+	wrapper := &sgx_wrapper{uintptr(secs.baseAddr), uintptr(secs.size), saddr,
+		uintptr(ssize), saddr + uintptr(ssize) + PSIZE, nil}
+
 	for _, v := range runtime.EnclavePreallocated {
 		if v.Addr+v.Size > ENCLMASK+ENCLSIZE {
 			log.Fatalf("gosec: > preallocation out of enclave boundaries: %x\n", v.Addr+v.Size)
@@ -222,11 +227,15 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 		if v.Addr < ENCLMASK {
 			log.Fatalf("gosec: < preallocation out of enclave boundaries: %x\n", v.Addr)
 		}
+		if v.Addr > wrapper.tcs && v.Addr < wrapper.tcs+TCS_OFF_END {
+			log.Fatalln("gosec: the tcs overlaps with preallocated.")
+		}
 	}
-	wrapper := &sgx_wrapper{uintptr(secs.baseAddr), uintptr(secs.size), saddr, uintptr(ssize), nil}
+
 	return secs, wrapper
 }
 
+// TODO will need to allocate the TCS as well.
 func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
 	_, _, err := syscall.Syscall(syscall.SYS_MPROTECT, wrap.stack, wrap.ssiz, prot)
@@ -242,6 +251,24 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 			log.Fatalf("gosec: unable to mprotect %x, size %x, %v\n", v.Addr, v.Size, err)
 		}
 		sgxAddRegion(secs, v.Addr, transposeOut(v.Addr), v.Size, prot, SGX_SECINFO_REG)
+	}
+}
+
+func sgxAllocateInitTCS(entry uintptr, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
+	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
+	tcs.reserved1 = uint64(0)
+	tcs.flags = uint64(0)
+	tcs.ossa = uint64(wrap.tcs+TCS_OFF_SSA) - secs.baseAddr
+	tcs.cssa = uint32(0)
+	tcs.nssa = TCS_N_SSA
+	tcs.oentry = uint64(entry)
+	tcs.reserved2 = uint64(0)
+	tcs.ofsbasgx = uint64(TCS_OFF_FS)
+	tcs.ogsbasgx = uint64(TCS_OFF_GS)
+	tcs.fslimit = SGX_FS_LIMIT
+	tcs.gslimit = SGX_GS_LIMIT
+	for i := range tcs.reserved3 {
+		tcs.reserved3[i] = uint64(0)
 	}
 }
 

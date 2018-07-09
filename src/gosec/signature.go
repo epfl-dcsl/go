@@ -18,6 +18,7 @@ const (
 	_miscselectSize  = uintptr(4)
 	_attribSize      = uintptr(16)
 	_measurementSize = uintptr(SGX_HASH_SIZE)
+	_tcs_t_size      = uintptr(0x1000)
 )
 
 var data2hash []byte = nil
@@ -38,6 +39,10 @@ func checkStructSize() {
 
 	if unsafe.Sizeof(sgx_measurement_t{}) != _measurementSize {
 		panic("Wrong size for the sgx_measurement")
+	}
+
+	if unsafe.Sizeof(tcs_t{}) != _tcs_t_size {
+		panic("Wrong size for the tcs_t")
 	}
 }
 

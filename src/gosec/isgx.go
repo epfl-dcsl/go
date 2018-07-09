@@ -20,6 +20,19 @@ const (
 	SGX_SECINFO_REG  = 0x200
 )
 
+const (
+	SGX_FS_LIMIT = 0xffffffff
+	SGX_GS_LIMIT = 0xffffffff
+)
+
+const (
+	TCS_N_SSA   = 2
+	TCS_OFF_SSA = PSIZE
+	TCS_OFF_FS  = TCS_OFF_SSA + PSIZE
+	TCS_OFF_GS  = TCS_OFF_FS
+	TCS_OFF_END = TCS_OFF_GS + PSIZE
+)
+
 type sgx_enclave_create struct {
 	src uint64
 }
@@ -47,5 +60,6 @@ type sgx_wrapper struct {
 	siz   uintptr
 	stack uintptr
 	ssiz  uintptr
+	tcs   uintptr // tcs address 0x1000.
 	alloc []byte
 }
