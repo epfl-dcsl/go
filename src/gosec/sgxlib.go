@@ -82,6 +82,7 @@ func sgxLoadProgram(path string) {
 
 	// Mprotect and EADD stack and preallocated.
 	sgxStackPreallocEadd(secs, wrap, srcRegion)
+	sgxInitEaddTCS(file.Entry, secs, wrap, srcRegion)
 
 	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
@@ -220,6 +221,10 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	wrapper := &sgx_wrapper{uintptr(secs.baseAddr), uintptr(secs.size), saddr,
 		uintptr(ssize), saddr + uintptr(ssize) + PSIZE, nil}
 
+	if wrapper.tcs+TCS_OFF_END > ENCLMASK+ENCLSIZE {
+		log.Fatalln("gosec: TCS is out of enclave limits.")
+	}
+
 	for _, v := range runtime.EnclavePreallocated {
 		if v.Addr+v.Size > ENCLMASK+ENCLSIZE {
 			log.Fatalf("gosec: > preallocation out of enclave boundaries: %x\n", v.Addr+v.Size)
@@ -254,7 +259,7 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	}
 }
 
-func sgxAllocateInitTCS(entry uintptr, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
+func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
 	tcs.reserved1 = uint64(0)
 	tcs.flags = uint64(0)
@@ -263,13 +268,20 @@ func sgxAllocateInitTCS(entry uintptr, secs *secs_t, wrap, srcRegion *sgx_wrappe
 	tcs.nssa = TCS_N_SSA
 	tcs.oentry = uint64(entry)
 	tcs.reserved2 = uint64(0)
-	tcs.ofsbasgx = uint64(TCS_OFF_FS)
-	tcs.ogsbasgx = uint64(TCS_OFF_GS)
+	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr
+	tcs.ogsbasgx = uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
 	tcs.fslimit = SGX_FS_LIMIT
 	tcs.gslimit = SGX_GS_LIMIT
 	for i := range tcs.reserved3 {
 		tcs.reserved3[i] = uint64(0)
 	}
+
+	// Add the TCS
+	sgxAddRegion(secs, wrap.tcs, srcRegion.tcs, PSIZE, _PROT_NONE, SGX_SECINFO_TCS)
+
+	// Add the SSA and FS.
+	sgxAddRegion(secs, wrap.tcs+TCS_OFF_SSA, srcRegion.tcs+TCS_OFF_SSA,
+		TCS_OFF_END-TCS_OFF_SSA, _PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 }
 
 func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr, tpe uint64) {
