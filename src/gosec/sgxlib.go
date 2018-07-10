@@ -4,6 +4,7 @@ import (
 	"debug/elf"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	"sort"
 	"syscall"
@@ -45,7 +46,7 @@ func sgxLoadProgram(path string) {
 	sgxInit()
 	file, err := elf.Open(path)
 	check(err)
-	defer func() { check(file.Close()) }()
+	//defer func() { check(file.Close()) }()
 
 	secs, wrap := sgxCreateSecs(file)
 
@@ -58,10 +59,10 @@ func sgxLoadProgram(path string) {
 
 	src := srcRegion.base
 	prot := int(_PROT_READ | _PROT_WRITE)
-	ptr, ret := syscall.RMmap(src, int(srcRegion.siz), prot,
+	srcptr, ret := syscall.RMmap(src, int(srcRegion.siz), prot,
 		_MAP_NORESERVE|_MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
 	check(ret)
-	srcRegion.alloc = ptr
+	srcRegion.alloc = srcptr
 
 	// Check that the sections are sorted now.
 	sort.Sort(SortedElfSections(file.Sections))
@@ -83,6 +84,9 @@ func sgxLoadProgram(path string) {
 	}
 	sgxMapSections(secs, aggreg, wrap, srcRegion)
 
+	//Setup the stack arguments and Cooprt.
+	pstack := runtime.SetupEnclSysStack(srcRegion.stack + srcRegion.ssiz)
+
 	// Mprotect and EADD stack and preallocated.
 	sgxStackPreallocEadd(secs, wrap, srcRegion)
 	sgxInitEaddTCS(file.Entry, secs, wrap, srcRegion)
@@ -92,9 +96,14 @@ func sgxLoadProgram(path string) {
 	tok := sgxTokenGetAesm(secs)
 	sgxEinit(secs, &tok)
 
-	// TODO do the unmap of srcRegion
+	//TODO set up the stack!!!
 
-	panic("We STOP SHORT")
+	//unmap the srcRegion - TODO do that later.
+	err = syscall.Munmap(srcptr)
+	check(err)
+
+	sgxEEnter(uint64(wrap.tcs), uint64(transposeIn(pstack)))
+	//panic("STOP SHORT")
 	////TODO change that as well, we need to create thread, move to a function
 	//// that does the eenter.
 	//fn := unsafe.Pointer(uintptr(file.Entry))
@@ -433,4 +442,55 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 		log.Println("gosec: sgxEinit failed with return code ", ret)
 		panic("Stopping the execution before performing einit.")
 	}
+}
+
+func sgxEEnter(tcs uint64, pstack uint64) {
+	//TODO SETUP a new fucking stack here.
+	rdi, rsi := uint64(0), uint64(0)
+	prot := _PROT_READ | _PROT_WRITE
+	ssiz := int(0x8000)
+	_, err := syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	check(err)
+
+	// Set up the stack arguments.
+
+	// RSP 32
+	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(tcs)
+	ptr := (*uint64)(unsafe.Pointer(addrpstack))
+	*ptr = pstack
+
+	// RSP 24
+	addrsi := addrpstack - unsafe.Sizeof(tcs)
+	ptr = (*uint64)(unsafe.Pointer(addrsi))
+	*ptr = uint64(uintptr(unsafe.Pointer(&rsi)))
+
+	// RSP 16
+	addrdi := addrsi - unsafe.Sizeof(tcs)
+	ptr = (*uint64)(unsafe.Pointer(addrdi))
+	*ptr = uint64(uintptr(unsafe.Pointer(&rdi)))
+
+	// RSP 8
+	xcpt := uint64(reflect.ValueOf(sgxException).Pointer())
+	addrxcpt := addrdi - unsafe.Sizeof(tcs)
+	ptr = (*uint64)(unsafe.Pointer(addrxcpt))
+	*ptr = xcpt
+
+	// RPS 0
+	addrtcs := addrxcpt - unsafe.Sizeof(tcs)
+	ptr = (*uint64)(unsafe.Pointer(addrtcs))
+	*ptr = tcs
+
+	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
+
+	log.Printf("Gonna jump to address %x, tcs is %x, pstack %x\n", uintptr(fn), tcs, pstack)
+	runtime.StartEnclaveOSThread(addrtcs, fn)
+	log.Println("After the run")
+}
+
+func testEntry() {
+	log.Println("Test and I am here")
+}
+
+func sgxException() {
+	log.Fatalln("SGX exception occured.")
 }

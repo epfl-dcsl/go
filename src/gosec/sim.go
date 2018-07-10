@@ -17,7 +17,7 @@ const simSTACK = uintptr(0xe41ffd8000)
 
 func loadProgram(path string) {
 	//SGXFull()
-	sgxLoadProgram(path)
+	//sgxLoadProgram(path)
 	file, err := elf.Open(path)
 	check(err)
 	_, wrap := sgxCreateSecs(file)

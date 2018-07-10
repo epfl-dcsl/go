@@ -10,7 +10,8 @@
 // _encl0_amd64 is a startup code for amd64 enclave code.
 // The goal here is to put a -1 inside the argc to let the runtime know we are
 // in an enclave.
-TEXT _encl0_amd64(SB),NOSPLIT,$-8
+TEXT _encl0_amd64(SB),NOSPLIT,$-40
+	MOVQ	nst+32(FP), SP
 	MOVQ	$-1, DI		//argc for enclave
 	LEAQ	8(SP), SI 	// argv
 	JMP runtime·rt0_go(SB)

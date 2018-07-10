@@ -85,6 +85,7 @@ const (
 	IsSim = true
 	//TODO @aghosn this must be exactly the same as in amd64/obj.go
 	ENCLMASK = 0x040000000000
+	MMMASK   = 0x050000000000
 	POOLMEM  = uintptr(0x1000 * 300)
 )
 
@@ -278,6 +279,59 @@ func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
 	c.allocPool[id].c <- r
 }
 
+// Sets up the stack arguments and returns the beginning of the stack address.
+func SetupEnclSysStack(stack uintptr) uintptr {
+	if isEnclave {
+		panic("Should not allocate enclave from the enclave.")
+	}
+	addrArgc := stack - unsafe.Sizeof(argc)
+	addrArgv := addrArgc - unsafe.Sizeof(argv)
+
+	ptrArgc := (*int32)(unsafe.Pointer(addrArgc))
+	*ptrArgc = argc
+
+	// Initialize the Cooprt
+	Cooprt = &CooperativeRuntime{}
+	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ocall = make(chan OcallReq)
+	Cooprt.OAllocReq = make(chan AllocAttr)
+	Cooprt.sl = &secspinlock{0}
+	for i := range Cooprt.pool {
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
+		Cooprt.pool[i].wg.id = int32(i)
+	}
+
+	for i := range Cooprt.sysPool {
+		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
+	}
+
+	for i := range Cooprt.allocPool {
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
+	}
+
+	//TODO handle this somewhere else - with the preallocated probably.
+	//buffstart := unsafe.Pointer(membufaddr)
+	//p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_FIXED|_MAP_ANON|_MAP_PRIVATE, -1, 0)
+	//if err != 0 || uintptr(p) != membufaddr {
+	//	throw("Unable to mmap memory pool for the enclave.")
+	//}
+	Cooprt.mmStart = uintptr(membufaddr)
+	Cooprt.currHead = uintptr(membufaddr)
+
+	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
+	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
+
+	return addrArgv
+}
+
+func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
+	ret := clone(cloneFlags, unsafe.Pointer(stack), nil, nil, fn)
+	if ret < 0 {
+		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
+		exit(1)
+	}
+}
+
 func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
@@ -352,6 +406,8 @@ var (
 	EnclavePreallocated = map[uintptr]Relocation{
 		0xC000000000: Relocation{(0xC00000000 + ENCLMASK), 0x1000},
 		0xC41FFF8000: Relocation{(0xC00000000 + 0x1000*2 + ENCLMASK), 0x108000},
+		(MMMASK + 0xC00000000 + 0x010000000): Relocation{(0xC00000000 + ENCLMASK + 0x010000000),
+			POOLMEM},
 	}
 
 	relocKey = [2]uintptr{0xC000000000, 0xC41FFF8000}
