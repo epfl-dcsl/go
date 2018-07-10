@@ -38,6 +38,9 @@ var (
 	sgxFd *os.File = nil
 )
 
+// asm_eenter calls the enclu.
+func asm_eenter(tcs, xcpt, rdi, rsi uint64)
+
 func sgxLoadProgram(path string) {
 	sgxInit()
 	file, err := elf.Open(path)
@@ -259,6 +262,7 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	}
 }
 
+// TODO should maybe change the layout.
 func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
 	tcs.reserved1 = uint64(0)
