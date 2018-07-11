@@ -63,7 +63,8 @@ func LoadEnclave() {
 
 	//Start loading the program within the correct address space.
 	isInit = true
-	sgxLoadProgram(name)
+	loadProgram(name)
+	//sgxLoadProgram(name)
 }
 
 // Spins on the scheduler. Avoids triggering the deadlock detector when routines

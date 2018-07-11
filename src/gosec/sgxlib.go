@@ -485,6 +485,8 @@ func sgxEEnter(tcs uint64, pstack uint64) {
 	log.Printf("Gonna jump to address %x, tcs is %x, pstack %x\n", uintptr(fn), tcs, pstack)
 	runtime.StartEnclaveOSThread(addrtcs, fn)
 	log.Println("After the run")
+	for {
+	}
 }
 
 func testEntry() {

@@ -13,7 +13,7 @@
 TEXT _encl0_amd64(SB),NOSPLIT,$-40
 	MOVQ	nst+32(FP), SP
 	MOVQ	$-1, DI		//argc for enclave
-	LEAQ	8(SP), SI 	// argv
+	LEAQ	0(SP), SI 	// argv
 	JMP runtime·rt0_go(SB)
 
 // _rt0_amd64 is common startup code for most amd64 systems when using

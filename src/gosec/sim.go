@@ -47,6 +47,12 @@ func loadProgram(path string) {
 	_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
 	check(err)
 
+	// second stack
+	prot = _PROT_READ | _PROT_WRITE
+	ssiz := int(0x8000)
+	_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	check(err)
+
 	enclavePreallocate()
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))

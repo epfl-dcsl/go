@@ -372,7 +372,15 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
 
-	ret := clone(cloneFlags, unsafe.Pointer(addrArgv), nil, nil, fn)
+	// RSP 32
+	ssiz := uintptr(0x8000)
+	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(uint64(0))
+	ptr := (*uint64)(unsafe.Pointer(addrpstack))
+	*ptr = uint64(addrArgv)
+
+	stk := addrpstack - 4*unsafe.Sizeof(uint64(0))
+
+	ret := clone(cloneFlags, unsafe.Pointer(stk), nil, nil, fn)
 	if ret < 0 {
 		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
 		exit(1)
