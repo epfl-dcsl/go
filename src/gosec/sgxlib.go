@@ -96,18 +96,13 @@ func sgxLoadProgram(path string) {
 	tok := sgxTokenGetAesm(secs)
 	sgxEinit(secs, &tok)
 
-	//TODO set up the stack!!!
-
-	//unmap the srcRegion - TODO do that later.
+	//unmap the srcRegion
 	err = syscall.Munmap(srcptr)
 	check(err)
 
-	sgxEEnter(uint64(wrap.tcs), uint64(transposeIn(pstack)))
-	//panic("STOP SHORT")
-	////TODO change that as well, we need to create thread, move to a function
-	//// that does the eenter.
-	//fn := unsafe.Pointer(uintptr(file.Entry))
-	//runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn)
+	transpstack := transposeIn(pstack)
+
+	sgxEEnter(uint64(wrap.tcs), uint64(transpstack))
 }
 
 //TODO remove this is just to try to create an enclave.
@@ -255,10 +250,7 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 // TODO will need to allocate the TCS as well.
 func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
-	_, _, err := syscall.Syscall(syscall.SYS_MPROTECT, wrap.stack, wrap.ssiz, prot)
-	if err != 0 {
-		log.Fatalln("gosec: unable to mprotect the stack: ", err)
-	}
+	log.Printf("The stack address is %x\n", wrap.stack)
 
 	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot, SGX_SECINFO_REG)
 
@@ -273,13 +265,14 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 
 // TODO should maybe change the layout.
 func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
+	log.Printf("The entry %x\n", entry)
 	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
 	tcs.reserved1 = uint64(0)
 	tcs.flags = uint64(0)
 	tcs.ossa = uint64(wrap.tcs+TCS_OFF_SSA) - secs.baseAddr
 	tcs.cssa = uint32(0)
 	tcs.nssa = TCS_N_SSA
-	tcs.oentry = uint64(entry)
+	tcs.oentry = entry
 	tcs.reserved2 = uint64(0)
 	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr
 	tcs.ogsbasgx = uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
@@ -290,7 +283,7 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	}
 
 	// Add the TCS
-	sgxAddRegion(secs, wrap.tcs, srcRegion.tcs, PSIZE, _PROT_NONE, SGX_SECINFO_TCS)
+	sgxAddRegion(secs, wrap.tcs, srcRegion.tcs, PSIZE, _PROT_READ|_PROT_WRITE, SGX_SECINFO_TCS)
 
 	// Add the SSA and FS.
 	sgxAddRegion(secs, wrap.tcs+TCS_OFF_SSA, srcRegion.tcs+TCS_OFF_SSA,
@@ -298,6 +291,12 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 }
 
 func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr, tpe uint64) {
+	// First do the mprotect.
+	_, _, ret := syscall.Syscall(syscall.SYS_MPROTECT, addr, siz, prot)
+	if ret != 0 {
+		log.Println("gosec: sgxAddRegion mprotect failed ", ret)
+		panic("stopping execution.")
+	}
 	for x, y := addr, src; x < addr+siz; x, y = x+PSIZE, y+PSIZE {
 		sgxEadd(secs, x, y, prot, tpe)
 	}
@@ -395,9 +394,8 @@ func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr, tpe uint64) {
 	eadd := &sgx_enclave_add_page{}
 	eadd.addr = uint64(daddr)
 	eadd.src = uint64(uintptr(oaddr))
-	//eadd.mrmask = uint16(0xfff)
 	eadd.mrmask = uint16(0xffff)
-	if prot&_PROT_WRITE != 0 {
+	if prot&_PROT_WRITE != 0 && tpe != SGX_SECINFO_TCS {
 		eadd.mrmask = uint16(0x0)
 	}
 
@@ -411,6 +409,11 @@ func sgxEadd(secs *secs_t, daddr, oaddr, prot uintptr, tpe uint64) {
 	}
 	if prot&_PROT_WRITE != 0 {
 		secinfo.flags |= SGX_SECINFO_W
+	}
+
+	// Special case for the TCS, no protections.
+	if tpe == SGX_SECINFO_TCS {
+		secinfo.flags = SGX_SECINFO_TCS
 	}
 	eadd.secinfo = uint64(uintptr(unsafe.Pointer(secinfo)))
 	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_ADD_PAGE), uintptr(unsafe.Pointer(eadd)))
@@ -437,9 +440,10 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 	parm.einittoken = uint64(uintptr(unsafe.Pointer(&tok.Token[0])))
 
 	ptr := uintptr(unsafe.Pointer(parm))
-	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_INIT), ptr)
-	if ret != 0 {
-		log.Println("gosec: sgxEinit failed with return code ", ret)
+	p1, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_INIT), ptr)
+
+	if ret != 0 || p1 != 0 {
+		log.Println("gosec: sgxEinit failed with return code ", ret, "-- p1: ", p1)
 		panic("Stopping the execution before performing einit.")
 	}
 }
@@ -453,7 +457,6 @@ func sgxEEnter(tcs uint64, pstack uint64) {
 	check(err)
 
 	// Set up the stack arguments.
-
 	// RSP 32
 	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(tcs)
 	ptr := (*uint64)(unsafe.Pointer(addrpstack))
@@ -483,6 +486,7 @@ func sgxEEnter(tcs uint64, pstack uint64) {
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
 
 	log.Printf("Gonna jump to address %x, tcs is %x, pstack %x\n", uintptr(fn), tcs, pstack)
+
 	runtime.StartEnclaveOSThread(addrtcs, fn)
 	log.Println("After the run")
 	for {

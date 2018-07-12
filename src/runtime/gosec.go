@@ -284,6 +284,7 @@ func SetupEnclSysStack(stack uintptr) uintptr {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
+
 	addrArgc := stack - unsafe.Sizeof(argc)
 	addrArgv := addrArgc - unsafe.Sizeof(argv)
 

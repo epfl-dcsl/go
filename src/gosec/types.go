@@ -21,6 +21,7 @@ const (
 	SGX_IOC_ENCLAVE_INIT     = ((1 << 30) | (SGX_MAGIC << 8) | (0x02) | (24 << 16))
 
 	SGX_ATTR_MODE64BIT = 0x04
+	TCS_DBGOPTION      = 1
 )
 
 type enclave_thread_t struct {

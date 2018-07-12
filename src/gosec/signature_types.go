@@ -9,6 +9,8 @@ const (
 
 	SE_KEY_SIZE      = 384 /* in bytes */
 	SE_EXPONENT_SIZE = 4   /* RSA public key exponent size in bytes */
+
+	TPE_DBG = (1 << 31)
 )
 
 type TokenGob struct {
