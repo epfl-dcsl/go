@@ -14,7 +14,7 @@ TEXT _encl0_amd64(SB),NOSPLIT,$-40
 	MOVQ	nst+32(FP), SP
 	MOVQ	$-1, DI		//argc for enclave
 	LEAQ	0(SP), SI 	// argv
-	JMP runtime·rt0_go(SB)
+	JMP runtime·sgx_rt0_go(SB)
 
 // _rt0_amd64 is common startup code for most amd64 systems when using
 // internal linking. This is the entry point for the program from the

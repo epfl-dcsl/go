@@ -42,6 +42,9 @@ var (
 // asm_eenter calls the enclu.
 func asm_eenter(tcs, xcpt, rdi, rsi uint64)
 
+// asm_exception does an eresume
+func asm_exception()
+
 func sgxLoadProgram(path string) {
 	sgxInit()
 	file, err := elf.Open(path)
@@ -95,6 +98,16 @@ func sgxLoadProgram(path string) {
 	sgxHashFinalize()
 	tok := sgxTokenGetAesm(secs)
 	sgxEinit(secs, &tok)
+
+	//TODO for debugging
+	//	base := uintptr(0x40000001000)
+	//	base2 := base - ENCLMASK + MMMASK
+	//	for i := uintptr(0); i < PSIZE; i++ {
+	//		b := (*byte)(unsafe.Pointer(base + i))
+	//		b2 := (*byte)(unsafe.Pointer(base2 + i))
+	//		log.Println("A byte: ", *b, "---> ", *b2)
+	//
+	//	}
 
 	//unmap the srcRegion
 	err = syscall.Munmap(srcptr)
@@ -272,7 +285,7 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	tcs.ossa = uint64(wrap.tcs+TCS_OFF_SSA) - secs.baseAddr
 	tcs.cssa = uint32(0)
 	tcs.nssa = TCS_N_SSA
-	tcs.oentry = entry
+	tcs.oentry = entry - secs.baseAddr
 	tcs.reserved2 = uint64(0)
 	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr
 	tcs.ogsbasgx = uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
@@ -473,7 +486,7 @@ func sgxEEnter(tcs uint64, pstack uint64) {
 	*ptr = uint64(uintptr(unsafe.Pointer(&rdi)))
 
 	// RSP 8
-	xcpt := uint64(reflect.ValueOf(sgxException).Pointer())
+	xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
 	addrxcpt := addrdi - unsafe.Sizeof(tcs)
 	ptr = (*uint64)(unsafe.Pointer(addrxcpt))
 	*ptr = xcpt

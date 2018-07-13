@@ -65,7 +65,7 @@ func setHeader(e *enclave_css_t) {
 	e.Header = [12]uint8{6, 0, 0, 0, 0xE1, 0, 0, 0, 0, 0, 1, 0}
 	e.Header2 = [16]uint8{1, 1, 0, 0, 0x60, 0, 0, 0, 0x60, 0, 0, 0, 1, 0, 0, 0}
 	//TODO trying to see if dbg works.
-	e.Tpe = 0
+	e.Tpe = 0 //uint32(TPE_DBG)
 	e.Module_vendor = 0
 	year, month, day := time.Now().Date()
 	e.Date = uint32(day + (int(month) << 8) + (year % 100 << 16) + (year / 100 << 24))
