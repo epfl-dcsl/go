@@ -6,7 +6,9 @@ package gosec
 
 import (
 	"debug/elf"
+	"fmt"
 	"log"
+	"os/exec"
 	"runtime"
 	"sort"
 	"syscall"
@@ -41,6 +43,11 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
+	fmt.Println(path)
+	out, err := exec.Command("bash", "-c", "go tool nm enclavebin | grep runtime.m0").Output() //exec.Command("bash", "-c", "go tool nm ", path, " | grep runtime.m0 ").Output()
+	log.Println("The symbol is ", string(out))
+	check(err)
+
 	// mmap the stack
 	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
@@ -52,6 +59,10 @@ func loadProgram(path string) {
 	ssiz := int(0x8000)
 	_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
 	check(err)
+
+	// write the value checked for TLS setup to differentiate between SIM and non SIM
+	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(MMMASK) + uintptr(SIM_OFF)))
+	*ptrFlag = uint64(1)
 
 	enclavePreallocate()
 	// Create the thread for enclave.

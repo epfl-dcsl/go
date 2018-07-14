@@ -34,42 +34,32 @@ TEXT runtime·sgx_rt0_go(SB),NOSPLIT,$0
 	CMPL	AX, $0
 	JE	nocpuinfo
 
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, AX
-    MOVQ $0x05, (AX)
-
 	// Figure out how to serialize RDTSC.
 	// On Intel processors LFENCE is enough. AMD requires MFENCE.
 	// Don't know about the rest, so let's do MFENCE.
 	CMPL	BX, $0x756E6547  // "Genu"
 	JNE	notintel
 
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, AX
-    MOVQ $0x06, (AX)
-
 	CMPL	DX, $0x49656E69  // "ineI"
 	JNE	notintel
-
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, AX
-    MOVQ $0x07, (AX)
 
 	CMPL	CX, $0x6C65746E  // "ntel"
 	JNE	notintel
 
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, AX
-    MOVQ $0x08, (AX)
-
 	MOVB	$1, runtime·isIntel(SB)
 	MOVB	$1, runtime·lfenceBeforeRdtsc(SB)
-notintel:
 
+notintel:
 	// Load EAX=1 cpuid flags
 	MOVL	$1, AX
-	CPUID
-	MOVL	AX, runtime·processorVersionInfo(SB)
+
+    //TODO modified this because CPUID is not allowed
+    //CPUID
+    MOVL    $0x000806e9, AX
+    MOVL    $0x01100800, BX
+    MOVL    $0x7ffafbff, CX
+
+    MOVL	AX, runtime·processorVersionInfo(SB)
 
 	TESTL	$(1<<26), DX // SSE2
 	SETNE	runtime·support_sse2(SB)
@@ -103,7 +93,11 @@ eax7:
 	JLT	osavx
 	MOVL	$7, AX
 	MOVL	$0, CX
-	CPUID
+
+    // BX 0x029c6fbf
+    // TODO not supported inside the enclave.
+    //CPUID
+    MOVL    $0x029c6fbf, BX
 
 	TESTL	$(1<<3), BX // BMI1
 	SETNE	runtime·support_bmi1(SB)
@@ -119,12 +113,19 @@ eax7:
 	TESTL	$(1<<9), BX // ERMS
 	SETNE	runtime·support_erms(SB)
 
+    // TODO remove afterwards (just for debuggin)
+    MOVQ $0x050000000000, R8
+    MOVQ $0x0d, (R8)
+
 osavx:
 	CMPB	runtime·support_osxsave(SB), $1
 	JNE	noavx
+
 	MOVL	$0, CX
 	// For XGETBV, OSXSAVE bit is required and sufficient
 	XGETBV
+
+
 	ANDL	$6, AX
 	CMPL	AX, $6 // Check for OS support of XMM and YMM registers.
 	JE nocpuinfo
@@ -162,16 +163,51 @@ needtls:
 	JMP ok
 #endif
 
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x11, (R8)
+
+	MOVQ $0x050000000018, R8
+	MOVQ $m_tls, (R8)
+
+
 	LEAQ	runtime·m0+m_tls(SB), DI
-	CALL	runtime·settls(SB)
+	CALL	runtime·sgxsettls(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x13, (R8)
 
 	// store through it, to make sure it works
 	get_tls(BX)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x14, (R8)
+
+	//TODO CHECK the TLS as well
+	MOVQ $0x050000000010, R8
+	MOVQ BX, (R8)
+
 	MOVQ	$0x123, g(BX)
 	MOVQ	runtime·m0+m_tls(SB), AX
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x15, (R8)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000018, R8
+	MOVQ AX, (R8)
+
 	CMPQ	AX, $0x123
 	JEQ 2(PC)
 	MOVL	AX, 0	// abort
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x16, (R8)
+
 ok:
 	// set the per-goroutine and per-mach "registers"
 	get_tls(BX)

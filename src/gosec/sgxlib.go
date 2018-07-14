@@ -18,7 +18,8 @@ const (
 	ENCLMASK = 0x040000000000
 	ENCLSIZE = 0x001000000000
 
-	MMMASK = 0x050000000000
+	MMMASK  = 0x050000000000
+	SIM_OFF = 0x08
 )
 
 type SortedElfSections []*elf.Section
@@ -116,61 +117,6 @@ func sgxLoadProgram(path string) {
 	transpstack := transposeIn(pstack)
 
 	sgxEEnter(uint64(wrap.tcs), uint64(transpstack))
-}
-
-//TODO remove this is just to try to create an enclave.
-func SGXFull() {
-	sgxInit()
-	//addr := uintptr(0x040000000000)
-	addr := uintptr(ENCLMASK)
-	//siz := uintptr(0x001000000000)
-	siz := uintptr(0x8000)
-	prot := int32(_PROT_READ | _PROT_WRITE | _PROT_EXEC)
-	ptr, err := runtime.RMmap(unsafe.Pointer(addr), siz, prot, _MAP_SHARED, int32(sgxFd.Fd()), 0)
-	if err != 0 || addr != uintptr(ptr) {
-		log.Fatalln("Unable to mmap the original page: ", err)
-	}
-
-	// Allocate the transposed region.
-	srcReg, ers := syscall.RMmap(transposeOut(addr), int(siz), _PROT_READ|_PROT_WRITE|_PROT_EXEC,
-		_MAP_ANON|_MAP_FIXED|_MAP_PRIVATE|_MAP_NORESERVE, -1, 0)
-	check(ers)
-
-	// Fill the region with 42.
-	for i := 0; i < len(srcReg); i++ {
-		srcReg[i] = byte(42)
-	}
-
-	secs := &secs_t{}
-	secs.size = uint64(siz) //uint64(siz)
-	secs.baseAddr = uint64(addr)
-	secs.xfrm = 0x7
-	secs.ssaFrameSize = 1
-	secs.attributes = 0x06
-
-	sgxHashEcreate(secs)
-
-	// ECREATE
-	parms := &sgx_enclave_create{}
-	parms.src = uint64(uintptr(unsafe.Pointer(secs)))
-	ptr2 := uintptr(unsafe.Pointer(parms))
-	_, _, ret := syscall.Syscall(syscall.SYS_IOCTL, uintptr(sgxFd.Fd()), uintptr(SGX_IOC_ENCLAVE_CREATE), ptr2)
-	if ret != 0 {
-		log.Fatalln("Failed in call to ecreate: ", ret)
-	}
-
-	// EADD all the pages.
-	sgxAddRegion(secs, addr, transposeOut(addr), siz-PSIZE, uintptr(prot), SGX_SECINFO_REG)
-
-	// EADD the TCS
-	log.Println("The size of the tcs struct ", unsafe.Sizeof(tcs_t{}))
-	sgxAddRegion(secs, addr+siz-PSIZE, transposeOut(addr+siz-PSIZE), PSIZE, uintptr(_PROT_NONE), SGX_SECINFO_TCS)
-
-	// Get the token.
-	sgxHashFinalize()
-	tok := sgxTokenGetAesm(secs)
-	sgxEinit(secs, &tok)
-	panic("Dead")
 }
 
 // palign does a page align.
