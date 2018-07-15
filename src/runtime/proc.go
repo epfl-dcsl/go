@@ -79,6 +79,10 @@ var (
 	m0           m
 	g0           g
 	raceprocctx0 uintptr
+
+	//TODO aghosn for the enclave.
+	mglobal *m = nil
+	msgx    *m = nil
 )
 
 //go:linkname runtime_init runtime.init

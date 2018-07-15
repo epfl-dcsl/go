@@ -20,6 +20,9 @@ const (
 
 	MMMASK  = 0x050000000000
 	SIM_OFF = 0x08
+
+	SIM_FLAG  = 0x050000000008
+	MSGX_ADDR = 0x050000000020
 )
 
 type SortedElfSections []*elf.Section
@@ -51,6 +54,9 @@ func sgxLoadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
 	//defer func() { check(file.Close()) }()
+
+	// Get the TLS address and set it up.
+	computeTLM0(path)
 
 	secs, wrap := sgxCreateSecs(file)
 
@@ -233,8 +239,11 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	tcs.nssa = TCS_N_SSA
 	tcs.oentry = entry - secs.baseAddr
 	tcs.reserved2 = uint64(0)
-	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr
-	tcs.ogsbasgx = uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
+	if RT_M0 == 0 {
+		panic("Unable to access the RT M0")
+	}
+	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr //uint64(RT_M0+TLS_M_OFF) - secs.baseAddr
+	tcs.ogsbasgx = tcs.ofsbasgx                                //uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
 	tcs.fslimit = SGX_FS_LIMIT
 	tcs.gslimit = SGX_GS_LIMIT
 	for i := range tcs.reserved3 {

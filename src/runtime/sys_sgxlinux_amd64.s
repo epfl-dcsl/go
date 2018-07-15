@@ -9,13 +9,11 @@
 // set tls base to DI
 TEXT runtime·sgxsettls(SB),NOSPLIT,$32
 
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, R8
-    MOVQ $0x12, (R8)
-    MOVQ $SIM_FLAG, R8
-    MOVQ (R8), R9
-    CMPQ R9, $1
-    JNE fini
+    // See if we are in simulation mode or not.
+    MOVB runtime·isSimulation(SB), R8
+    CMPB R8, $1
+    JE 2(PC)
+    MOVL $0xf1, 0xf1  // crash
 
 	ADDQ	$8, DI	// ELF wants to use -8(FS)
 	MOVQ	DI, SI
@@ -25,5 +23,4 @@ TEXT runtime·sgxsettls(SB),NOSPLIT,$32
 	CMPQ	AX, $0xfffffffffffff001
 	JLS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
-fini:
 	RET

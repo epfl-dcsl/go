@@ -1,5 +1,11 @@
 package gosec
 
+import (
+	"os/exec"
+	"strconv"
+	"strings"
+)
+
 const (
 	PAGE_READ     = 0x1
 	PAGE_WRITE    = 0x2
@@ -31,6 +37,11 @@ const (
 	TCS_OFF_FS  = TCS_OFF_SSA + PSIZE
 	TCS_OFF_GS  = TCS_OFF_FS
 	TCS_OFF_END = TCS_OFF_GS + PSIZE
+	TLS_M_OFF   = uintptr(0x60)
+)
+
+var (
+	RT_M0 = uintptr(0)
 )
 
 type sgx_enclave_create struct {
@@ -62,4 +73,28 @@ type sgx_wrapper struct {
 	ssiz  uintptr
 	tcs   uintptr // tcs address 0x1000.
 	alloc []byte
+}
+
+func computeTLM0(path string) {
+	if path != "enclavebin" {
+		panic("Unexpected name for the enclave!")
+	}
+
+	out, err := exec.Command("bash", "-c", "go tool nm enclavebin | grep runtime.m0").Output()
+	check(err)
+	if len(out) == 0 {
+		panic("Unable to find the symbol for the runtime.m0")
+	}
+
+	sparse := strings.Split(string(out), " ")
+	if len(sparse) != 3 {
+		panic("error parsing the nm result")
+	}
+
+	s := sparse[0]
+	n, err := strconv.ParseUint(s, 16, 64)
+	if err != nil {
+		panic(err)
+	}
+	RT_M0 = uintptr(uint64(n))
 }

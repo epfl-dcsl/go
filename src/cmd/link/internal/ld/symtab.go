@@ -673,4 +673,6 @@ func (ctxt *Link) symtab() {
 		lastmoduledatap.Size = 0 // overwrite existing value
 		lastmoduledatap.AddAddr(ctxt.Arch, moduledata)
 	}
+
+	//TODO TLS aghosn here we can find the symbols
 }

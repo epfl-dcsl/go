@@ -1966,6 +1966,7 @@ func (ctxt *Link) address() {
 		}
 		if s.Name == ".bss" {
 			bss = s
+			//TODO aghosn the bss is here.
 		}
 		if s.Name == ".noptrbss" {
 			noptrbss = s

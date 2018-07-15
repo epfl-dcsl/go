@@ -6,9 +6,7 @@ package gosec
 
 import (
 	"debug/elf"
-	"fmt"
 	"log"
-	"os/exec"
 	"runtime"
 	"sort"
 	"syscall"
@@ -24,6 +22,8 @@ func loadProgram(path string) {
 	check(err)
 	_, wrap := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
+
+	computeTLM0(path)
 
 	// Check that the sections are sorted now.
 	sort.Sort(SortedElfSections(file.Sections))
@@ -43,11 +43,6 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
-	fmt.Println(path)
-	out, err := exec.Command("bash", "-c", "go tool nm enclavebin | grep runtime.m0").Output() //exec.Command("bash", "-c", "go tool nm ", path, " | grep runtime.m0 ").Output()
-	log.Println("The symbol is ", string(out))
-	check(err)
-
 	// mmap the stack
 	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
@@ -61,8 +56,12 @@ func loadProgram(path string) {
 	check(err)
 
 	// write the value checked for TLS setup to differentiate between SIM and non SIM
-	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(MMMASK) + uintptr(SIM_OFF)))
+	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
 	*ptrFlag = uint64(1)
+
+	//write a fake value for the msgx address just to check.
+	ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
+	*ptrMsgx = uint64(0x123)
 
 	enclavePreallocate()
 	// Create the thread for enclave.

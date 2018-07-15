@@ -3,6 +3,9 @@
 #include "funcdata.h"
 #include "textflag.h"
 
+#define SIM_FLAG 0x050000000008
+#define MSGX_ADDR 0x050000000020
+
 TEXT runtime·sgx_rt0_go(SB),NOSPLIT,$0
 	// copy arguments forward on an even stack
 	MOVQ	DI, AX		// argc
@@ -163,50 +166,47 @@ needtls:
 	JMP ok
 #endif
 
-	// TODO remove afterwards (just for debuggin)
+	//TODO for debugging remove afterwards
 	MOVQ $0x050000000000, R8
-	MOVQ $0x11, (R8)
+	MOVQ $0x19, (R8)
 
-	MOVQ $0x050000000018, R8
-	MOVQ $m_tls, (R8)
+	//Set up the isEnclave variable.
+	MOVB $1, runtime·isEnclave(SB)
 
+	//Check if we are in simulation mode.
+	MOVQ $SIM_FLAG, R9
+	MOVQ (R9), R8
+	CMPB R8, $1
+	JNE nonsim
+
+	//Set the runtime.isSim
+	MOVB $1, runtime·isSimulation(SB)
 
 	LEAQ	runtime·m0+m_tls(SB), DI
 	CALL	runtime·sgxsettls(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x13, (R8)
-
 	// store through it, to make sure it works
 	get_tls(BX)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x14, (R8)
-
-	//TODO CHECK the TLS as well
-	MOVQ $0x050000000010, R8
-	MOVQ BX, (R8)
 
 	MOVQ	$0x123, g(BX)
 	MOVQ	runtime·m0+m_tls(SB), AX
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x15, (R8)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000018, R8
-	MOVQ AX, (R8)
-
 	CMPQ	AX, $0x123
 	JEQ 2(PC)
 	MOVL	AX, 0	// abort
+	JMP nonsimend
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x16, (R8)
+nonsim:
+	//Get the TLS address and put it inside msgx pointer.
+	MOVQ $MSGX_ADDR, R9
+	MOVQ (R9), R8
+	MOVQ R8, runtime·msgx(SB)
+
+	MOVQ $0x050000000008, R8
+	MOVQ $m_tls, (R8)
+
+
+nonsimend:
 
 ok:
 	// set the per-goroutine and per-mach "registers"
@@ -215,10 +215,18 @@ ok:
 	MOVQ	CX, g(BX)
 	LEAQ	runtime·m0(SB), AX
 
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x17, (R8)
+
 	// save m->g0 = g0
 	MOVQ	CX, m_g0(AX)
 	// save m0 to g0->m
 	MOVQ	AX, g_m(CX)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x18, (R8)
 
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)
