@@ -67,12 +67,14 @@ type isgx_secinfo struct {
 }
 
 type sgx_wrapper struct {
-	base  uintptr
-	siz   uintptr
-	stack uintptr
-	ssiz  uintptr
-	tcs   uintptr // tcs address 0x1000.
-	alloc []byte
+	base         uintptr
+	siz          uintptr
+	stack        uintptr
+	ssiz         uintptr
+	tcs          uintptr // tcs address 0x1000.
+	tcsarea      uintptr
+	tcssareasize uintptr
+	alloc        []byte
 }
 
 func computeTLM0(path string) {

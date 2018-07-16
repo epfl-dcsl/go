@@ -21,8 +21,9 @@ const (
 	MMMASK  = 0x050000000000
 	SIM_OFF = 0x08
 
-	SIM_FLAG  = 0x050000000008
-	MSGX_ADDR = 0x050000000020
+	SIM_FLAG     = 0x050000000008
+	MSGX_ADDR    = 0x050000000020
+	TCS_MSGX_OFF = (0x60 + 8)
 )
 
 type SortedElfSections []*elf.Section
@@ -65,7 +66,8 @@ func sgxLoadProgram(path string) {
 
 	// Allocate the equivalent region for the eadd page.
 	srcRegion := &sgx_wrapper{transposeOut(wrap.base), wrap.siz,
-		transposeOut(wrap.stack), wrap.ssiz, transposeOut(wrap.tcs), nil}
+		transposeOut(wrap.stack), wrap.ssiz, transposeOut(wrap.tcs),
+		transposeOut(wrap.tcsarea), wrap.tcssareasize, nil}
 
 	src := srcRegion.base
 	prot := int(_PROT_READ | _PROT_WRITE)
@@ -106,23 +108,13 @@ func sgxLoadProgram(path string) {
 	tok := sgxTokenGetAesm(secs)
 	sgxEinit(secs, &tok)
 
-	//TODO for debugging
-	//	base := uintptr(0x40000001000)
-	//	base2 := base - ENCLMASK + MMMASK
-	//	for i := uintptr(0); i < PSIZE; i++ {
-	//		b := (*byte)(unsafe.Pointer(base + i))
-	//		b2 := (*byte)(unsafe.Pointer(base2 + i))
-	//		log.Println("A byte: ", *b, "---> ", *b2)
-	//
-	//	}
-
 	//unmap the srcRegion
 	err = syscall.Munmap(srcptr)
 	check(err)
 
 	transpstack := transposeIn(pstack)
 
-	sgxEEnter(uint64(wrap.tcs), uint64(transpstack))
+	sgxEEnter(wrap, uint64(wrap.tcs), uint64(transpstack))
 }
 
 // palign does a page align.
@@ -189,9 +181,11 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 		log.Fatalln("gosec: stack goes beyond enclave limits.")
 	}
 
+	// Here we should setup the TCS as stack| PSIZE | x:PSIZE | TCS
+	// Because x + PSIZE - 0x60 - 8 is TCS
 	//Check the tcs, ssa, etc..
 	wrapper := &sgx_wrapper{uintptr(secs.baseAddr), uintptr(secs.size), saddr,
-		uintptr(ssize), saddr + uintptr(ssize) + PSIZE, nil}
+		uintptr(ssize), saddr + uintptr(ssize) + 2*PSIZE, saddr + uintptr(ssize) + PSIZE, PSIZE + TCS_OFF_END, nil}
 
 	if wrapper.tcs+TCS_OFF_END > ENCLMASK+ENCLSIZE {
 		log.Fatalln("gosec: TCS is out of enclave limits.")
@@ -242,6 +236,7 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	if RT_M0 == 0 {
 		panic("Unable to access the RT M0")
 	}
+
 	tcs.ofsbasgx = uint64(wrap.tcs+TCS_OFF_FS) - secs.baseAddr //uint64(RT_M0+TLS_M_OFF) - secs.baseAddr
 	tcs.ogsbasgx = tcs.ofsbasgx                                //uint64(wrap.tcs+TCS_OFF_GS) - secs.baseAddr
 	tcs.fslimit = SGX_FS_LIMIT
@@ -249,8 +244,11 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	for i := range tcs.reserved3 {
 		tcs.reserved3[i] = uint64(0)
 	}
+	//Add the page before the tcs for msgx
+	sgxAddRegion(secs, wrap.tcsarea, srcRegion.tcsarea, PSIZE,
+		_PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 
-	// Add the TCS
+	// Add the TCS and the region before it.
 	sgxAddRegion(secs, wrap.tcs, srcRegion.tcs, PSIZE, _PROT_READ|_PROT_WRITE, SGX_SECINFO_TCS)
 
 	// Add the SSA and FS.
@@ -416,13 +414,17 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 	}
 }
 
-func sgxEEnter(tcs uint64, pstack uint64) {
+func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 	//TODO SETUP a new fucking stack here.
 	rdi, rsi := uint64(0), uint64(0)
 	prot := _PROT_READ | _PROT_WRITE
 	ssiz := int(0x8000)
 	_, err := syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
 	check(err)
+
+	// Write the tcs address on it.
+	msgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
+	*msgx = uint64(wrapper.tcs) - uint64(TCS_MSGX_OFF)
 
 	// Set up the stack arguments.
 	// RSP 32

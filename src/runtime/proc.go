@@ -141,7 +141,7 @@ func main() {
 	// to preserve the lock.
 	lockOSThread()
 
-	if g.m != &m0 {
+	if (!isSimulation && g.m != &m0) || (isEnclave && g.m != mglobal) {
 		throw("runtime.main not on m0")
 	}
 
@@ -1160,6 +1160,12 @@ func startTheWorldWithSema(emitTraceEvent bool) int64 {
 func mstart() {
 	_g_ := getg()
 
+	//TODO aghosn remove
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x1c)
+	}
+
 	osStack := _g_.stack.lo == 0
 	if osStack {
 		// Initialize stack bounds from system stack.
@@ -1175,6 +1181,13 @@ func mstart() {
 	// both Go and C functions with stack growth prologues.
 	_g_.stackguard0 = _g_.stack.lo + _StackGuard
 	_g_.stackguard1 = _g_.stackguard0
+
+	//TODO aghosn remove
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x1d)
+	}
+
 	mstart1(0)
 
 	// Exit this thread.
@@ -1204,7 +1217,7 @@ func mstart1(dummy int32) {
 
 	// Install signal handlers; after minit so that minit can
 	// prepare the thread to be able to handle the signals.
-	if _g_.m == &m0 {
+	if (!isSimulation && _g_.m == &m0) || (isEnclave && _g_.m == mglobal) {
 		mstartm0()
 	}
 
@@ -1215,7 +1228,7 @@ func mstart1(dummy int32) {
 	if _g_.m.helpgc != 0 {
 		_g_.m.helpgc = 0
 		stopm()
-	} else if _g_.m != &m0 {
+	} else if (!isSimulation && _g_.m != &m0) || (isEnclave && _g_.m != mglobal) {
 		acquirep(_g_.m.nextp.ptr())
 		_g_.m.nextp = 0
 	}
@@ -1251,7 +1264,7 @@ func mexit(osStack bool) {
 	g := getg()
 	m := g.m
 
-	if m == &m0 {
+	if (!isSimulation && m == &m0) || (isEnclave && m == mglobal) {
 		// This is the main thread. Just wedge it.
 		//
 		// On Linux, exiting the main thread puts the process

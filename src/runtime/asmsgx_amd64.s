@@ -179,6 +179,10 @@ needtls:
 	CMPB R8, $1
 	JNE nonsim
 
+	// Set the mglobal
+	LEAQ runtime·m0(SB), R8
+	MOVQ R8, runtime·mglobal(SB)
+
 	//Set the runtime.isSim
 	MOVB $1, runtime·isSimulation(SB)
 
@@ -202,8 +206,81 @@ nonsim:
 	MOVQ (R9), R8
 	MOVQ R8, runtime·msgx(SB)
 
-	MOVQ $0x050000000008, R8
-	MOVQ $m_tls, (R8)
+	// set mglobal as well.
+	MOVQ R8, runtime·mglobal(SB)
+
+	// set the per-goroutine and per-mach "registers"
+	get_tls(BX)
+	LEAQ	runtime·g0(SB), CX
+	MOVQ	CX, g(BX)
+	LEAQ	runtime·msgx(SB), AX
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000040, R8
+	LEAQ g(BX), R9
+	MOVQ R9, (R8)
+
+	// save m->g0 = g0
+	MOVQ	CX, m_g0(AX)
+	// save m0 to g0->m
+	MOVQ	AX, g_m(CX)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x18, (R8)
+
+	CLD				// convention is D is always left cleared
+	CALL	runtime·check(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x19, (R8)
+
+	MOVL	16(SP), AX		// copy argc
+	MOVL	AX, 0(SP)
+	MOVQ	24(SP), AX		// copy argv
+	MOVQ	AX, 8(SP)
+	CALL	runtime·args(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x1a, (R8)
+
+	CALL	runtime·osinit(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x1b, (R8)
+
+	CALL	runtime·schedinit(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x1c, (R8)
+
+
+	// create a new goroutine to start program
+	MOVQ	$runtime·mainPC(SB), AX		// entry
+	PUSHQ	AX
+	PUSHQ	$0			// arg size
+	CALL	runtime·newproc(SB)
+	POPQ	AX
+	POPQ	AX
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x1b, (R8)
+
+	// start this M
+	CALL	runtime·mstart(SB)
+
+	// TODO remove afterwards (just for debuggin)
+	MOVQ $0x050000000000, R8
+	MOVQ $0x222, (R8)
+
+
+	MOVL	$0xf1, 0xf1  // crash
+	RET
 
 
 nonsimend:

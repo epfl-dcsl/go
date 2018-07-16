@@ -55,13 +55,18 @@ func loadProgram(path string) {
 	_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
 	check(err)
 
-	// write the value checked for TLS setup to differentiate between SIM and non SIM
+	// write the value checked for TLS-setup to differentiate between SIM and non SIM
 	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
 	*ptrFlag = uint64(1)
 
-	//write a fake value for the msgx address just to check.
+	// Map the TCS area, ie, a page before the tcs (for msgx)
+	_, err = syscall.RMmap(wrap.tcsarea, int(wrap.tcssareasize), prot,
+		_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
+	check(err)
+
+	//write the msgx value
 	ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	*ptrMsgx = uint64(0x123)
+	*ptrMsgx = uint64(wrap.tcs - uintptr(TCS_MSGX_OFF))
 
 	enclavePreallocate()
 	// Create the thread for enclave.

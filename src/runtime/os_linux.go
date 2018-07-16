@@ -270,6 +270,10 @@ func sysauxv(auxv []uintptr) int {
 }
 
 func osinit() {
+	if isEnclave && !isSimulation {
+		ncpu = 1
+		return
+	}
 	ncpu = getproccount()
 }
 
