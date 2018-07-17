@@ -32,12 +32,28 @@ const (
 )
 
 const (
-	TCS_N_SSA   = 2
-	TCS_OFF_SSA = PSIZE
-	TCS_OFF_FS  = TCS_OFF_SSA + PSIZE
-	TCS_OFF_GS  = TCS_OFF_FS
-	TCS_OFF_END = TCS_OFF_GS + PSIZE
-	TLS_M_OFF   = uintptr(0x60)
+	TCS_N_SSA = 2
+)
+
+// Sizes for the different elements
+const (
+	STACK_SIZE    = 0x8000
+	TCS_SIZE      = PSIZE
+	SSA_SIZE      = PSIZE
+	MSGX_SIZE     = PSIZE
+	TLS_SIZE      = PSIZE
+	MHSTART_SIZE  = PSIZE
+	MH2START_SIZE = 0x108000
+	MEMBUF_SIZE   = (PSIZE * 300)
+)
+
+// Offsets are of the form FROM_TO_OFF = VALUE
+const (
+	STACK_TCS_OFF   = PSIZE
+	TCS_SSA_OFF     = 0
+	SSA_MSGX_OFF    = PSIZE
+	MSGX_TLS_OFF    = 0
+	TLS_MHSTART_OFF = PSIZE
 )
 
 var (
@@ -67,14 +83,28 @@ type isgx_secinfo struct {
 }
 
 type sgx_wrapper struct {
-	base         uintptr
-	siz          uintptr
-	stack        uintptr
-	ssiz         uintptr
-	tcs          uintptr // tcs address 0x1000.
-	tcsarea      uintptr
-	tcssareasize uintptr
-	alloc        []byte
+	base     uintptr
+	siz      uintptr
+	stack    uintptr
+	ssiz     uintptr
+	tcs      uintptr // tcs size 0x1000.
+	ssa      uintptr
+	msgx     uintptr // size 0x1000
+	tls      uintptr // size 0x1000
+	mhstart  uintptr // 0x1000
+	mh2start uintptr // 0x108000
+	membuf   uintptr // To satisfy map(nil) requests
+	alloc    []byte
+}
+
+func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
+	trans := &sgx_wrapper{
+		transposeOut(wrap.base), wrap.siz, transposeOut(wrap.stack),
+		wrap.ssiz, transposeOut(wrap.tcs), transposeOut(wrap.ssa),
+		transposeOut(wrap.msgx), transposeOut(wrap.tls),
+		transposeOut(wrap.mhstart), transposeOut(wrap.mh2start),
+		transposeOut(wrap.membuf), nil}
+	return trans
 }
 
 func computeTLM0(path string) {

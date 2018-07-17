@@ -154,16 +154,16 @@ nocpuinfo:
 	MOVQ	AX, g_stackguard1(CX)
 
 #ifndef GOOS_windows
-	JMP ok
+	JMP nonsim
 #endif
 needtls:
 #ifdef GOOS_plan9
 	// skip TLS setup on Plan 9
-	JMP ok
+	JMP nonsim
 #endif
 #ifdef GOOS_solaris
 	// skip TLS setup on Solaris
-	JMP ok
+	JMP nonsim
 #endif
 
 	//TODO for debugging remove afterwards
@@ -173,52 +173,44 @@ needtls:
 	//Set up the isEnclave variable.
 	MOVB $1, runtime·isEnclave(SB)
 
+	//Set up the mglobal pointer.
+	MOVQ $MSGX_ADDR, R9
+	MOVQ (R9), R8
+	MOVQ R8, runtime·mglobal(SB)
+
 	//Check if we are in simulation mode.
 	MOVQ $SIM_FLAG, R9
 	MOVQ (R9), R8
 	CMPB R8, $1
 	JNE nonsim
 
-	// Set the mglobal
-	LEAQ runtime·m0(SB), R8
-	MOVQ R8, runtime·mglobal(SB)
-
+	// Set the isSimulation
 	//Set the runtime.isSim
 	MOVB $1, runtime·isSimulation(SB)
 
-	LEAQ	runtime·m0+m_tls(SB), DI
+	//Set the TLS from the simulation mode.
+	MOVQ 	runtime·mglobal(SB), R9
+	LEAQ	m_tls(R9), DI
 	CALL	runtime·sgxsettls(SB)
 
+// SGX already has the TCS set.
+nonsim:
 	// store through it, to make sure it works
 	get_tls(BX)
 
 	MOVQ	$0x123, g(BX)
-	MOVQ	runtime·m0+m_tls(SB), AX
-
+	MOVQ	runtime·mglobal(SB), R9
+	MOVQ	m_tls(R9), AX
 	CMPQ	AX, $0x123
 	JEQ 2(PC)
 	MOVL	AX, 0	// abort
-	JMP nonsimend
-
-nonsim:
-	//Get the TLS address and put it inside msgx pointer.
-	MOVQ $MSGX_ADDR, R9
-	MOVQ (R9), R8
-	MOVQ R8, runtime·msgx(SB)
-
-	// set mglobal as well.
-	MOVQ R8, runtime·mglobal(SB)
 
 	// set the per-goroutine and per-mach "registers"
 	get_tls(BX)
 	LEAQ	runtime·g0(SB), CX
 	MOVQ	CX, g(BX)
-	LEAQ	runtime·msgx(SB), AX
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000040, R8
-	LEAQ g(BX), R9
-	MOVQ R9, (R8)
+	MOVQ 	runtime·mglobal(SB), AX
+	//LEAQ	runtime·mglobal(SB), AX // replaced by the simple movq of pointer.
 
 	// save m->g0 = g0
 	MOVQ	CX, m_g0(AX)
@@ -269,7 +261,7 @@ nonsim:
 
 	// TODO remove afterwards (just for debuggin)
 	MOVQ $0x050000000000, R8
-	MOVQ $0x1b, (R8)
+	MOVQ $0x1c, (R8)
 
 	// start this M
 	CALL	runtime·mstart(SB)
@@ -278,54 +270,6 @@ nonsim:
 	MOVQ $0x050000000000, R8
 	MOVQ $0x222, (R8)
 
-
-	MOVL	$0xf1, 0xf1  // crash
-	RET
-
-
-nonsimend:
-
-ok:
-	// set the per-goroutine and per-mach "registers"
-	get_tls(BX)
-	LEAQ	runtime·g0(SB), CX
-	MOVQ	CX, g(BX)
-	LEAQ	runtime·m0(SB), AX
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x17, (R8)
-
-	// save m->g0 = g0
-	MOVQ	CX, m_g0(AX)
-	// save m0 to g0->m
-	MOVQ	AX, g_m(CX)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x18, (R8)
-
-	CLD				// convention is D is always left cleared
-	CALL	runtime·check(SB)
-
-	MOVL	16(SP), AX		// copy argc
-	MOVL	AX, 0(SP)
-	MOVQ	24(SP), AX		// copy argv
-	MOVQ	AX, 8(SP)
-	CALL	runtime·args(SB)
-	CALL	runtime·osinit(SB)
-	CALL	runtime·schedinit(SB)
-
-	// create a new goroutine to start program
-	MOVQ	$runtime·mainPC(SB), AX		// entry
-	PUSHQ	AX
-	PUSHQ	$0			// arg size
-	CALL	runtime·newproc(SB)
-	POPQ	AX
-	POPQ	AX
-
-	// start this M
-	CALL	runtime·mstart(SB)
 
 	MOVL	$0xf1, 0xf1  // crash
 	RET

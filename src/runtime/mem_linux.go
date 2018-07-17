@@ -58,19 +58,18 @@ func mmap_fixed(v unsafe.Pointer, n uintptr, prot, flags, fd int32, offset uint3
 // prevents us from allocating more stack.
 //go:nosplit
 func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
-	//TODO @aghosn doesn't work
 	if isEnclave {
 		Cooprt.sl.Lock()
-		if Cooprt.currHead+n > Cooprt.mmStart+POOLMEM {
+		if Cooprt.membuf_head+n > MEMBUF_START+MEMBUF_SIZE {
 			throw("Unable to sysAlloc in enclave, ran out of pool memory")
 		}
-		res := Cooprt.currHead
+		res := Cooprt.membuf_head
 		const mask = uintptr(0xFFFFFFFFFFFFF000)
-		naddr := (Cooprt.currHead + n) & mask
-		if naddr < Cooprt.currHead+n {
+		naddr := (Cooprt.membuf_head + n) & mask
+		if naddr < Cooprt.membuf_head+n {
 			naddr += 0x1000
 		}
-		Cooprt.currHead = naddr
+		Cooprt.membuf_head = naddr
 		Cooprt.sl.Unlock()
 		mSysStatInc(sysStat, n)
 		return unsafe.Pointer(res)
@@ -88,6 +87,9 @@ func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 		return nil
 	}
 	mSysStatInc(sysStat, n)
+	if isEnclave {
+		print("Sysallocate an address within the runtime ", hex(uintptr(p)), "\n")
+	}
 	return p
 }
 
@@ -199,13 +201,12 @@ func sysFault(v unsafe.Pointer, n uintptr) {
 
 func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 	if isEnclave {
-		if addr, ok := enclaveTransPrealloc(uintptr(v)); ok {
-			*reserved = false
-			return unsafe.Pointer(addr)
+		// This is sysreserve so we do not care really.
+		// Just check that it is the correct address.
+		if uintptr(v) == Cooprt.eSpan {
+			return v
 		}
-		//TODO detect cases we do not handle.
-		print("XXX: unhandled address: ", v, "\n")
-		throw("runtime: enclave error mmap in sysReserve.")
+		panic("runtime: trying to reserve an illegal address in the enclave.")
 	}
 
 	// On 64-bit, people with ulimit -v set complain if we reserve too
@@ -237,18 +238,16 @@ func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 func sysMap(v unsafe.Pointer, n uintptr, reserved bool, sysStat *uint64) {
 	mSysStatInc(sysStat, n)
 
+	if isEnclave {
+		if enclaveIsMapped(uintptr(v), n) {
+			return
+		}
+		print("faulty address:", hex(uintptr(v)), "\n")
+		panic("runtime: enclave is trying to mmap a forbidden region!")
+	}
+
 	// On 64-bit, we don't actually have v reserved, so tread carefully.
 	if !reserved {
-		if isEnclave {
-			if enclaveIsMapped(uintptr(v), n) {
-				print("runtime: successful mmap for ", v, "\n")
-				return
-			} else {
-				print("runtime: Enclave address space unallocated ", v, "\n")
-				//TODO @aghosn should re-enable this when I manage to fix the problem.
-				//throw("runtime: enclave address space mmap error.")
-			}
-		}
 		p, err := mmap_fixed(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 		if err == _ENOMEM {
 			throw("runtime: out of memory")

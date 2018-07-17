@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -61,9 +62,6 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	//TODO @aghosn need a lock here. Mutex should be enough
-	// but might need to avoid futex call? Should only happen when last goroutine
-	// goes to sleep, right?
 	sl *secspinlock
 
 	readyE waitq //Ready to be rescheduled
@@ -76,17 +74,31 @@ type CooperativeRuntime struct {
 	sysPool   [10]*poolSysChan
 	allocPool [10]*poolAllocChan
 
-	//Memory pool to satisfy the nil mmap calls.
-	mmStart  uintptr
-	currHead uintptr
+	membuf_head uintptr
+
+	// The enclave heap region.
+	// This is the equivalent of my previous preallocated regions.
+	// TODO secure it somehow.
+	eSpan  uintptr
+	eArena uintptr
 }
 
 const (
 	IsSim = true
 	//TODO @aghosn this must be exactly the same as in amd64/obj.go
-	ENCLMASK = 0x040000000000
-	MMMASK   = 0x050000000000
-	POOLMEM  = uintptr(0x1000 * 300)
+	PSIZE       = 0x1000
+	ENCLMASK    = 0x040000000000
+	ENCLSIZE    = 0x001000000000
+	MMMASK      = 0x050000000000
+	MEMBUF_SIZE = uintptr(PSIZE * 300)
+
+	ESPAN_SIZE      = PSIZE
+	EARENA_SIZE     = 0x108000
+	EARENA_PRE_SIZE = 0x8000
+
+	// TODO this must be the same as in the gosec package.
+	// Later move all of these within a separate package and share it.
+	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
 )
 
 func IsEnclave() bool {
@@ -280,7 +292,7 @@ func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
 }
 
 // Sets up the stack arguments and returns the beginning of the stack address.
-func SetupEnclSysStack(stack uintptr) uintptr {
+func SetupEnclSysStack(stack uintptr, eS, eA uintptr) uintptr {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
@@ -310,14 +322,10 @@ func SetupEnclSysStack(stack uintptr) uintptr {
 		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
 	}
 
-	//TODO handle this somewhere else - with the preallocated probably.
-	//buffstart := unsafe.Pointer(membufaddr)
-	//p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_FIXED|_MAP_ANON|_MAP_PRIVATE, -1, 0)
-	//if err != 0 || uintptr(p) != membufaddr {
-	//	throw("Unable to mmap memory pool for the enclave.")
-	//}
-	Cooprt.mmStart = uintptr(membufaddr)
-	Cooprt.currHead = uintptr(membufaddr)
+	Cooprt.membuf_head = uintptr(MEMBUF_START)
+
+	Cooprt.eSpan = eS
+	Cooprt.eArena = eA
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -333,7 +341,7 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
-func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
+func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS, eA uintptr) {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
@@ -362,13 +370,10 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
 	}
 
-	buffstart := unsafe.Pointer(membufaddr)
-	p, err := mmap(buffstart, POOLMEM, _PROT_READ|_PROT_WRITE, _MAP_FIXED|_MAP_ANON|_MAP_PRIVATE, -1, 0)
-	if err != 0 || uintptr(p) != membufaddr {
-		throw("Unable to mmap memory pool for the enclave.")
-	}
-	Cooprt.mmStart = uintptr(p)
-	Cooprt.currHead = uintptr(p)
+	Cooprt.membuf_head = uintptr(MEMBUF_START)
+
+	Cooprt.eSpan = eS
+	Cooprt.eArena = eA
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -409,51 +414,33 @@ type Relocation struct {
 	Size uintptr
 }
 
-var (
-	//sgxPreallocated = [2]uintptr{0x1C000000000, 0x1C420000000}
-	//Previous 0xC000000000 0xC41FFF8000
-	EnclavePreallocated = map[uintptr]Relocation{
-		0xC000000000: Relocation{(0xC00000000 + ENCLMASK), 0x1000},
-		0xC41FFF8000: Relocation{(0xC00000000 + 0x1000*2 + ENCLMASK), 0x108000},
-		(MMMASK + 0xC00000000 + 0x010000000): Relocation{(0xC00000000 + ENCLMASK + 0x010000000),
-			POOLMEM},
+func enclaveIsMapped(ptr uintptr, n uintptr) bool {
+	if ptr >= Cooprt.eSpan && ptr+n <= Cooprt.eSpan+ESPAN_SIZE {
+		return true
 	}
-
-	relocKey = [2]uintptr{0xC000000000, 0xC41FFF8000}
-	relocVal = [2]uintptr{0xC00000000 + ENCLMASK, 0xC00000000 + 0x1000*2 + ENCLMASK}
-	relocSiz = [2]uintptr{0x1000, 0x108000}
-
-	membufaddr = uintptr(0xC00000000 + ENCLMASK + 0x010000000)
-)
-
-// enclaveTransPrealloc checks if a given address was preallocated for the runtime.
-// It is used to avoid calling mmap during the runtime initialization.
-// It returns a boolean and the corresponding address.
-// You can see it as a level of indirection that relocates the mmap regions
-// at runtime. At this time, the allocation of a map is not possible.
-// As a result, we have to duplicate the map that we have above.
-func enclaveTransPrealloc(n uintptr) (uintptr, bool) {
-	for idx, val := range relocKey {
-		if n == val {
-			return relocVal[idx], (isEnclave && true)
-		}
-
-		if n >= val && n < val+relocSiz[idx] {
-			reloc := relocVal[idx] + (n - val)
-			return reloc, (isEnclave && true)
-		}
+	if ptr >= Cooprt.eArena && ptr+n <= Cooprt.eArena+EARENA_SIZE {
+		return true
 	}
-
-	print("\nUnable to find a relocation\n")
-	return uintptr(0), false
+	return false
 }
 
-func enclaveIsMapped(ptr uintptr, n uintptr) bool {
-	for idx, val := range relocVal {
-		if ptr >= val && ptr+n <= val+relocSiz[idx] {
-			return true
-		}
-	}
+// PSizeToReserve returns the address of  arena required by the heap.
+// This must match the computation in malloc.go:mallocinit
+func PSizeToReserve(p uintptr) uintptr {
+	// The spans array holds one *mspan per _PageSize of arena.
+	var spansSize uintptr = (_MaxMem + 1) / _PageSize * sys.PtrSize
+	spansSize = round(spansSize, _PageSize)
+	// The bitmap holds 2 bits per word of arena.
+	var bitmapSize uintptr = (_MaxMem + 1) / (sys.PtrSize * 8 / 2)
+	bitmapSize = round(bitmapSize, _PageSize)
 
-	return false
+	arenaSize := round(_MaxMem, _PageSize)
+	pSize := bitmapSize + spansSize + arenaSize + _PageSize
+
+	p1 := round(p, _PageSize)
+	pSize -= p1 - p
+	//spansStart := p1
+	p1 += spansSize
+	p1 += bitmapSize
+	return (p1 - EARENA_PRE_SIZE)
 }

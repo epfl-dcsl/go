@@ -82,7 +82,6 @@ var (
 
 	//TODO aghosn for the enclave.
 	mglobal *m = nil
-	msgx    *m = nil
 )
 
 //go:linkname runtime_init runtime.init
@@ -549,7 +548,11 @@ func mcommoninit(mp *m) {
 	checkmcount()
 
 	mp.fastrand[0] = 1597334677 * uint32(mp.id)
-	mp.fastrand[1] = uint32(cputicks())
+	if isEnclave {
+		mp.fastrand[1] = uint32(1)
+	} else {
+		mp.fastrand[1] = uint32(cputicks())
+	}
 	if mp.fastrand[0]|mp.fastrand[1] == 0 {
 		mp.fastrand[1] = 1
 	}
@@ -1160,12 +1163,6 @@ func startTheWorldWithSema(emitTraceEvent bool) int64 {
 func mstart() {
 	_g_ := getg()
 
-	//TODO aghosn remove
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x1c)
-	}
-
 	osStack := _g_.stack.lo == 0
 	if osStack {
 		// Initialize stack bounds from system stack.
@@ -1181,12 +1178,6 @@ func mstart() {
 	// both Go and C functions with stack growth prologues.
 	_g_.stackguard0 = _g_.stack.lo + _StackGuard
 	_g_.stackguard1 = _g_.stackguard0
-
-	//TODO aghosn remove
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x1d)
-	}
 
 	mstart1(0)
 

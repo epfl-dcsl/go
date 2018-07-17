@@ -292,6 +292,9 @@ func mallocinit() {
 				p = uintptr(i)<<40 | uintptrMask&(0x0013<<28)
 			case GOARCH == "arm64":
 				p = uintptr(i)<<40 | uintptrMask&(0x0040<<32)
+			case isEnclave == true:
+				// The value reserved by sgx
+				p = Cooprt.eSpan
 			default:
 				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
 			}
@@ -391,11 +394,24 @@ func mallocinit() {
 	mheap_.arena_alloc = p1
 	mheap_.arena_reserved = reserved
 
+	//Check that we predicted the arena aera correctly.
+	if isEnclave {
+		if (mheap_.arena_alloc != (Cooprt.eArena + EARENA_PRE_SIZE)) || (mheap_.arena_used != (Cooprt.eArena + EARENA_PRE_SIZE)) {
+			panic("Runtime init error. Gosecure mispredicted the arena location.")
+		}
+	}
+
 	if mheap_.arena_start&(_PageSize-1) != 0 {
 		println("bad pagesize", hex(p), hex(p1), hex(spansSize), hex(bitmapSize), hex(_PageSize), "start", hex(mheap_.arena_start))
 		throw("misrounded allocation in mallocinit")
 	}
 
+	//if isEnclave {
+	//	print("mheap_.arena_end ", hex(mheap_.arena_end), "\n")
+	//	print("mheap_.arena_used ", hex(mheap_.arena_used), "\n")
+	//	print("mheap_.arena_alloc ", hex(mheap_.arena_alloc), "\n")
+	//	print("mheap_.arena_reserved ", mheap_.arena_reserved, "\n")
+	//}
 	// Initialize the rest of the allocator.
 	mheap_.init(spansStart, spansSize)
 	_g_ := getg()
@@ -1002,7 +1018,7 @@ func persistentalloc1(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 			if persistent == &globalAlloc.persistentAlloc {
 				unlock(&globalAlloc.mutex)
 			}
-			throw("runtime: cannot allocate memory")
+			throw("runtime: cannot allocate memory (malloc)")
 		}
 		persistent.off = 0
 	}

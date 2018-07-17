@@ -16,14 +16,10 @@ import (
 const simSTACK = uintptr(0xe41ffd8000)
 
 func loadProgram(path string) {
-	//SGXFull()
-	//sgxLoadProgram(path)
 	file, err := elf.Open(path)
 	check(err)
 	_, wrap := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
-
-	computeTLM0(path)
 
 	// Check that the sections are sorted now.
 	sort.Sort(SortedElfSections(file.Sections))
@@ -43,6 +39,9 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
+	// Map the enclave preallocated heap.
+	enclavePreallocate(wrap)
+
 	// mmap the stack
 	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
@@ -59,29 +58,38 @@ func loadProgram(path string) {
 	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
 	*ptrFlag = uint64(1)
 
-	// Map the TCS area, ie, a page before the tcs (for msgx)
-	_, err = syscall.RMmap(wrap.tcsarea, int(wrap.tcssareasize), prot,
+	// Map the MSGX+TLS area
+	_, err = syscall.RMmap(wrap.msgx, int(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE), prot,
 		_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
 	check(err)
 
 	//write the msgx value
 	ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	*ptrMsgx = uint64(wrap.tcs - uintptr(TCS_MSGX_OFF))
+	*ptrMsgx = uint64(wrap.tls - uintptr(TLS_MSGX_OFF))
 
-	enclavePreallocate()
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn)
+	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn, wrap.mhstart, wrap.mh2start)
 }
 
-func enclavePreallocate() {
+func enclavePreallocate(wrap *sgx_wrapper) {
 	prot := _PROT_READ | _PROT_WRITE
 	flags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 
-	for _, v := range runtime.EnclavePreallocated {
-		_, err := syscall.RMmap(v.Addr, int(v.Size), prot, flags, -1, 0)
-		check(err)
-	}
+	// The span
+	_, err := syscall.RMmap(wrap.mhstart, int(MHSTART_SIZE), prot,
+		flags, -1, 0)
+	check(err)
+
+	// The arena
+	_, err = syscall.RMmap(wrap.mh2start, int(MH2START_SIZE), prot,
+		flags, -1, 0)
+	check(err)
+
+	// The memory buffer for mmap calls.
+	_, err = syscall.RMmap(wrap.membuf, int(MEMBUF_SIZE), prot,
+		flags, -1, 0)
+	check(err)
 }
 
 // mapSections mmaps the elf sections.
