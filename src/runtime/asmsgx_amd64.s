@@ -3,6 +3,7 @@
 #include "funcdata.h"
 #include "textflag.h"
 
+#define DBG_ADDR 0x050000000000
 #define SIM_FLAG 0x050000000008
 #define MSGX_ADDR 0x050000000020
 

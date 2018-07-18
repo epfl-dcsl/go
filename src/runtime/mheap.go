@@ -1025,7 +1025,12 @@ func (h *mheap) freeSpanLocked(s *mspan, acctinuse, acctidle bool, unusedsince i
 	// info to potentially give back some pages to the OS.
 	s.unusedsince = unusedsince
 	if unusedsince == 0 {
-		s.unusedsince = nanotime()
+		if isEnclave {
+			s.unusedsince = 1
+		} else {
+			s.unusedsince = nanotime()
+		}
+
 	}
 	s.npreleased = 0
 

@@ -113,6 +113,7 @@ func sgxLoadProgram(path string) {
 
 	transpstack := transposeIn(pstack)
 
+	log.Println("About to enter.")
 	sgxEEnter(wrap, uint64(wrap.tcs), uint64(transpstack))
 }
 
@@ -456,8 +457,6 @@ func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 
 	runtime.StartEnclaveOSThread(addrtcs, fn)
 	log.Println("After the run")
-	for {
-	}
 }
 
 func testEntry() {
