@@ -316,6 +316,9 @@ func gettid() uint32
 // Called to initialize a new m (including the bootstrap m).
 // Called on the new thread, cannot allocate memory.
 func minit() {
+	if isEnclave {
+		return
+	}
 	minitSignals()
 
 	// for debuggers, in case cgo created the thread

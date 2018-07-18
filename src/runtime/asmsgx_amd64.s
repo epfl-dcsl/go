@@ -117,10 +117,6 @@ eax7:
 	TESTL	$(1<<9), BX // ERMS
 	SETNE	runtime·support_erms(SB)
 
-    // TODO remove afterwards (just for debuggin)
-    MOVQ $0x050000000000, R8
-    MOVQ $0x0d, (R8)
-
 osavx:
 	CMPB	runtime·support_osxsave(SB), $1
 	JNE	noavx
@@ -166,10 +162,6 @@ needtls:
 	// skip TLS setup on Solaris
 	JMP nonsim
 #endif
-
-	//TODO for debugging remove afterwards
-	MOVQ $0x050000000000, R8
-	MOVQ $0x19, (R8)
 
 	//Set up the isEnclave variable.
 	MOVB $1, runtime·isEnclave(SB)
@@ -218,16 +210,9 @@ nonsim:
 	// save m0 to g0->m
 	MOVQ	AX, g_m(CX)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x18, (R8)
-
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x19, (R8)
 
 	MOVL	16(SP), AX		// copy argc
 	MOVL	AX, 0(SP)
@@ -235,15 +220,7 @@ nonsim:
 	MOVQ	AX, 8(SP)
 	CALL	runtime·args(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x1a, (R8)
-
 	CALL	runtime·osinit(SB)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x1b, (R8)
 
 	CALL	runtime·schedinit(SB)
 
@@ -262,7 +239,7 @@ nonsim:
 
 	// TODO remove afterwards (just for debuggin)
 	MOVQ $0x050000000000, R8
-	MOVQ $0x1c, (R8)
+	MOVQ $0x1e, (R8)
 
 	// start this M
 	CALL	runtime·mstart(SB)

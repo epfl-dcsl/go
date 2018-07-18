@@ -493,8 +493,10 @@ func schedinit() {
 	typelinksinit()    // uses maps, activeModules
 	itabsinit()        // uses activeModules
 
-	msigsave(_g_.m)
-	initSigmask = _g_.m.sigmask
+	if !isEnclave {
+		msigsave(_g_.m)
+		initSigmask = _g_.m.sigmask
+	}
 
 	goargs()
 	goenvs()
@@ -505,6 +507,9 @@ func schedinit() {
 	procs := ncpu
 	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
 		procs = n
+	}
+	if isEnclave {
+		procs = 1
 	}
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
@@ -1208,7 +1213,7 @@ func mstart1(dummy int32) {
 
 	// Install signal handlers; after minit so that minit can
 	// prepare the thread to be able to handle the signals.
-	if (!isSimulation && _g_.m == &m0) || (isEnclave && _g_.m == mglobal) {
+	if (!isEnclave && _g_.m == &m0) || (isEnclave && _g_.m == mglobal) {
 		mstartm0()
 	}
 
@@ -1219,7 +1224,7 @@ func mstart1(dummy int32) {
 	if _g_.m.helpgc != 0 {
 		_g_.m.helpgc = 0
 		stopm()
-	} else if (!isSimulation && _g_.m != &m0) || (isEnclave && _g_.m != mglobal) {
+	} else if (!isEnclave && _g_.m != &m0) || (isEnclave && _g_.m != mglobal) {
 		acquirep(_g_.m.nextp.ptr())
 		_g_.m.nextp = 0
 	}
@@ -2186,6 +2191,11 @@ func execute(gp *g, inheritTime bool) {
 			traceGoSysExit(gp.sysexitticks)
 		}
 		traceGoStart()
+	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x53)
 	}
 
 	gogo(&gp.sched)
