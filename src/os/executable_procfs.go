@@ -26,6 +26,9 @@ var executablePath, executablePathErr = func() (string, error) {
 	case "dragonfly":
 		procfn = "/proc/curproc/file"
 	}
+	if runtime.IsEnclave() {
+		return "/home/", nil
+	}
 	return Readlink(procfn)
 }()
 
