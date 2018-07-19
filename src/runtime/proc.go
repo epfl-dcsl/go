@@ -226,6 +226,11 @@ skipgcenable:
 		racefini()
 	}
 
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x504)
+	}
+
 	// Make racy client program work: if panicking on
 	// another goroutine at the same time as main returns,
 	// let the other goroutine finish printing the panic trace.
