@@ -90,7 +90,6 @@ func oCallServer() {
 			}
 			res := runtime.OcallRes{r1, r2, uintptr(err)}
 			go runtime.Cooprt.SysSend(sys.Id, res)
-			print("Received ocall call\n")
 
 		case allocBytes := <-runtime.Cooprt.OAllocReq:
 			if allocBytes.Siz > 0 {
@@ -99,7 +98,6 @@ func oCallServer() {
 					copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
 					runtime.Cooprt.AllocSend(allocBytes.Id, copy)
 				}()
-				print("received alloc byte\n")
 			}
 		default:
 			// Avoid hogging the CPU
