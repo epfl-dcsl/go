@@ -224,11 +224,6 @@ nonsim:
 
 	CALL	runtime·schedinit(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x1c, (R8)
-
-
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry
 	PUSHQ	AX
@@ -238,7 +233,7 @@ nonsim:
 	POPQ	AX
 
 	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
+	MOVQ $DBG_ADDR, R8
 	MOVQ $0x1e, (R8)
 
 	// start this M

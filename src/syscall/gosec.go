@@ -33,12 +33,13 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			runtime.Cooprt.ReleaseSysPool(syscid)
 			return res.R1, res.R2, Errno(res.Err)
 		default:
-			goto UNSUPPORTED
+			panic("unsupported system call.")
+			//goto UNSUPPORTED
 		}
 
 	}
 
-UNSUPPORTED:
+	//UNSUPPORTED:
 	return SSyscall(trap, a1, a2, a3)
 }
 
@@ -101,5 +102,8 @@ func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno) 
 	//	}
 	//}
 	//UNSUPPORTED:
+	if runtime.IsEnclave() {
+		panic("Unallowed system call inside the enclave.")
+	}
 	return SSyscall6(trap, a1, a2, a3, a4, a5, a6)
 }

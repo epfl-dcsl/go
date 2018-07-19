@@ -189,9 +189,23 @@ skipgcenable:
 		cgocall(_cgo_notify_runtime_init_done, nil)
 	}
 
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x500)
+	}
+
 	fn := main_init // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x501)
+	}
 	close(main_init_done)
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x502)
+	}
 
 	needUnlock = false
 	unlockOSThread()
@@ -201,6 +215,11 @@ skipgcenable:
 		// has a main, but it is not executed.
 		return
 	}
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x503)
+	}
+
 	fn = main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
@@ -2198,11 +2217,6 @@ func execute(gp *g, inheritTime bool) {
 			traceGoSysExit(gp.sysexitticks)
 		}
 		traceGoStart()
-	}
-
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x53)
 	}
 
 	gogo(&gp.sched)
