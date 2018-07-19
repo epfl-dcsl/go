@@ -270,7 +270,7 @@ func sysauxv(auxv []uintptr) int {
 }
 
 func osinit() {
-	if isEnclave && !isSimulation {
+	if isEnclave {
 		ncpu = 1
 		return
 	}

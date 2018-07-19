@@ -128,10 +128,13 @@ func main() {
 	// Allow newproc to start new Ms.
 	mainStarted = true
 
+	if isEnclave {
+		goto skipsysmon
+	}
 	systemstack(func() {
 		newm(sysmon, nil)
 	})
-
+skipsysmon:
 	// Lock the main goroutine onto this, the main OS thread,
 	// during initialization. Most programs won't care, but a few
 	// do require certain calls to be made by the main thread.
@@ -140,7 +143,7 @@ func main() {
 	// to preserve the lock.
 	lockOSThread()
 
-	if (!isSimulation && g.m != &m0) || (isEnclave && g.m != mglobal) {
+	if (!isEnclave && g.m != &m0) || (isEnclave && g.m != mglobal) {
 		throw("runtime.main not on m0")
 	}
 
@@ -158,8 +161,12 @@ func main() {
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
+	if isEnclave {
+		goto skipgcenable
+	}
 	gcenable()
 
+skipgcenable:
 	main_init_done = make(chan bool)
 	if iscgo {
 		if _cgo_thread_start == nil {
