@@ -406,12 +406,12 @@ func mallocinit() {
 		throw("misrounded allocation in mallocinit")
 	}
 
-	//if isEnclave {
-	//	print("mheap_.arena_end ", hex(mheap_.arena_end), "\n")
-	//	print("mheap_.arena_used ", hex(mheap_.arena_used), "\n")
-	//	print("mheap_.arena_alloc ", hex(mheap_.arena_alloc), "\n")
-	//	print("mheap_.arena_reserved ", mheap_.arena_reserved, "\n")
-	//}
+	if isEnclave {
+		print("mheap_.arena_end ", hex(mheap_.arena_end), "\n")
+		print("mheap_.arena_used ", hex(mheap_.arena_used), "\n")
+		print("mheap_.arena_alloc ", hex(mheap_.arena_alloc), "\n")
+		print("mheap_.arena_reserved ", mheap_.arena_reserved, "\n")
+	}
 	// Initialize the rest of the allocator.
 	mheap_.init(spansStart, spansSize)
 	_g_ := getg()
@@ -428,6 +428,13 @@ func (h *mheap) sysAlloc(n uintptr) unsafe.Pointer {
 	// than this, we fall back to sysAlloc'ing just enough for
 	// this allocation.
 	const strandLimit = 16 << 20
+
+	if isEnclave {
+		print("mheap_.arena_end ", hex(h.arena_end), "\n")
+		print("mheap_.arena_used ", hex(h.arena_used), "\n")
+		print("mheap_.arena_alloc ", hex(h.arena_alloc), "\n")
+		print("mheap_.arena_reserved ", h.arena_reserved, "\n")
+	}
 
 	if n > h.arena_end-h.arena_alloc {
 		// If we haven't grown the arena to _MaxMem yet, try

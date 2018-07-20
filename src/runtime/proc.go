@@ -111,6 +111,10 @@ var initSigmask sigset
 // The main goroutine.
 func main() {
 	g := getg()
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x499)
+	}
 
 	// Racectx of m0->g0 is used only as the parent of the main goroutine.
 	// It must not be used for anything else.
@@ -508,6 +512,10 @@ func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
 	_g_ := getg()
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x599)
+	}
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}
@@ -519,14 +527,28 @@ func schedinit() {
 	stackinit()
 	mallocinit()
 	mcommoninit(_g_.m) // TODO(aghosn) apparently the stack is allocated here.
-	alginit()          // maps must not be used before this call
-	modulesinit()      // provides activeModules
-	typelinksinit()    // uses maps, activeModules
-	itabsinit()        // uses activeModules
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x600)
+	}
+	alginit()       // maps must not be used before this call
+	modulesinit()   // provides activeModules
+	typelinksinit() // uses maps, activeModules
+	itabsinit()     // uses activeModules
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x601)
+	}
 
 	if !isEnclave {
 		msigsave(_g_.m)
 		initSigmask = _g_.m.sigmask
+	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x602)
 	}
 
 	goargs()
@@ -542,6 +564,12 @@ func schedinit() {
 	if isEnclave {
 		procs = 1
 	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x603)
+	}
+
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
 	}
