@@ -203,7 +203,7 @@ func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 	if isEnclave {
 		// This is sysreserve so we do not care really.
 		// Just check that it is the correct address.
-		if uintptr(v) == Cooprt.eSpan {
+		if uintptr(v) == Cooprt.eHeap {
 			return v
 		}
 		panic("runtime: trying to reserve an illegal address in the enclave.")

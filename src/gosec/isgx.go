@@ -37,14 +37,12 @@ const (
 
 // Sizes for the different elements
 const (
-	STACK_SIZE    = 0x8000
-	TCS_SIZE      = PSIZE
-	SSA_SIZE      = PSIZE
-	MSGX_SIZE     = PSIZE
-	TLS_SIZE      = PSIZE
-	MHSTART_SIZE  = PSIZE
-	MH2START_SIZE = 0x108000
-	MEMBUF_SIZE   = (PSIZE * 300)
+	STACK_SIZE  = 0x8000
+	TCS_SIZE    = PSIZE
+	SSA_SIZE    = PSIZE
+	MSGX_SIZE   = PSIZE
+	TLS_SIZE    = PSIZE
+	MEMBUF_SIZE = (PSIZE * 300)
 )
 
 // Offsets are of the form FROM_TO_OFF = VALUE
@@ -83,18 +81,18 @@ type isgx_secinfo struct {
 }
 
 type sgx_wrapper struct {
-	base     uintptr
-	siz      uintptr
-	stack    uintptr
-	ssiz     uintptr
-	tcs      uintptr // tcs size 0x1000.
-	ssa      uintptr
-	msgx     uintptr // size 0x1000
-	tls      uintptr // size 0x1000
-	mhstart  uintptr // 0x1000
-	mh2start uintptr // 0x108000
-	membuf   uintptr // To satisfy map(nil) requests
-	alloc    []byte
+	base    uintptr
+	siz     uintptr
+	stack   uintptr
+	ssiz    uintptr
+	tcs     uintptr // tcs size 0x1000.
+	ssa     uintptr
+	msgx    uintptr // size 0x1000
+	tls     uintptr // size 0x1000
+	mhstart uintptr // 0x1000
+	mhsize  uintptr // 0x108000
+	membuf  uintptr // To satisfy map(nil) requests
+	alloc   []byte
 }
 
 func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
@@ -102,7 +100,7 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 		transposeOut(wrap.base), wrap.siz, transposeOut(wrap.stack),
 		wrap.ssiz, transposeOut(wrap.tcs), transposeOut(wrap.ssa),
 		transposeOut(wrap.msgx), transposeOut(wrap.tls),
-		transposeOut(wrap.mhstart), transposeOut(wrap.mh2start),
+		transposeOut(wrap.mhstart), wrap.mhsize,
 		transposeOut(wrap.membuf), nil}
 	return trans
 }

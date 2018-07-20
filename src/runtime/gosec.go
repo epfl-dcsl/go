@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -79,8 +78,7 @@ type CooperativeRuntime struct {
 	// The enclave heap region.
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
-	eSpan  uintptr
-	eArena uintptr
+	eHeap uintptr
 }
 
 const (
@@ -91,10 +89,6 @@ const (
 	ENCLSIZE    = 0x001000000000
 	MMMASK      = 0x050000000000
 	MEMBUF_SIZE = uintptr(PSIZE * 300)
-
-	ESPAN_SIZE      = PSIZE
-	EARENA_SIZE     = 0x108000
-	EARENA_PRE_SIZE = 0x8000
 
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
@@ -292,7 +286,7 @@ func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
 }
 
 // Sets up the stack arguments and returns the beginning of the stack address.
-func SetupEnclSysStack(stack uintptr, eS, eA uintptr) uintptr {
+func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
@@ -324,8 +318,7 @@ func SetupEnclSysStack(stack uintptr, eS, eA uintptr) uintptr {
 
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
 
-	Cooprt.eSpan = eS
-	Cooprt.eArena = eA
+	Cooprt.eHeap = eS
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -341,7 +334,7 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
-func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS, eA uintptr) {
+func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
@@ -372,8 +365,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS, eA uintptr) {
 
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
 
-	Cooprt.eSpan = eS
-	Cooprt.eArena = eA
+	Cooprt.eHeap = eS
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -415,32 +407,12 @@ type Relocation struct {
 }
 
 func enclaveIsMapped(ptr uintptr, n uintptr) bool {
-	if ptr >= Cooprt.eSpan && ptr+n <= Cooprt.eSpan+ESPAN_SIZE {
-		return true
-	}
-	if ptr >= Cooprt.eArena && ptr+n <= Cooprt.eArena+EARENA_SIZE {
+	if ptr >= Cooprt.eHeap && ptr+n <= Cooprt.eHeap+_MaxMemEncl {
 		return true
 	}
 	return false
 }
 
-// PSizeToReserve returns the address of  arena required by the heap.
-// This must match the computation in malloc.go:mallocinit
-func PSizeToReserve(p uintptr) uintptr {
-	// The spans array holds one *mspan per _PageSize of arena.
-	var spansSize uintptr = (_MaxMem + 1) / _PageSize * sys.PtrSize
-	spansSize = round(spansSize, _PageSize)
-	// The bitmap holds 2 bits per word of arena.
-	var bitmapSize uintptr = (_MaxMem + 1) / (sys.PtrSize * 8 / 2)
-	bitmapSize = round(bitmapSize, _PageSize)
-
-	arenaSize := round(_MaxMem, _PageSize)
-	pSize := bitmapSize + spansSize + arenaSize + _PageSize
-
-	p1 := round(p, _PageSize)
-	pSize -= p1 - p
-	//spansStart := p1
-	p1 += spansSize
-	p1 += bitmapSize
-	return (p1 - EARENA_PRE_SIZE)
+func EnclHeapSizeToAllocate() uintptr {
+	return _MaxMemEncl
 }

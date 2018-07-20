@@ -95,8 +95,7 @@ func sgxLoadProgram(path string) {
 	sgxMapSections(secs, aggreg, wrap, srcRegion)
 
 	//Setup the stack arguments and Cooprt.
-	pstack := runtime.SetupEnclSysStack(srcRegion.stack+srcRegion.ssiz,
-		wrap.mhstart, wrap.mh2start)
+	pstack := runtime.SetupEnclSysStack(srcRegion.stack+srcRegion.ssiz, wrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
 	sgxStackPreallocEadd(secs, wrap, srcRegion)
@@ -193,15 +192,15 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	wrapper.msgx = wrapper.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
 	wrapper.tls = wrapper.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
 	wrapper.mhstart = wrapper.tls + TLS_SIZE + TLS_MHSTART_OFF
-	wrapper.mh2start = runtime.PSizeToReserve(wrapper.mhstart)
+	wrapper.mhsize = runtime.EnclHeapSizeToAllocate()
 	wrapper.membuf = ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE
-	if wrapper.membuf < wrapper.mh2start+MH2START_SIZE {
+	if wrapper.membuf < wrapper.mhstart+wrapper.mhsize {
 		panic("gosec: reduce the amount of pages in membuf.")
 	}
 	wrapper.alloc = nil
 
-	if wrapper.mh2start+MH2START_SIZE > ENCLMASK+ENCLSIZE {
-		log.Printf("enclave limit: %x - end: %x\n", ENCLMASK+ENCLSIZE, wrapper.mh2start+MH2START_SIZE)
+	if wrapper.mhstart+wrapper.mhsize > ENCLMASK+ENCLSIZE {
+		log.Printf("enclave limit: %x - end: %x\n", ENCLMASK+ENCLSIZE, wrapper.mhstart+wrapper.mhsize)
 		panic("gosec: Required size is out of enclave limits.")
 	}
 
@@ -214,9 +213,8 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 
 	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot, SGX_SECINFO_REG)
 
-	// Preallocate the heap and arena and membuf
-	sgxAddRegion(secs, wrap.mhstart, srcRegion.mhstart, MHSTART_SIZE, prot, SGX_SECINFO_REG)
-	sgxAddRegion(secs, wrap.mh2start, srcRegion.mh2start, MH2START_SIZE, prot, SGX_SECINFO_REG)
+	// Preallocate the heap and membuf
+	sgxAddRegion(secs, wrap.mhstart, srcRegion.mhstart, wrap.mhsize, prot, SGX_SECINFO_REG)
 	sgxAddRegion(secs, wrap.membuf, srcRegion.membuf, MEMBUF_SIZE, prot, SGX_SECINFO_REG)
 }
 
