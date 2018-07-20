@@ -1,14 +1,16 @@
 package gosec
 
 const (
-	_PROT_READ   = 0x1
-	_PROT_WRITE  = 0x2
-	_PROT_EXEC   = 0x4
-	_MAP_SHARED  = 0x01
-	_MAP_PRIVATE = 0x02
-	_MAP_FIXED   = 0x10
-	_MAP_ANON    = 0x20
-	SGX_MAGIC    = 0xA4
+	_PROT_NONE     = 0x0
+	_PROT_READ     = 0x1
+	_PROT_WRITE    = 0x2
+	_PROT_EXEC     = 0x4
+	_MAP_SHARED    = 0x01
+	_MAP_PRIVATE   = 0x02
+	_MAP_FIXED     = 0x10
+	_MAP_ANON      = 0x20
+	_MAP_NORESERVE = 0x4000
+	SGX_MAGIC      = 0xA4
 
 	ERR_SGX_INVALID_EINIT_TOKEN = 16
 	ERR_SGX_INVALID_CPUSVN      = 32
@@ -17,6 +19,9 @@ const (
 	SGX_IOC_ENCLAVE_CREATE   = ((1 << 30) | (SGX_MAGIC << 8) | (0) | (8 << 16))
 	SGX_IOC_ENCLAVE_ADD_PAGE = ((1 << 30) | (SGX_MAGIC << 8) | (0x01) | (26 << 16))
 	SGX_IOC_ENCLAVE_INIT     = ((1 << 30) | (SGX_MAGIC << 8) | (0x02) | (24 << 16))
+
+	SGX_ATTR_MODE64BIT = 0x04
+	TCS_DBGOPTION      = 1
 )
 
 type enclave_thread_t struct {
@@ -111,42 +116,18 @@ type enclave_parms_t struct {
 	regs         jmp_buf
 }
 
-// XXX:Separate reserved -> reserved1, reserved2 to remove warning
-type tcs_flags_t struct {
-	value     uint32
-	reserved2 uint32
-}
-
-func (t *tcs_flags_t) getDbgoptin() uint32 {
-	return t.value & 0x1
-}
-
-func (t *tcs_flags_t) setDbgoptin(v uint32) {
-	t.value >>= 1
-	t.value <<= 1
-	t.value |= (v & 0x1)
-}
-
-func (t *tcs_flags_t) getReserved1() uint32 {
-	return (t.value >> 1)
-}
-
-func (t *tcs_flags_t) setReserved1(v uint32) {
-	t.value = (t.value & 0x1) | (v << 1)
-}
-
 type tcs_t struct {
-	reserved1 uint64
-	flags     tcs_flags_t //!< Thread's Execution Flags
-	ossa      uint64
-	cssa      uint32
-	nssa      uint32
-	oentry    uint64
-	reserved2 uint64
-	ofsbasgx  uint64 //!< Added to Base Address of Enclave to get FS Address
-	ogsbasgx  uint64 //!< Added to Base Address of Enclave to get GS Address
-	fslimit   uint32
-	gslimit   uint32
+	reserved1 uint64 // 0
+	flags     uint64 /* (8)bit 0: DBGOPTION */
+	ossa      uint64 /* (16)State Save Area */
+	cssa      uint32 /* (24)Current SSA slot */
+	nssa      uint32 /* (28)Number of SSA slots */
+	oentry    uint64 /* (32)Offset in enclave to which control is transferred on EENTER if enclave INACTIVE state */
+	reserved2 uint64 /* (40) */
+	ofsbasgx  uint64 /* (48)When added to the base address of the enclave, produces the base address FS segment inside the enclave */
+	ogsbasgx  uint64 /* (56)When added to the base address of the enclave, produces the base address GS segment inside the enclave */
+	fslimit   uint32 /* (64)Size to become the new FS limit in 32-bit mode */
+	gslimit   uint32 /* (68)Size to become the new GS limit in 32-bit mode */
 	reserved3 [503]uint64
 }
 
@@ -156,8 +137,9 @@ type secs_t struct {
 	ssaFrameSize           uint32 //!< Size of 1 SSA frame in pages(incl. XSAVE)
 	miscselect             miscselect_t
 	reserved1              [24]uint8
-	attributes             attributes_t //!< Attributes of Enclave: (pg 2-4)
-	mrEnclave              [32]uint8    //!< Measurement Reg of encl. build process
+	attributes             uint64 //!< Attributes of Enclave: (pg 2-4)
+	xfrm                   uint64
+	mrEnclave              [32]uint8 //!< Measurement Reg of encl. build process
 	reserved2              [32]uint8
 	mrSigner               [32]uint8 //!< Measurement Reg extended with pub key that verified the enclave
 	reserved3              [96]uint8
@@ -167,43 +149,43 @@ type secs_t struct {
 	eid_reserved           secs_eid_reserved_t
 }
 
-// TODO(aghosn) fix this: reserved and eid/pad should overlap according to the sgx reference
-type secs_eid_reserved_t struct {
-	eid_pad  secs_eid_pad_t
-	reserved [3828]uint8 //!< Reserve 8 bytes for update counter.
-}
-
-// (ref 2.7, table 2-2)
-type secs_eid_pad_t struct {
-	eid     uint64     //!< Enclave Identifier
-	padding [44]uint64 //!< Padding pattern from Signature
-}
-
 type miscselect_t struct {
-	value     uint8
-	reversed2 [3]uint8
-}
-
-func (m *miscselect_t) getExitinfo() uint8 {
-	return m.value & 0x1
-}
-
-func (m *miscselect_t) seExitinfo(v uint8) {
-	setBit(&m.value, v, 0)
-}
-
-func (m *miscselect_t) getReversed1() uint8 {
-	return m.value & 0xFE
-}
-
-func (m *miscselect_t) setReserved1(v uint8) {
-	m.value &= (v | 0x1)
+	Value     uint8
+	Reversed2 [3]uint8
 }
 
 type attributes_t struct {
 	value     uint8
 	reserved4 [7]uint8
 	xfrm      uint64
+}
+
+// TODO(aghosn) fix this: reserved and eid/pad should overlap according to the sgx reference
+type secs_eid_reserved_t struct {
+	eid_pad  secs_eid_pad_t
+	reserved [3836]uint8 //!< Reserve 8 bytes for update counter.
+}
+
+// (ref 2.7, table 2-2)
+type secs_eid_pad_t struct {
+	eid     uint64     //!< Enclave Identifier
+	padding [352]uint8 //!< Padding pattern from Signature
+}
+
+func (m *miscselect_t) getExitinfo() uint8 {
+	return m.Value & 0x1
+}
+
+func (m *miscselect_t) seExitinfo(v uint8) {
+	setBit(&m.Value, v, 0)
+}
+
+func (m *miscselect_t) getReversed1() uint8 {
+	return m.Value & 0xFE
+}
+
+func (m *miscselect_t) setReserved1(v uint8) {
+	m.Value &= (v | 0x1)
 }
 
 func (a *attributes_t) getReserved1() uint8 {

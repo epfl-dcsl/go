@@ -8,14 +8,22 @@ import (
 	"debug/elf"
 	"log"
 	"runtime"
+	"sort"
 	"syscall"
 	"unsafe"
 )
 
+const simSTACK = uintptr(0xe41ffd8000)
+
 func loadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
+	_, wrap := sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
+
+	// Check that the sections are sorted now.
+	sort.Sort(SortedElfSections(file.Sections))
+
 	var aggreg []*elf.Section
 	for _, sec := range file.Sections {
 		if sec.Flags&elf.SHF_ALLOC != elf.SHF_ALLOC {
@@ -31,20 +39,62 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
-	//TODO(aghosn) try to allocate the stack.
+	// Map the enclave preallocated heap.
+	enclavePreallocate(wrap)
+
+	// mmap the stack
+	// try to allocate the stack.
 	prot := _PROT_READ | _PROT_WRITE
-	addr := uintptr(0xe41ffd8000)
-	size := int(0x8000)
-	_, err = syscall.RMmap(addr, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
+	_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
 	check(err)
+
+	// second stack
+	prot = _PROT_READ | _PROT_WRITE
+	ssiz := int(0x8000)
+	_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	check(err)
+
+	// write the value checked for TLS-setup to differentiate between SIM and non SIM
+	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
+	*ptrFlag = uint64(1)
+
+	// Map the MSGX+TLS area
+	_, err = syscall.RMmap(wrap.msgx, int(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE), prot,
+		_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
+	check(err)
+
+	//write the msgx value
+	ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
+	*ptrMsgx = uint64(wrap.tls - uintptr(TLS_MSGX_OFF))
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-
-	//fn := unsafe.Pointer(uintptr(0x1879e0))
-	runtime.AllocateOSThreadEncl(addr+uintptr(size), fn)
+	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn, wrap.mhstart, wrap.mh2start)
 }
 
+func enclavePreallocate(wrap *sgx_wrapper) {
+	prot := _PROT_READ | _PROT_WRITE
+	flags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+
+	// The span
+	_, err := syscall.RMmap(wrap.mhstart, int(MHSTART_SIZE), prot,
+		flags, -1, 0)
+	check(err)
+
+	// The arena
+	_, err = syscall.RMmap(wrap.mh2start, int(MH2START_SIZE), prot,
+		flags, -1, 0)
+	check(err)
+
+	// The memory buffer for mmap calls.
+	_, err = syscall.RMmap(wrap.membuf, int(MEMBUF_SIZE), prot,
+		flags, -1, 0)
+	check(err)
+}
+
+// mapSections mmaps the elf sections.
+// If wrap nil, simple mmap. Otherwise, mmap to another address space specified
+// by wrap.mmask for SGX.
 func mapSections(secs []*elf.Section) {
 	if len(secs) == 0 {
 		return
@@ -56,6 +106,7 @@ func mapSections(secs []*elf.Section) {
 	if start >= end {
 		log.Fatalf("Error, sections are not ordered: %#x - %#x", start, end)
 	}
+
 	prot := _PROT_READ | _PROT_WRITE
 	b, err := syscall.RMmap(start, size, prot, _MAP_PRIVATE|_MAP_ANON, -1, 0)
 	check(err)

@@ -270,6 +270,10 @@ func sysauxv(auxv []uintptr) int {
 }
 
 func osinit() {
+	if isEnclave {
+		ncpu = 1
+		return
+	}
 	ncpu = getproccount()
 }
 
@@ -312,6 +316,9 @@ func gettid() uint32
 // Called to initialize a new m (including the bootstrap m).
 // Called on the new thread, cannot allocate memory.
 func minit() {
+	if isEnclave {
+		return
+	}
 	minitSignals()
 
 	// for debuggers, in case cgo created the thread

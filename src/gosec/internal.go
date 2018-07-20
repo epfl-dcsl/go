@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"syscall"
 	"unsafe"
 )
 
@@ -13,7 +14,7 @@ const ptrSize = 4 << (^uintptr(0) >> 63)
 
 func check(e error) {
 	if e != nil {
-		log.Fatalln(e.Error())
+		panic(e.Error())
 	}
 }
 
@@ -63,13 +64,45 @@ func LoadEnclave() {
 	//Start loading the program within the correct address space.
 	isInit = true
 	loadProgram(name)
+	//sgxLoadProgram(name)
 }
 
 // Spins on the scheduler. Avoids triggering the deadlock detector when routines
 // are blocked on cross domain channels.
+//TODO @aghosn try not to use this anymore, instead have it in syscall server.
 func avoidDeadlock() {
 	for {
 		runtime.Gosched()
+	}
+}
+
+func oCallServer() {
+	for {
+		select {
+		case sys := <-runtime.Cooprt.Ocall:
+			var r1 uintptr
+			var r2 uintptr
+			var err syscall.Errno
+			if sys.Big {
+				r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+			} else {
+				r1, r2, err = syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+			}
+			res := runtime.OcallRes{r1, r2, uintptr(err)}
+			go runtime.Cooprt.SysSend(sys.Id, res)
+
+		case allocBytes := <-runtime.Cooprt.OAllocReq:
+			if allocBytes.Siz > 0 {
+				//TODO @aghosn check if this correct (garbage collected?)
+				go func() {
+					copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
+					runtime.Cooprt.AllocSend(allocBytes.Id, copy)
+				}()
+			}
+		default:
+			// Avoid hogging the CPU
+			runtime.Gosched()
+		}
 	}
 }
 
@@ -100,8 +133,8 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	}
 	if !isInit {
 		LoadEnclave()
-		// We run this to avoid triggering the deadlock detector.
-		go avoidDeadlock()
+		// Server to allocate requests & service system calls for the enclave.
+		go oCallServer()
 	}
 	//Copy the stack frame inside a buffer.
 	attrib := runtime.EcallAttr{}

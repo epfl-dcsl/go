@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -11,6 +12,42 @@ type EcallAttr struct {
 	Buf  []uint8
 }
 
+type OcallReq struct {
+	Big  bool
+	Trap uintptr
+	A1   uintptr
+	A2   uintptr
+	A3   uintptr
+	A4   uintptr
+	A5   uintptr
+	A6   uintptr
+	Id   int
+}
+
+type OcallRes struct {
+	R1  uintptr
+	R2  uintptr
+	Err uintptr
+}
+
+type AllocAttr struct {
+	Siz int
+	Buf []byte
+	Id  int
+}
+
+type poolSysChan struct {
+	id        int
+	available int
+	c         chan OcallRes
+}
+
+type poolAllocChan struct {
+	id        int
+	available int
+	c         chan *AllocAttr
+}
+
 type poolSudog struct {
 	wg        *sudog
 	isencl    bool
@@ -18,13 +55,13 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall chan EcallAttr
-	argc  int32
-	argv  **byte
+	Ecall     chan EcallAttr
+	Ocall     chan OcallReq
+	OAllocReq chan AllocAttr
 
-	//TODO @aghosn need a lock here. Mutex should be enough
-	// but might need to avoid futex call? Should only happen when last goroutine
-	// goes to sleep, right?
+	argc int32
+	argv **byte
+
 	sl *secspinlock
 
 	readyE waitq //Ready to be rescheduled
@@ -32,6 +69,40 @@ type CooperativeRuntime struct {
 
 	//pool of sudog structs allocated in non-trusted.
 	pool [50]*poolSudog
+
+	//pool of answer channels.
+	sysPool   [10]*poolSysChan
+	allocPool [10]*poolAllocChan
+
+	membuf_head uintptr
+
+	// The enclave heap region.
+	// This is the equivalent of my previous preallocated regions.
+	// TODO secure it somehow.
+	eSpan  uintptr
+	eArena uintptr
+}
+
+const (
+	IsSim = true
+	//TODO @aghosn this must be exactly the same as in amd64/obj.go
+	PSIZE       = 0x1000
+	ENCLMASK    = 0x040000000000
+	ENCLSIZE    = 0x001000000000
+	MMMASK      = 0x050000000000
+	MEMBUF_SIZE = uintptr(PSIZE * 300)
+
+	ESPAN_SIZE      = PSIZE
+	EARENA_SIZE     = 0x108000
+	EARENA_PRE_SIZE = 0x8000
+
+	// TODO this must be the same as in the gosec package.
+	// Later move all of these within a separate package and share it.
+	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
+)
+
+func IsEnclave() bool {
+	return isEnclave
 }
 
 // checkinterdomain detects inter domain crossing and panics if foreign has
@@ -156,7 +227,121 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	c.sl.Unlock()
 }
 
-func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
+func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
+	c.sl.Lock()
+	for i, s := range c.sysPool {
+		if s.available == 1 {
+			c.sysPool[i].available = 0
+			c.sysPool[i].id = i
+			c.sl.Unlock()
+			return i, c.sysPool[i].c
+		}
+	}
+	c.sl.Unlock()
+	panic("Ran out of syspool channels.")
+	return -1, nil
+}
+
+func (c *CooperativeRuntime) ReleaseSysPool(id int) {
+	if id < 0 || id >= len(c.sysPool) {
+		panic("Trying to release out of range syspool")
+	}
+	if c.sysPool[id].available != 0 {
+		panic("Trying to release an available channel")
+	}
+
+	c.sl.Lock()
+	c.sysPool[id].available = 0
+	c.sl.Unlock()
+}
+
+func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
+	c.sysPool[id].c <- r
+}
+
+func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
+	c.sl.Lock()
+	for i, s := range c.allocPool {
+		if s.available == 1 {
+			c.allocPool[i].available = 0
+			c.allocPool[i].id = i
+			c.sl.Unlock()
+			return i, c.allocPool[i].c
+		}
+	}
+	c.sl.Unlock()
+	panic("Ran out of allocpool channels.")
+	return -1, nil
+}
+
+func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
+	if id < 0 || id >= len(c.allocPool) {
+		panic("Trying to release out of range syspool")
+	}
+	if c.allocPool[id].available != 0 {
+		panic("Trying to release an available channel")
+	}
+
+	c.sl.Lock()
+	c.allocPool[id].available = 0
+	c.sl.Unlock()
+}
+
+func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
+	c.allocPool[id].c <- r
+}
+
+// Sets up the stack arguments and returns the beginning of the stack address.
+func SetupEnclSysStack(stack uintptr, eS, eA uintptr) uintptr {
+	if isEnclave {
+		panic("Should not allocate enclave from the enclave.")
+	}
+
+	addrArgc := stack - unsafe.Sizeof(argc)
+	addrArgv := addrArgc - unsafe.Sizeof(argv)
+
+	ptrArgc := (*int32)(unsafe.Pointer(addrArgc))
+	*ptrArgc = argc
+
+	// Initialize the Cooprt
+	Cooprt = &CooperativeRuntime{}
+	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ocall = make(chan OcallReq)
+	Cooprt.OAllocReq = make(chan AllocAttr)
+	Cooprt.sl = &secspinlock{0}
+	for i := range Cooprt.pool {
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
+		Cooprt.pool[i].wg.id = int32(i)
+	}
+
+	for i := range Cooprt.sysPool {
+		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
+	}
+
+	for i := range Cooprt.allocPool {
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
+	}
+
+	Cooprt.membuf_head = uintptr(MEMBUF_START)
+
+	Cooprt.eSpan = eS
+	Cooprt.eArena = eA
+
+	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
+	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
+
+	return addrArgv
+}
+
+func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
+	ret := clone(cloneFlags, unsafe.Pointer(stack), nil, nil, fn)
+	if ret < 0 {
+		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
+		exit(1)
+	}
+}
+
+func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS, eA uintptr) {
 	if isEnclave {
 		panic("Should not allocate enclave from the enclave.")
 	}
@@ -169,16 +354,39 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer) {
 	// Initialize the Cooprt
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ocall = make(chan OcallReq)
+	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
 		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
 		Cooprt.pool[i].wg.id = int32(i)
 	}
 
+	for i := range Cooprt.sysPool {
+		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
+	}
+
+	for i := range Cooprt.allocPool {
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
+	}
+
+	Cooprt.membuf_head = uintptr(MEMBUF_START)
+
+	Cooprt.eSpan = eS
+	Cooprt.eArena = eA
+
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
 
-	ret := clone(cloneFlags, unsafe.Pointer(addrArgv), nil, nil, fn)
+	// RSP 32
+	ssiz := uintptr(0x8000)
+	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(uint64(0))
+	ptr := (*uint64)(unsafe.Pointer(addrpstack))
+	*ptr = uint64(addrArgv)
+
+	stk := addrpstack - 4*unsafe.Sizeof(uint64(0))
+
+	ret := clone(cloneFlags, unsafe.Pointer(stk), nil, nil, fn)
 	if ret < 0 {
 		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
 		exit(1)
@@ -193,7 +401,46 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	})
 }
 
-// To remove
+// TODO @aghosn To remove
 func GetIsEnclave() bool {
 	return isEnclave
+}
+
+// Functions and datastructures used during the runtime init.
+
+// Addresses that we need to allocate before hand.
+type Relocation struct {
+	Addr uintptr
+	Size uintptr
+}
+
+func enclaveIsMapped(ptr uintptr, n uintptr) bool {
+	if ptr >= Cooprt.eSpan && ptr+n <= Cooprt.eSpan+ESPAN_SIZE {
+		return true
+	}
+	if ptr >= Cooprt.eArena && ptr+n <= Cooprt.eArena+EARENA_SIZE {
+		return true
+	}
+	return false
+}
+
+// PSizeToReserve returns the address of  arena required by the heap.
+// This must match the computation in malloc.go:mallocinit
+func PSizeToReserve(p uintptr) uintptr {
+	// The spans array holds one *mspan per _PageSize of arena.
+	var spansSize uintptr = (_MaxMem + 1) / _PageSize * sys.PtrSize
+	spansSize = round(spansSize, _PageSize)
+	// The bitmap holds 2 bits per word of arena.
+	var bitmapSize uintptr = (_MaxMem + 1) / (sys.PtrSize * 8 / 2)
+	bitmapSize = round(bitmapSize, _PageSize)
+
+	arenaSize := round(_MaxMem, _PageSize)
+	pSize := bitmapSize + spansSize + arenaSize + _PageSize
+
+	p1 := round(p, _PageSize)
+	pSize -= p1 - p
+	//spansStart := p1
+	p1 += spansSize
+	p1 += bitmapSize
+	return (p1 - EARENA_PRE_SIZE)
 }

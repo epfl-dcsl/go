@@ -1,9 +1,9 @@
-package gosec
+package gosecu
 
 import (
-	"log"
 	"reflect"
 	"runtime"
+	"unsafe"
 )
 
 // Slice of gosecure targets.
@@ -21,7 +21,8 @@ func EcallServer() {
 		if fn := secureMap[call.Name]; fn != nil {
 			fn(call.Siz, call.Argp)
 		} else {
-			log.Fatalln("Unable to find secure func ", call.Name)
+			//log.Fatalln("Unable to find secure func ", call.Name)
+			panic("gosecu: illegal gosecure call.")
 		}
 	}
 }
@@ -30,6 +31,10 @@ func EcallServer() {
 // execution, and registers all the functions that are a target of the gosecure
 // keyword.
 func RegisterSecureFunction(f interface{}) {
+	if runtime.IsEnclave() {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x603)
+	}
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
 	}
@@ -37,7 +42,8 @@ func RegisterSecureFunction(f interface{}) {
 	ptr := reflect.ValueOf(f).Pointer()
 	pc := runtime.FuncForPC(ptr)
 	if pc == nil {
-		log.Fatalln("Unable to register secure function.")
+		//log.Fatalln("Unable to register secure function.")
+		panic("Unable to register secure function.")
 	}
 
 	//TODO @aghosn that will not be enough probably. Should have a pointer instead?

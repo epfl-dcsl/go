@@ -8,6 +8,13 @@
 
 // func cpuid(eaxArg, ecxArg uint32) (eax, ebx, ecx, edx uint32)
 TEXT ·cpuid(SB), NOSPLIT, $0-24
+	// try to check if it is enclave.
+	MOVB runtime·isEnclave(SB), R8
+	CMPB R8, $1
+	JNE normal
+	RET
+
+normal:
 	MOVL eaxArg+0(FP), AX
 	MOVL ecxArg+4(FP), CX
 	CPUID

@@ -79,6 +79,9 @@ var (
 	m0           m
 	g0           g
 	raceprocctx0 uintptr
+
+	//TODO aghosn for the enclave.
+	mglobal *m = nil
 )
 
 //go:linkname runtime_init runtime.init
@@ -108,6 +111,10 @@ var initSigmask sigset
 // The main goroutine.
 func main() {
 	g := getg()
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x499)
+	}
 
 	// Racectx of m0->g0 is used only as the parent of the main goroutine.
 	// It must not be used for anything else.
@@ -125,10 +132,13 @@ func main() {
 	// Allow newproc to start new Ms.
 	mainStarted = true
 
+	if isEnclave {
+		goto skipsysmon
+	}
 	systemstack(func() {
 		newm(sysmon, nil)
 	})
-
+skipsysmon:
 	// Lock the main goroutine onto this, the main OS thread,
 	// during initialization. Most programs won't care, but a few
 	// do require certain calls to be made by the main thread.
@@ -137,7 +147,7 @@ func main() {
 	// to preserve the lock.
 	lockOSThread()
 
-	if g.m != &m0 {
+	if (!isEnclave && g.m != &m0) || (isEnclave && g.m != mglobal) {
 		throw("runtime.main not on m0")
 	}
 
@@ -155,8 +165,12 @@ func main() {
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
+	if isEnclave {
+		goto skipgcenable
+	}
 	gcenable()
 
+skipgcenable:
 	main_init_done = make(chan bool)
 	if iscgo {
 		if _cgo_thread_start == nil {
@@ -179,9 +193,23 @@ func main() {
 		cgocall(_cgo_notify_runtime_init_done, nil)
 	}
 
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x500)
+	}
+
 	fn := main_init // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x501)
+	}
 	close(main_init_done)
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x502)
+	}
 
 	needUnlock = false
 	unlockOSThread()
@@ -191,10 +219,20 @@ func main() {
 		// has a main, but it is not executed.
 		return
 	}
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x503)
+	}
+
 	fn = main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
 		racefini()
+	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x504)
 	}
 
 	// Make racy client program work: if panicking on
@@ -474,6 +512,10 @@ func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
 	_g_ := getg()
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x599)
+	}
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}
@@ -485,13 +527,29 @@ func schedinit() {
 	stackinit()
 	mallocinit()
 	mcommoninit(_g_.m) // TODO(aghosn) apparently the stack is allocated here.
-	alginit()          // maps must not be used before this call
-	modulesinit()      // provides activeModules
-	typelinksinit()    // uses maps, activeModules
-	itabsinit()        // uses activeModules
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x600)
+	}
+	alginit()       // maps must not be used before this call
+	modulesinit()   // provides activeModules
+	typelinksinit() // uses maps, activeModules
+	itabsinit()     // uses activeModules
 
-	msigsave(_g_.m)
-	initSigmask = _g_.m.sigmask
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x601)
+	}
+
+	if !isEnclave {
+		msigsave(_g_.m)
+		initSigmask = _g_.m.sigmask
+	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x602)
+	}
 
 	goargs()
 	goenvs()
@@ -503,6 +561,15 @@ func schedinit() {
 	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
 		procs = n
 	}
+	if isEnclave {
+		procs = 1
+	}
+
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x603)
+	}
+
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
 	}
@@ -545,7 +612,11 @@ func mcommoninit(mp *m) {
 	checkmcount()
 
 	mp.fastrand[0] = 1597334677 * uint32(mp.id)
-	mp.fastrand[1] = uint32(cputicks())
+	if isEnclave {
+		mp.fastrand[1] = uint32(1)
+	} else {
+		mp.fastrand[1] = uint32(cputicks())
+	}
 	if mp.fastrand[0]|mp.fastrand[1] == 0 {
 		mp.fastrand[1] = 1
 	}
@@ -1171,6 +1242,7 @@ func mstart() {
 	// both Go and C functions with stack growth prologues.
 	_g_.stackguard0 = _g_.stack.lo + _StackGuard
 	_g_.stackguard1 = _g_.stackguard0
+
 	mstart1(0)
 
 	// Exit this thread.
@@ -1200,7 +1272,7 @@ func mstart1(dummy int32) {
 
 	// Install signal handlers; after minit so that minit can
 	// prepare the thread to be able to handle the signals.
-	if _g_.m == &m0 {
+	if (!isEnclave && _g_.m == &m0) || (isEnclave && _g_.m == mglobal) {
 		mstartm0()
 	}
 
@@ -1211,7 +1283,7 @@ func mstart1(dummy int32) {
 	if _g_.m.helpgc != 0 {
 		_g_.m.helpgc = 0
 		stopm()
-	} else if _g_.m != &m0 {
+	} else if (!isEnclave && _g_.m != &m0) || (isEnclave && _g_.m != mglobal) {
 		acquirep(_g_.m.nextp.ptr())
 		_g_.m.nextp = 0
 	}
@@ -1247,7 +1319,7 @@ func mexit(osStack bool) {
 	g := getg()
 	m := g.m
 
-	if m == &m0 {
+	if (!isSimulation && m == &m0) || (isEnclave && m == mglobal) {
 		// This is the main thread. Just wedge it.
 		//
 		// On Linux, exiting the main thread puts the process

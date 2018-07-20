@@ -58,7 +58,10 @@ func argv_index(argv **byte, i int32) *byte {
 	return *(**byte)(add(unsafe.Pointer(argv), uintptr(i)*sys.PtrSize))
 }
 
-var isEnclave bool = false
+var (
+	isEnclave    bool = false
+	isSimulation bool = false
+)
 
 func args(c int32, v **byte) {
 	if c == -1 {

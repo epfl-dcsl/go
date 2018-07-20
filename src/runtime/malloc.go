@@ -292,9 +292,15 @@ func mallocinit() {
 				p = uintptr(i)<<40 | uintptrMask&(0x0013<<28)
 			case GOARCH == "arm64":
 				p = uintptr(i)<<40 | uintptrMask&(0x0040<<32)
+			case isEnclave == true:
+				// The value reserved by sgx
+				p = Cooprt.eSpan
 			default:
 				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
 			}
+			// TODO @aghosn, here we try to allocate at 0xc0... but does not work
+			// so we move on to 0x1c0... which should not fail. We interpose in
+			// SysReserve to get the value that we want and relocate the alloc.
 			p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
 			if p != 0 {
 				break
@@ -303,6 +309,9 @@ func mallocinit() {
 	}
 
 	if p == 0 {
+		if isEnclave {
+			throw("mallocinit assumption about address space failed!")
+		}
 		// On a 32-bit machine, we can't typically get away
 		// with a giant virtual address space reservation.
 		// Instead we map the memory information bitmap
@@ -351,6 +360,8 @@ func mallocinit() {
 				// expansion.
 				p = round(procBrk+(1<<20), 1<<20)
 			}
+			//TODO @aghosn this one is not called in default case because we did
+			// not fail above, so p != 0.
 			p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
 			if p != 0 {
 				break
@@ -383,11 +394,24 @@ func mallocinit() {
 	mheap_.arena_alloc = p1
 	mheap_.arena_reserved = reserved
 
+	//Check that we predicted the arena aera correctly.
+	if isEnclave {
+		if (mheap_.arena_alloc != (Cooprt.eArena + EARENA_PRE_SIZE)) || (mheap_.arena_used != (Cooprt.eArena + EARENA_PRE_SIZE)) {
+			panic("Runtime init error. Gosecure mispredicted the arena location.")
+		}
+	}
+
 	if mheap_.arena_start&(_PageSize-1) != 0 {
 		println("bad pagesize", hex(p), hex(p1), hex(spansSize), hex(bitmapSize), hex(_PageSize), "start", hex(mheap_.arena_start))
 		throw("misrounded allocation in mallocinit")
 	}
 
+	if isEnclave {
+		print("mheap_.arena_end ", hex(mheap_.arena_end), "\n")
+		print("mheap_.arena_used ", hex(mheap_.arena_used), "\n")
+		print("mheap_.arena_alloc ", hex(mheap_.arena_alloc), "\n")
+		print("mheap_.arena_reserved ", mheap_.arena_reserved, "\n")
+	}
 	// Initialize the rest of the allocator.
 	mheap_.init(spansStart, spansSize)
 	_g_ := getg()
@@ -404,6 +428,13 @@ func (h *mheap) sysAlloc(n uintptr) unsafe.Pointer {
 	// than this, we fall back to sysAlloc'ing just enough for
 	// this allocation.
 	const strandLimit = 16 << 20
+
+	if isEnclave {
+		print("mheap_.arena_end ", hex(h.arena_end), "\n")
+		print("mheap_.arena_used ", hex(h.arena_used), "\n")
+		print("mheap_.arena_alloc ", hex(h.arena_alloc), "\n")
+		print("mheap_.arena_reserved ", h.arena_reserved, "\n")
+	}
 
 	if n > h.arena_end-h.arena_alloc {
 		// If we haven't grown the arena to _MaxMem yet, try
@@ -994,7 +1025,7 @@ func persistentalloc1(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 			if persistent == &globalAlloc.persistentAlloc {
 				unlock(&globalAlloc.mutex)
 			}
-			throw("runtime: cannot allocate memory")
+			throw("runtime: cannot allocate memory (malloc)")
 		}
 		persistent.off = 0
 	}

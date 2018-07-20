@@ -18,7 +18,7 @@ const (
 package main
 
 import(
-	"gosec"
+	"gosecu"
 	"runtime"
 	{{range .Imports}}
 	{{ printf "%q" . }}{{end}}
@@ -36,10 +36,10 @@ func main() {
 	go __ff()
 	{{range .Functions}}
 
-	gosec.RegisterSecureFunction({{ . }})
+	gosecu.RegisterSecureFunction({{ . }})
 
 	{{end}}
-	gosec.EcallServer()
+	gosecu.EcallServer()
 }
 `
 )
