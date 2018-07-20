@@ -69,7 +69,7 @@ func loadProgram(path string) {
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn, wrap.mhstart, wrap.mh2start)
+	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn, wrap.mhstart)
 }
 
 func enclavePreallocate(wrap *sgx_wrapper) {
@@ -77,12 +77,7 @@ func enclavePreallocate(wrap *sgx_wrapper) {
 	flags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 
 	// The span
-	_, err := syscall.RMmap(wrap.mhstart, int(MHSTART_SIZE), prot,
-		flags, -1, 0)
-	check(err)
-
-	// The arena
-	_, err = syscall.RMmap(wrap.mh2start, int(MH2START_SIZE), prot,
+	_, err := syscall.RMmap(wrap.mhstart, int(wrap.mhsize), prot,
 		flags, -1, 0)
 	check(err)
 
