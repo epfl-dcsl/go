@@ -111,10 +111,6 @@ var initSigmask sigset
 // The main goroutine.
 func main() {
 	g := getg()
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x499)
-	}
 
 	// Racectx of m0->g0 is used only as the parent of the main goroutine.
 	// It must not be used for anything else.
@@ -193,23 +189,10 @@ skipgcenable:
 		cgocall(_cgo_notify_runtime_init_done, nil)
 	}
 
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x500)
-	}
-
 	fn := main_init // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x501)
-	}
 	close(main_init_done)
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x502)
-	}
 
 	needUnlock = false
 	unlockOSThread()
@@ -219,20 +202,11 @@ skipgcenable:
 		// has a main, but it is not executed.
 		return
 	}
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x503)
-	}
 
 	fn = main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
 		racefini()
-	}
-
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x504)
 	}
 
 	// Make racy client program work: if panicking on
@@ -512,43 +486,25 @@ func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
 	_g_ := getg()
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x599)
-	}
+
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}
 
 	sched.maxmcount = 10000
-
 	tracebackinit()
 	moduledataverify()
 	stackinit()
 	mallocinit()
 	mcommoninit(_g_.m) // TODO(aghosn) apparently the stack is allocated here.
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x600)
-	}
-	alginit()       // maps must not be used before this call
-	modulesinit()   // provides activeModules
-	typelinksinit() // uses maps, activeModules
-	itabsinit()     // uses activeModules
-
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x601)
-	}
+	alginit()          // maps must not be used before this call
+	modulesinit()      // provides activeModules
+	typelinksinit()    // uses maps, activeModules
+	itabsinit()        // uses activeModules
 
 	if !isEnclave {
 		msigsave(_g_.m)
 		initSigmask = _g_.m.sigmask
-	}
-
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x602)
 	}
 
 	goargs()
@@ -563,11 +519,6 @@ func schedinit() {
 	}
 	if isEnclave {
 		procs = 1
-	}
-
-	if isEnclave {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x603)
 	}
 
 	if procresize(procs) != nil {
@@ -3901,7 +3852,7 @@ func procresize(nprocs int32) *p {
 	if old < 0 || nprocs <= 0 {
 		throw("procresize: invalid arg")
 	}
-	if trace.enabled {
+	if trace.enabled && !isEnclave {
 		traceGomaxprocs(nprocs)
 	}
 
