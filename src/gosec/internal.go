@@ -79,8 +79,6 @@ func avoidDeadlock() {
 func oCallServer() {
 	for {
 		sys := <-runtime.Cooprt.Ocall
-		log.Printf("Received a syscall with address %x\n", &sys.Trap)
-		log.Printf("The whole structure %v\n", sys)
 		var r1 uintptr
 		var r2 uintptr
 		var err syscall.Errno
@@ -97,13 +95,10 @@ func oCallServer() {
 func allocServer() {
 	for {
 		allocBytes := <-runtime.Cooprt.OAllocReq
-		log.Printf("Received an allocation: %x\n", &allocBytes.Siz)
-		log.Printf("The whole alloc structure %x\n", allocBytes)
 		if allocBytes.Siz > 0 {
 			//TODO @aghosn check if this correct (garbage collected?)
 			copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
 			go runtime.Cooprt.AllocSend(allocBytes.Id, copy)
-			log.Printf("Done with allocation %x\n", copy)
 		} else {
 			panic("Request for a non positive size allocation.")
 		}
