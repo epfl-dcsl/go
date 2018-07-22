@@ -17,10 +17,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 	if runtime.IsEnclave() {
 		switch trap {
 		case SYS_WRITE:
-			if runtime.IsEnclave() {
-				marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000090)))
-				*marker = uint64(0x111)
-			}
 			syscid, csys := runtime.Cooprt.AcquireSysPool()
 			allocid, cal := runtime.Cooprt.AcquireAllocPool()
 
@@ -38,10 +34,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			runtime.Cooprt.ReleaseSysPool(syscid)
 			return res.R1, res.R2, Errno(res.Err)
 		default:
-			if runtime.IsEnclave() {
-				marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000070)))
-				*marker = uint64(0x666)
-			}
 			panic("unsupported system call.")
 			//goto UNSUPPORTED
 		}
@@ -52,10 +44,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 
 func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno) {
 	if runtime.IsEnclave() {
-		if runtime.IsEnclave() {
-			marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000070)))
-			*marker = uint64(0x666)
-		}
 		panic("Unallowed system call inside the enclave.")
 	}
 	return SSyscall6(trap, a1, a2, a3, a4, a5, a6)

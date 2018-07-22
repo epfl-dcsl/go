@@ -163,10 +163,6 @@ needtls:
 	JMP nonsim
 #endif
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $DBG_ADDR, R8
-	MOVQ $0x101, (R8)
-
 	//Set up the isEnclave variable.
 	MOVB $1, runtime·isEnclave(SB)
 
@@ -217,11 +213,6 @@ nonsim:
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $DBG_ADDR, R8
-	MOVQ $0x102, (R8)
-
-
 	MOVL	16(SP), AX		// copy argc
 	MOVL	AX, 0(SP)
 	MOVQ	24(SP), AX		// copy argv
@@ -229,10 +220,6 @@ nonsim:
 	CALL	runtime·args(SB)
 
 	CALL	runtime·osinit(SB)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $DBG_ADDR, R8
-	MOVQ $0x103, (R8)
 
 	CALL	runtime·schedinit(SB)
 
@@ -248,17 +235,12 @@ nonsim:
 	POPQ	AX
 	POPQ	AX
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $DBG_ADDR, R8
-	MOVQ $0x1e, (R8)
-
 	// start this M
 	CALL	runtime·mstart(SB)
 
 	// TODO remove afterwards (just for debuggin)
 	MOVQ $0x050000000000, R8
 	MOVQ $0x222, (R8)
-
 
 	MOVL	$0xf1, 0xf1  // crash
 	RET
