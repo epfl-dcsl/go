@@ -99,13 +99,21 @@ func IsEnclave() bool {
 	return isEnclave
 }
 
+func panicGosec(a string) {
+	if isEnclave {
+		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
+		*marker = uint64(0x666)
+	}
+	panic(a)
+}
+
 // checkinterdomain detects inter domain crossing and panics if foreign has
 // higher protection than local. Returns true if local and foreign belong to
 // different domains.
 // This function is called when writting to a channel for example.
 func checkinterdomain(rlocal, rforeign bool) bool {
 	if !rlocal && rforeign {
-		panic("An untrusted routine is trying to access a trusted channel")
+		panicGosec("An untrusted routine is trying to access a trusted channel")
 	}
 	return rlocal != rforeign
 }
@@ -128,7 +136,7 @@ func migrateCrossDomain() {
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
 		if isEnclave != sg.g.isencl {
-			panic("We do not access the correct queue -> SGX memory error.")
+			panicGosec("We do not access the correct queue -> SGX memory error.")
 		}
 		gp := sg.g
 		gp.param = unsafe.Pointer(sg)
@@ -140,7 +148,7 @@ func migrateCrossDomain() {
 
 func acquireSudogFromPool() *sudog {
 	if !isEnclave {
-		panic("Acquiring fake sudog from non-trusted domain.")
+		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
 	Cooprt.sl.Lock()
 	for i, x := range Cooprt.pool {
@@ -154,7 +162,7 @@ func acquireSudogFromPool() *sudog {
 	}
 	//TODO @aghosn should come up with something here.
 	Cooprt.sl.Unlock()
-	panic("Ran out of sudog in the pool.")
+	panicGosec("Ran out of sudog in the pool.")
 	return nil
 }
 
@@ -171,7 +179,7 @@ func crossReleaseSudog(sg *sudog) {
 	// We are executing and are in the correct domain.
 	// Hence this is our first check: id != -1 implies we are in the enclave
 	if sg.id != -1 && !isEnclave {
-		panic("We have a pool sudog containing a non enclave element.")
+		panicGosec("We have a pool sudog containing a non enclave element.")
 	}
 
 	// Second step is if we are from the pool (and we are inside the enclave),
@@ -187,7 +195,7 @@ func crossReleaseSudog(sg *sudog) {
 // routine to belong to the same domain as this sudog.
 func isReschedulable(sg *sudog) bool {
 	if sg == nil {
-		panic("Calling isReschedulable with nil sudog.")
+		panicGosec("Calling isReschedulable with nil sudog.")
 	}
 	return (sg.id == -1 && !checkinterdomain(isEnclave, sg.g.isencl))
 }
@@ -201,7 +209,7 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	// This can happen only when non-trusted has blocked on a channel.
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
-			panic("Misspredicted the crossdomain scenario.")
+			panicGosec("Misspredicted the crossdomain scenario.")
 		}
 		c.readyO.enqueue(sg)
 		c.sl.Unlock()
@@ -209,8 +217,8 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	}
 
 	// TODO remove this check once we run in SGX
-	if c.pool[sg.id].isencl != sg.g.isencl {
-		panic("The fake sudog does not reflect the domain of its g.")
+	if isSimulation && c.pool[sg.id].isencl != sg.g.isencl {
+		panicGosec("The fake sudog does not reflect the domain of its g.")
 	}
 	// We have a sudog from the pool.
 	if c.pool[sg.id].isencl {
@@ -232,16 +240,16 @@ func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
 		}
 	}
 	c.sl.Unlock()
-	panic("Ran out of syspool channels.")
+	panicGosec("Ran out of syspool channels.")
 	return -1, nil
 }
 
 func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 	if id < 0 || id >= len(c.sysPool) {
-		panic("Trying to release out of range syspool")
+		panicGosec("Trying to release out of range syspool")
 	}
 	if c.sysPool[id].available != 0 {
-		panic("Trying to release an available channel")
+		panicGosec("Trying to release an available channel")
 	}
 
 	c.sl.Lock()
@@ -264,16 +272,16 @@ func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
 		}
 	}
 	c.sl.Unlock()
-	panic("Ran out of allocpool channels.")
+	panicGosec("Ran out of allocpool channels.")
 	return -1, nil
 }
 
 func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
 	if id < 0 || id >= len(c.allocPool) {
-		panic("Trying to release out of range syspool")
+		panicGosec("Trying to release out of range syspool")
 	}
 	if c.allocPool[id].available != 0 {
-		panic("Trying to release an available channel")
+		panicGosec("Trying to release an available channel")
 	}
 
 	c.sl.Lock()
@@ -288,7 +296,7 @@ func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
 // Sets up the stack arguments and returns the beginning of the stack address.
 func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	if isEnclave {
-		panic("Should not allocate enclave from the enclave.")
+		panicGosec("Should not allocate enclave from the enclave.")
 	}
 
 	addrArgc := stack - unsafe.Sizeof(argc)
@@ -336,7 +344,7 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 
 func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	if isEnclave {
-		panic("Should not allocate enclave from the enclave.")
+		panicGosec("Should not allocate enclave from the enclave.")
 	}
 	addrArgc := stack - unsafe.Sizeof(argc)
 	addrArgv := addrArgc - unsafe.Sizeof(argv)

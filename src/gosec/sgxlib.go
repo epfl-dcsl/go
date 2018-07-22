@@ -112,7 +112,6 @@ func sgxLoadProgram(path string) {
 
 	transpstack := transposeIn(pstack)
 
-	log.Println("About to enter.")
 	sgxEEnter(wrap, uint64(wrap.tcs), uint64(transpstack))
 }
 
@@ -209,8 +208,6 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 
 func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
-	log.Printf("The stack address is %x\n", wrap.stack)
-
 	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot, SGX_SECINFO_REG)
 
 	// Preallocate the heap and membuf
@@ -220,7 +217,6 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 
 // TODO should maybe change the layout.
 func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
-	log.Printf("The entry %x\n", entry)
 	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
 	tcs.reserved1 = uint64(0)
 	tcs.flags = uint64(0)
@@ -454,7 +450,6 @@ func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
 
 	runtime.StartEnclaveOSThread(addrtcs, fn)
-	log.Println("After the run")
 }
 
 func testEntry() {
