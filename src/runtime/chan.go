@@ -225,9 +225,12 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if checkinterdomain(gp.isencl, c.isencl) {
 		// Blocking on a send from enclave.
 		// take a sudog from the free list and use it.
-		mysg = acquireSudogFromPool()
+		mysg, ep = acquireSudogFromPool(ep, c.elemsize)
 		if !gp.isencl || !isEnclave {
 			panic("Acquiring sudog from the pool in wrong environment.")
+		}
+		if c.elemsize > SG_BUF_SIZE {
+			panic("Not enough space in the sudog buffer.")
 		}
 	} else {
 		mysg = acquireSudog()
@@ -267,7 +270,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	}
 	mysg.c = nil
 
-	crossReleaseSudog(mysg)
+	crossReleaseSudog(mysg, c.elemsize)
 	return true
 }
 
@@ -305,7 +308,7 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if !isReschedulable(sg) {
 		//TODO @aghosn don't know what to do with the gp.param.
 		unlockf()
-		if sg.releasetime != 0 {
+		if !isEnclave && sg.releasetime != 0 {
 			sg.releasetime = cputicks()
 		}
 		Cooprt.crossGoready(sg)
@@ -315,7 +318,7 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	gp := sg.g
 	unlockf()
 	gp.param = unsafe.Pointer(sg)
-	if sg.releasetime != 0 {
+	if !isEnclave && sg.releasetime != 0 {
 		sg.releasetime = cputicks()
 	}
 	goready(gp, skip+1)
@@ -338,6 +341,7 @@ func sendDirect(t *_type, sg *sudog, src unsafe.Pointer) {
 	// be updated if the destination's stack gets copied (shrunk).
 	// So make sure that no preemption points can happen between read & use.
 	dst := sg.elem
+	checkEnclaveBounds(uintptr(dst))
 	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
 	memmove(dst, src, t.size)
 }
@@ -347,6 +351,7 @@ func recvDirect(t *_type, sg *sudog, dst unsafe.Pointer) {
 	// The channel is locked, so src will not move during this
 	// operation.
 	src := sg.elem
+	checkEnclaveBounds(uintptr(src))
 	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
 	memmove(dst, src, t.size)
 }
@@ -533,7 +538,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	// @aghosn for inter-domain communication.
 	var mysg *sudog = nil
 	if checkinterdomain(gp.isencl, c.isencl) {
-		mysg = acquireSudogFromPool()
+		mysg, ep = acquireSudogFromPool(ep, c.elemsize)
 	} else {
 		mysg = acquireSudog()
 	}
@@ -545,6 +550,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
+	//TODO aghosn here is the problem.
 	mysg.elem = ep
 	mysg.waitlink = nil
 	gp.waiting = mysg
@@ -567,7 +573,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	gp.param = nil
 	mysg.c = nil
 
-	crossReleaseSudog(mysg)
+	crossReleaseSudog(mysg, c.elemsize)
 	return true, !closed
 }
 

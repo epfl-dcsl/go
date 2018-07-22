@@ -101,11 +101,11 @@ func allocServer() {
 		log.Printf("The whole alloc structure %x\n", allocBytes)
 		if allocBytes.Siz > 0 {
 			//TODO @aghosn check if this correct (garbage collected?)
-			go func() {
-				copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
-				runtime.Cooprt.AllocSend(allocBytes.Id, copy)
-				log.Println("Done with allocation")
-			}()
+			copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
+			go runtime.Cooprt.AllocSend(allocBytes.Id, copy)
+			log.Printf("Done with allocation %x\n", copy)
+		} else {
+			panic("Request for a non positive size allocation.")
 		}
 	}
 }

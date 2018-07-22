@@ -51,6 +51,8 @@ type poolSudog struct {
 	wg        *sudog
 	isencl    bool
 	available int
+	buff      []byte
+	orig      unsafe.Pointer
 }
 
 type CooperativeRuntime struct {
@@ -90,6 +92,8 @@ const (
 	MMMASK      = 0x050000000000
 	MEMBUF_SIZE = uintptr(PSIZE * 300)
 
+	SG_BUF_SIZE = 100 // size in bytes
+
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
 	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
@@ -97,6 +101,17 @@ const (
 
 func IsEnclave() bool {
 	return isEnclave
+}
+
+func checkEnclaveBounds(addr uintptr) {
+	if isEnclave {
+		// Enclave has access to everything.
+		return
+	}
+	if addr >= ENCLMASK && addr < ENCLMASK+ENCLSIZE {
+		print("pre-panic: addr ", hex(addr), "\n")
+		panic("runtime: illegal address used outside of the enclave.")
+	}
 }
 
 func panicGosec(a string) {
@@ -146,29 +161,33 @@ func migrateCrossDomain() {
 	Cooprt.sl.Unlock()
 }
 
-func acquireSudogFromPool() *sudog {
+func acquireSudogFromPool(elem unsafe.Pointer, size uint16) (*sudog, unsafe.Pointer) {
 	if !isEnclave {
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
+	if size > SG_BUF_SIZE {
+		panic("fake sudog buffer is too small.")
+	}
 	Cooprt.sl.Lock()
-	for i, x := range Cooprt.pool {
-		if x.available != 0 {
-			x.available = 0
-			x.wg.id = int32(i)
-			x.isencl = isEnclave
+	for i := range Cooprt.pool {
+		if Cooprt.pool[i].available != 0 {
+			Cooprt.pool[i].available = 0
+			Cooprt.pool[i].wg.id = int32(i)
+			Cooprt.pool[i].isencl = isEnclave
+			Cooprt.pool[i].orig = elem
 			Cooprt.sl.Unlock()
-			return x.wg
+			return Cooprt.pool[i].wg, unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
 		}
 	}
 	//TODO @aghosn should come up with something here.
 	Cooprt.sl.Unlock()
 	panicGosec("Ran out of sudog in the pool.")
-	return nil
+	return nil, nil
 }
 
 // crossReleaseSudog calls the appropriate releaseSudog version depending on whether
 // the sudog is a crossdomain one or not.
-func crossReleaseSudog(sg *sudog) {
+func crossReleaseSudog(sg *sudog, size uint16) {
 	// Check if this is not from the pool and is same domain (regular path)
 	if isReschedulable(sg) {
 		releaseSudog(sg)
@@ -182,11 +201,16 @@ func crossReleaseSudog(sg *sudog) {
 		panicGosec("We have a pool sudog containing a non enclave element.")
 	}
 
+	//Copy back the result.
+	value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
+	memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
+
 	// Second step is if we are from the pool (and we are inside the enclave),
 	// We are runnable again. We just release the sudog from the pool.
 	Cooprt.sl.Lock()
 	Cooprt.pool[sg.id].isencl = false
 	Cooprt.pool[sg.id].available = 1
+	Cooprt.pool[sg.id].orig = nil
 	Cooprt.sl.Unlock()
 }
 
@@ -312,7 +336,7 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil}
 		Cooprt.pool[i].wg.id = int32(i)
 	}
 
@@ -359,7 +383,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1}
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil}
 		Cooprt.pool[i].wg.id = int32(i)
 	}
 

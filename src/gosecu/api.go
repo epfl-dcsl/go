@@ -3,7 +3,6 @@ package gosecu
 import (
 	"reflect"
 	"runtime"
-	"unsafe"
 )
 
 // Slice of gosecure targets.
@@ -31,10 +30,6 @@ func EcallServer() {
 // execution, and registers all the functions that are a target of the gosecure
 // keyword.
 func RegisterSecureFunction(f interface{}) {
-	if runtime.IsEnclave() {
-		marker := (*uint64)(unsafe.Pointer(uintptr(0x050000000000)))
-		*marker = uint64(0x603)
-	}
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
 	}
