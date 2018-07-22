@@ -63,8 +63,8 @@ func LoadEnclave() {
 
 	//Start loading the program within the correct address space.
 	isInit = true
-	loadProgram(name)
-	//sgxLoadProgram(name)
+	//loadProgram(name)
+	sgxLoadProgram(name)
 }
 
 // Spins on the scheduler. Avoids triggering the deadlock detector when routines
@@ -78,30 +78,34 @@ func avoidDeadlock() {
 
 func oCallServer() {
 	for {
-		select {
-		case sys := <-runtime.Cooprt.Ocall:
-			var r1 uintptr
-			var r2 uintptr
-			var err syscall.Errno
-			if sys.Big {
-				r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
-			} else {
-				r1, r2, err = syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
-			}
-			res := runtime.OcallRes{r1, r2, uintptr(err)}
-			go runtime.Cooprt.SysSend(sys.Id, res)
+		sys := <-runtime.Cooprt.Ocall
+		log.Printf("Received a syscall with address %x\n", &sys.Trap)
+		log.Printf("The whole structure %v\n", sys)
+		var r1 uintptr
+		var r2 uintptr
+		var err syscall.Errno
+		if sys.Big {
+			r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+		} else {
+			r1, r2, err = syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+		}
+		res := runtime.OcallRes{r1, r2, uintptr(err)}
+		go runtime.Cooprt.SysSend(sys.Id, res)
+	}
+}
 
-		case allocBytes := <-runtime.Cooprt.OAllocReq:
-			if allocBytes.Siz > 0 {
-				//TODO @aghosn check if this correct (garbage collected?)
-				go func() {
-					copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
-					runtime.Cooprt.AllocSend(allocBytes.Id, copy)
-				}()
-			}
-		default:
-			// Avoid hogging the CPU
-			runtime.Gosched()
+func allocServer() {
+	for {
+		allocBytes := <-runtime.Cooprt.OAllocReq
+		log.Printf("Received an allocation: %x\n", &allocBytes.Siz)
+		log.Printf("The whole alloc structure %x\n", allocBytes)
+		if allocBytes.Siz > 0 {
+			//TODO @aghosn check if this correct (garbage collected?)
+			go func() {
+				copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
+				runtime.Cooprt.AllocSend(allocBytes.Id, copy)
+				log.Println("Done with allocation")
+			}()
 		}
 	}
 }
@@ -135,6 +139,8 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		LoadEnclave()
 		// Server to allocate requests & service system calls for the enclave.
 		go oCallServer()
+		go allocServer()
+		go avoidDeadlock()
 	}
 	//Copy the stack frame inside a buffer.
 	attrib := runtime.EcallAttr{}
