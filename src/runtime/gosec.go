@@ -53,6 +53,7 @@ type poolSudog struct {
 	available int
 	buff      []byte
 	orig      unsafe.Pointer
+	isRcv     bool
 }
 
 type CooperativeRuntime struct {
@@ -161,7 +162,7 @@ func migrateCrossDomain() {
 	Cooprt.sl.Unlock()
 }
 
-func acquireSudogFromPool(elem unsafe.Pointer, size uint16) (*sudog, unsafe.Pointer) {
+func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
 	if !isEnclave {
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
@@ -175,8 +176,13 @@ func acquireSudogFromPool(elem unsafe.Pointer, size uint16) (*sudog, unsafe.Poin
 			Cooprt.pool[i].wg.id = int32(i)
 			Cooprt.pool[i].isencl = isEnclave
 			Cooprt.pool[i].orig = elem
+			Cooprt.pool[i].isRcv = isrcv
 			Cooprt.sl.Unlock()
-			return Cooprt.pool[i].wg, unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
+			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
+			if elem != nil {
+				memmove(ptr, elem, uintptr(size))
+			}
+			return Cooprt.pool[i].wg, ptr
 		}
 	}
 	//TODO @aghosn should come up with something here.
@@ -202,8 +208,10 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 	}
 
 	//Copy back the result.
-	value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
-	memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
+	if Cooprt.pool[sg.id].isRcv && Cooprt.pool[sg.id].orig != nil {
+		value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
+		memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
+	}
 
 	// Second step is if we are from the pool (and we are inside the enclave),
 	// We are runnable again. We just release the sudog from the pool.
@@ -211,6 +219,7 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 	Cooprt.pool[sg.id].isencl = false
 	Cooprt.pool[sg.id].available = 1
 	Cooprt.pool[sg.id].orig = nil
+	Cooprt.pool[sg.id].isRcv = false
 	Cooprt.sl.Unlock()
 }
 
@@ -336,7 +345,7 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil}
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
 		Cooprt.pool[i].wg.id = int32(i)
 	}
 
@@ -383,7 +392,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	Cooprt.OAllocReq = make(chan AllocAttr)
 	Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil}
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
 		Cooprt.pool[i].wg.id = int32(i)
 	}
 

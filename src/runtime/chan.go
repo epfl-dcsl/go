@@ -225,7 +225,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if checkinterdomain(gp.isencl, c.isencl) {
 		// Blocking on a send from enclave.
 		// take a sudog from the free list and use it.
-		mysg, ep = acquireSudogFromPool(ep, c.elemsize)
+		mysg, ep = acquireSudogFromPool(ep, false, c.elemsize)
 		if !gp.isencl || !isEnclave {
 			panic("Acquiring sudog from the pool in wrong environment.")
 		}
@@ -538,7 +538,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	// @aghosn for inter-domain communication.
 	var mysg *sudog = nil
 	if checkinterdomain(gp.isencl, c.isencl) {
-		mysg, ep = acquireSudogFromPool(ep, c.elemsize)
+		mysg, ep = acquireSudogFromPool(ep, true, c.elemsize)
 	} else {
 		mysg = acquireSudog()
 	}
