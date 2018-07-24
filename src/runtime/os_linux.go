@@ -270,7 +270,7 @@ func sysauxv(auxv []uintptr) int {
 }
 
 func osinit() {
-	_MHeapMap_TotalBitsEncl = _64bit * 25 //(_64bit * 31)
+	_MHeapMap_TotalBitsEncl = _64bit * 25 //(previous was 25)
 	_MHeapMap_BitsEncl = _MHeapMap_BitsEncl - _PageShift
 	_MaxMemEncl = 1<<_MHeapMap_TotalBitsEncl - 1
 	if isEnclave {

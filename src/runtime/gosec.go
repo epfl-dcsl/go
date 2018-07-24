@@ -91,7 +91,7 @@ const (
 	ENCLMASK    = 0x040000000000
 	ENCLSIZE    = 0x001000000000
 	MMMASK      = 0x050000000000
-	MEMBUF_SIZE = uintptr(PSIZE * 300)
+	MEMBUF_SIZE = uintptr(PSIZE * 800)
 
 	SG_BUF_SIZE = 100 // size in bytes
 

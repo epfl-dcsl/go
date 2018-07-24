@@ -2,6 +2,7 @@ package gosec
 
 import (
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -42,7 +43,7 @@ const (
 	SSA_SIZE    = PSIZE
 	MSGX_SIZE   = PSIZE
 	TLS_SIZE    = PSIZE
-	MEMBUF_SIZE = (PSIZE * 300)
+	MEMBUF_SIZE = runtime.MEMBUF_SIZE //(PSIZE * 300)
 )
 
 // Offsets are of the form FROM_TO_OFF = VALUE
