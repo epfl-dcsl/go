@@ -61,7 +61,7 @@ func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 	if isEnclave {
 		Cooprt.sl.Lock()
 		if Cooprt.membuf_head+n > MEMBUF_START+MEMBUF_SIZE {
-			throw("Unable to sysAlloc in enclave, ran out of pool memory")
+			throw("Unable to sysAlloc in enclave, ran out of membuf memory")
 		}
 		res := Cooprt.membuf_head
 		const mask = uintptr(0xFFFFFFFFFFFFF000)
@@ -191,6 +191,9 @@ func sysUsed(v unsafe.Pointer, n uintptr) {
 // which prevents us from allocating more stack.
 //go:nosplit
 func sysFree(v unsafe.Pointer, n uintptr, sysStat *uint64) {
+	if isEnclave {
+		panic("Calling free in the enclave")
+	}
 	mSysStatDec(sysStat, n)
 	munmap(v, n)
 }
