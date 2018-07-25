@@ -123,6 +123,19 @@ func panicGosec(a string) {
 	panic(a)
 }
 
+// sysFutex allows to do a wakeup call on a futex while going through the
+// interposition mechanism.
+func sysFutex(addr *uint32, cnt uint32) {
+	syscid, csys := Cooprt.AcquireSysPool()
+	sys_futex := uintptr(202)
+	req := OcallReq{true, sys_futex, uintptr(unsafe.Pointer(addr)),
+		uintptr(_FUTEX_WAKE), uintptr(cnt), 0, 0, 0, syscid}
+	Cooprt.Ocall <- req
+	_ = <-csys
+	Cooprt.ReleaseSysPool(syscid)
+	// TODO aghosn Don't care about the result for now
+}
+
 // checkinterdomain detects inter domain crossing and panics if foreign has
 // higher protection than local. Returns true if local and foreign belong to
 // different domains.
