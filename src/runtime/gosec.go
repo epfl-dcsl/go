@@ -73,8 +73,8 @@ type CooperativeRuntime struct {
 	pool [50]*poolSudog
 
 	//pool of answer channels.
-	sysPool   [10]*poolSysChan
-	allocPool [10]*poolAllocChan
+	sysPool   [100]*poolSysChan
+	allocPool [100]*poolAllocChan
 
 	membuf_head uintptr
 
@@ -299,7 +299,7 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 	}
 
 	c.sl.Lock()
-	c.sysPool[id].available = 0
+	c.sysPool[id].available = 1
 	c.sl.Unlock()
 }
 
@@ -331,7 +331,7 @@ func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
 	}
 
 	c.sl.Lock()
-	c.allocPool[id].available = 0
+	c.allocPool[id].available = 1
 	c.sl.Unlock()
 }
 
