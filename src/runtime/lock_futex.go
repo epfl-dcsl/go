@@ -69,10 +69,13 @@ func lock(l *mutex) {
 	// On uniprocessors, no point spinning.
 	// On multiprocessors, spin for ACTIVE_SPIN attempts.
 	spin := 0
-	if ncpu > 1 {
+	if ncpu > 1 || isEnclave {
 		spin = active_spin
 	}
+	//TODO enclave might be worth trying the spin.
+	//TODO enclave should avoid the osyield as well.
 	for {
+	LSTART:
 		// Try for lock, spinning.
 		for i := 0; i < spin; i++ {
 			for l.key == mutex_unlocked {
@@ -89,6 +92,10 @@ func lock(l *mutex) {
 				if atomic.Cas(key32(&l.key), mutex_unlocked, wait) {
 					return
 				}
+			}
+			//The enclave is not allowed to do a yield or futex
+			if isEnclave {
+				goto LSTART
 			}
 			osyield()
 		}
@@ -109,7 +116,13 @@ func unlock(l *mutex) {
 		throw("unlock of unlocked lock")
 	}
 	if v == mutex_sleeping {
-		futexwakeup(key32(&l.key), 1)
+		if isEnclave {
+			// TODO aghosn go through syscall interposition channel for now.
+			go sysFutex(key32(&l.key), 1)
+		} else {
+			futexwakeup(key32(&l.key), 1)
+		}
+
 	}
 
 	gp := getg()
