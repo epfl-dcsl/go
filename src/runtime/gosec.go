@@ -70,7 +70,7 @@ type CooperativeRuntime struct {
 	readyO waitq
 
 	//pool of sudog structs allocated in non-trusted.
-	pool [50]*poolSudog
+	pool [100]*poolSudog
 
 	//pool of answer channels.
 	sysPool   [100]*poolSysChan
@@ -91,7 +91,7 @@ const (
 	ENCLMASK    = 0x040000000000
 	ENCLSIZE    = 0x001000000000
 	MMMASK      = 0x050000000000
-	MEMBUF_SIZE = uintptr(PSIZE * 800)
+	MEMBUF_SIZE = uintptr(PSIZE * 1400)
 
 	SG_BUF_SIZE = 100 // size in bytes
 
