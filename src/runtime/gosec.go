@@ -104,6 +104,10 @@ func IsEnclave() bool {
 	return isEnclave
 }
 
+func IsSimulation() bool {
+	return isSimulation
+}
+
 func checkEnclaveBounds(addr uintptr) {
 	if isEnclave {
 		// Enclave has access to everything.

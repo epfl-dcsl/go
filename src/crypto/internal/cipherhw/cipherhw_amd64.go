@@ -6,11 +6,18 @@
 
 package cipherhw
 
+import (
+	"runtime"
+)
+
 // defined in asm_amd64.s
 func hasAESNI() bool
 
 // AESGCMSupport returns true if the Go standard library supports AES-GCM in
 // hardware.
 func AESGCMSupport() bool {
+	if runtime.IsEnclave() {
+		return true
+	}
 	return hasAESNI()
 }

@@ -921,6 +921,13 @@ TEXT runtime·stackcheck(SB), NOSPLIT, $0-0
 
 // func cputicks() int64
 TEXT runtime·cputicks(SB),NOSPLIT,$0-0
+	MOVB runtime·isEnclave(SB), R8
+	CMPB R8, $1
+	JNE normal
+	MOVQ $1, AX
+	MOVQ AX, ret+0(FP)
+	RET
+normal:
 	CMPB	runtime·lfenceBeforeRdtsc(SB), $1
 	JNE	mfence
 	LFENCE

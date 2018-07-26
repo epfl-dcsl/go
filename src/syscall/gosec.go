@@ -33,6 +33,24 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			res := <-csys
 			runtime.Cooprt.ReleaseSysPool(syscid)
 			return res.R1, res.R2, Errno(res.Err)
+		case uintptr(318):
+			syscid, csys := runtime.Cooprt.AcquireSysPool()
+			allocid, cal := runtime.Cooprt.AcquireAllocPool()
+
+			//Copy the content of the buffer outside of the enclave.
+			runtime.Cooprt.OAllocReq <- runtime.AllocAttr{int(a2), nil, allocid}
+			buf := <-cal
+			destptr := uintptr(unsafe.Pointer(&(buf.Buf[0])))
+			runtime.Cooprt.ReleaseAllocPool(allocid)
+			// Make the call.
+			req := runtime.OcallReq{false, trap, destptr, a2, a3, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			runtime.Cooprt.ReleaseSysPool(syscid)
+
+			memcpy(destptr, a1, a2)
+			return res.R1, res.R2, Errno(res.Err)
+
 		default:
 			panic("unsupported system call.")
 			//goto UNSUPPORTED
