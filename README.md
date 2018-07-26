@@ -6,9 +6,15 @@ This fork of the go compiler aims at providing a new keyword, `gosecure`, that a
 
 1. Generate a separate binary that resides in a different part of the address space and contains code that executes inside the TEE.
 2. A way to load and execute (outside of the enclave) this binary in a dedicated thread.
+3. Cooperation between the two runtimes.
+4. Support for the Intel SGX technology.
 
-## What we need to do
+## Benchmarks
 
-1. Implement cooperative scheduling between two runtimes to allow the usage of (slightly modified0 go channels). 
-2. Modify the enclave runtime to submit syscalls via a channel.
-3. Create an SGX enclave to host the binary we created.
+Not stable yet.
+
+https://github.com/epfl-dcsl/gosecure-benchmarks
+
+## Paper
+
+https://github.com/epfl-dcsl/gosecure-asplos2019
