@@ -784,6 +784,9 @@ func (c *Config) writeKeyLog(clientRandom, masterSecret []byte) error {
 // and is only for debugging, so a global mutex saves space.
 var writerMutex sync.Mutex
 
+type EncrType func(*crypto.PrivateKey, []byte, chan []byte)
+type DecrType func(*crypto.PrivateKey, []byte, chan []byte)
+
 // A Certificate is a chain of one or more certificates, leaf first.
 type Certificate struct {
 	Certificate [][]byte
@@ -804,6 +807,10 @@ type Certificate struct {
 	// processing for TLS clients doing client authentication. If nil, the
 	// leaf certificate will be parsed as needed.
 	Leaf *x509.Certificate
+
+	//@aghosn for the gosecure encrypt decrypt.
+	EncrUser EncrType
+	DecrUser DecrType
 }
 
 type handshakeMessage interface {
