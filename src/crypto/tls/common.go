@@ -9,6 +9,7 @@ import (
 	"crypto"
 	"crypto/internal/cipherhw"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha512"
 	"crypto/x509"
 	"errors"
@@ -785,7 +786,7 @@ func (c *Config) writeKeyLog(clientRandom, masterSecret []byte) error {
 var writerMutex sync.Mutex
 
 type EncrType func(*crypto.PrivateKey, []byte, chan []byte)
-type DecrType func(*crypto.PrivateKey, []byte, chan []byte)
+type DecrType func(crypto.PrivateKey, io.Reader, []byte, *rsa.PKCS1v15DecryptOptions, chan []byte)
 
 // A Certificate is a chain of one or more certificates, leaf first.
 type Certificate struct {
@@ -810,7 +811,9 @@ type Certificate struct {
 
 	//@aghosn for the gosecure encrypt decrypt.
 	EncrUser EncrType
+	EncrChan chan []byte
 	DecrUser DecrType
+	DecrChan chan []byte
 }
 
 type handshakeMessage interface {

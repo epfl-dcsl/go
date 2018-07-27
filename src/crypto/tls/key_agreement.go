@@ -51,15 +51,14 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 	// Perform constant time RSA PKCS#1 v1.5 decryption
 	var preMasterSecret []byte
 	var err error
-	if cert.DecrUser == nil {
+	if cert.DecrUser == nil || cert.DecrChan == nil {
 		preMasterSecret, err = priv.Decrypt(config.rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		res := make(chan []byte)
-		cert.DecrUser(&cert.PrivateKey, ciphertext, res)
-		preMasterSecret = <-res
+		cert.DecrUser(cert.PrivateKey, config.rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48}, cert.DecrChan)
+		preMasterSecret = <-cert.DecrChan
 	}
 
 	// We don't check the version number in the premaster secret. For one,
