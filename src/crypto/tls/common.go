@@ -786,7 +786,7 @@ func (c *Config) writeKeyLog(clientRandom, masterSecret []byte) error {
 var writerMutex sync.Mutex
 
 type EncrType func(*crypto.PrivateKey, []byte, chan []byte)
-type DecrType func(crypto.PrivateKey, io.Reader, []byte, *rsa.PKCS1v15DecryptOptions, chan []byte)
+type DecrType func(crypto.PrivateKey, io.Reader, []byte, []byte, *rsa.PKCS1v15DecryptOptions, chan bool)
 
 // A Certificate is a chain of one or more certificates, leaf first.
 type Certificate struct {
@@ -813,7 +813,7 @@ type Certificate struct {
 	EncrUser EncrType
 	EncrChan chan []byte
 	DecrUser DecrType
-	DecrChan chan []byte
+	DecrChan chan bool
 }
 
 type handshakeMessage interface {

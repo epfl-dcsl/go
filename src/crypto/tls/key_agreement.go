@@ -57,8 +57,10 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 			return nil, err
 		}
 	} else {
-		cert.DecrUser(cert.PrivateKey, config.rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48}, cert.DecrChan)
-		preMasterSecret = <-cert.DecrChan
+		preMasterSecret = make([]byte, 48)
+		cert.DecrUser(cert.PrivateKey, config.rand(), ciphertext, preMasterSecret,
+			&rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48}, cert.DecrChan)
+		_ = <-cert.DecrChan //wait to be done
 	}
 
 	// We don't check the version number in the premaster secret. For one,
