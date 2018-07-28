@@ -51,6 +51,13 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			memcpy(destptr, a1, a2)
 			return res.R1, res.R2, Errno(res.Err)
 
+		case SYS_GETUID:
+			syscid, csys := runtime.Cooprt.AcquireSysPool()
+			req := runtime.OcallReq{false, trap, a1, a2, a3, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			runtime.Cooprt.ReleaseSysPool(syscid)
+			return res.R1, res.R2, Errno(res.Err)
 		default:
 			panic("unsupported system call.")
 			//goto UNSUPPORTED
