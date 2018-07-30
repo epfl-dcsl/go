@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"teecomm"
 
 	"golang_org/x/crypto/curve25519"
 )
@@ -51,16 +52,24 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 	// Perform constant time RSA PKCS#1 v1.5 decryption
 	var preMasterSecret []byte
 	var err error
-	if cert.DecrUser == nil || cert.DecrChan == nil {
+	if cert.DecrChan == nil {
 		preMasterSecret, err = priv.Decrypt(config.rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		preMasterSecret = make([]byte, 48)
-		cert.DecrUser(cert.PrivateKey, config.rand(), ciphertext, preMasterSecret,
-			&rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48}, cert.DecrChan)
-		_ = <-cert.DecrChan //wait to be done
+		done := make(chan bool)
+		key, ok := cert.PrivateKey.(*rsa.PrivateKey)
+		if !ok {
+			panic("Unable to type cast crypto.PrivateKey to rsa.PrivateKey")
+		}
+		req := teecomm.DecrRequestMsg{
+			key, ciphertext,
+			&rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48},
+			preMasterSecret, done}
+		cert.DecrChan <- req
+		_ = <-done
 	}
 
 	// We don't check the version number in the premaster secret. For one,

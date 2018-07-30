@@ -9,7 +9,6 @@ import (
 	"crypto"
 	"crypto/internal/cipherhw"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha512"
 	"crypto/x509"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"teecomm"
 	"time"
 )
 
@@ -785,8 +785,8 @@ func (c *Config) writeKeyLog(clientRandom, masterSecret []byte) error {
 // and is only for debugging, so a global mutex saves space.
 var writerMutex sync.Mutex
 
-type EncrType func(*crypto.PrivateKey, []byte, chan []byte)
-type DecrType func(crypto.PrivateKey, io.Reader, []byte, []byte, *rsa.PKCS1v15DecryptOptions, chan bool)
+//type EncrType func(*crypto.PrivateKey, []byte, chan []byte)
+//type DecrType func(crypto.PrivateKey, io.Reader, []byte, []byte, *rsa.PKCS1v15DecryptOptions, chan bool)
 
 // A Certificate is a chain of one or more certificates, leaf first.
 type Certificate struct {
@@ -810,10 +810,10 @@ type Certificate struct {
 	Leaf *x509.Certificate
 
 	//@aghosn for the gosecure encrypt decrypt.
-	EncrUser EncrType
-	EncrChan chan []byte
-	DecrUser DecrType
-	DecrChan chan bool
+	//EncrUser EncrType
+	//EncrChan chan []byte
+	//DecrUser DecrType
+	DecrChan chan teecomm.DecrRequestMsg
 }
 
 type handshakeMessage interface {
