@@ -64,17 +64,22 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	sl *secspinlock
+	sl secspinlock // for membuf
 
-	readyE waitq //Ready to be rescheduled
-	readyO waitq
+	readye_lock secspinlock //spinlock for readyE
+	readyE      waitq       //Ready to be rescheduled
+	readyo_lock secspinlock //spinlock for readyO
+	readyO      waitq
 
 	//pool of sudog structs allocated in non-trusted.
-	pool [100]*poolSudog
+	sudogpool_lock secspinlock //lock for the pool of sudog
+	pool           [100]*poolSudog
 
 	//pool of answer channels.
-	sysPool   [100]*poolSysChan
-	allocPool [100]*poolAllocChan
+	syspool_lock   secspinlock // lock for pool syschan
+	sysPool        [100]*poolSysChan
+	allocpool_lock secspinlock
+	allocPool      [100]*poolAllocChan
 
 	membuf_head uintptr
 
@@ -158,13 +163,16 @@ func migrateCrossDomain() {
 	if Cooprt == nil {
 		return
 	}
-	Cooprt.sl.Lock()
 	var queue *waitq = nil
+	var lock *secspinlock = nil
 	if isEnclave {
 		queue = &(Cooprt.readyE)
+		lock = &(Cooprt.readye_lock)
 	} else {
 		queue = &(Cooprt.readyO)
+		lock = &(Cooprt.readyo_lock)
 	}
+	lock.Lock()
 
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
@@ -176,7 +184,7 @@ func migrateCrossDomain() {
 		goready(gp, 3+1)
 		//globrunqput(sg.g)
 	}
-	Cooprt.sl.Unlock()
+	lock.Unlock()
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -186,7 +194,7 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 	if size > SG_BUF_SIZE {
 		panic("fake sudog buffer is too small.")
 	}
-	Cooprt.sl.Lock()
+	Cooprt.sudogpool_lock.Lock()
 	for i := range Cooprt.pool {
 		if Cooprt.pool[i].available != 0 {
 			Cooprt.pool[i].available = 0
@@ -194,7 +202,7 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 			Cooprt.pool[i].isencl = isEnclave
 			Cooprt.pool[i].orig = elem
 			Cooprt.pool[i].isRcv = isrcv
-			Cooprt.sl.Unlock()
+			Cooprt.sudogpool_lock.Unlock()
 			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
 			if elem != nil {
 				memmove(ptr, elem, uintptr(size))
@@ -203,7 +211,7 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		}
 	}
 	//TODO @aghosn should come up with something here.
-	Cooprt.sl.Unlock()
+	Cooprt.sudogpool_lock.Unlock()
 	panicGosec("Ran out of sudog in the pool.")
 	return nil, nil
 }
@@ -232,12 +240,12 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 
 	// Second step is if we are from the pool (and we are inside the enclave),
 	// We are runnable again. We just release the sudog from the pool.
-	Cooprt.sl.Lock()
+	Cooprt.sudogpool_lock.Lock()
 	Cooprt.pool[sg.id].isencl = false
 	Cooprt.pool[sg.id].available = 1
 	Cooprt.pool[sg.id].orig = nil
 	Cooprt.pool[sg.id].isRcv = false
-	Cooprt.sl.Unlock()
+	Cooprt.sudogpool_lock.Unlock()
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.
@@ -254,15 +262,15 @@ func isReschedulable(sg *sudog) bool {
 // It picks the proper ready queue for the sudog in the cooperative runtime.
 // This method should be called only once the isReschedulable returned false.
 func (c *CooperativeRuntime) crossGoready(sg *sudog) {
-	c.sl.Lock()
 	// We are about to make ready a sudog that is not from the pool.
 	// This can happen only when non-trusted has blocked on a channel.
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
+		c.readyo_lock.Lock()
 		c.readyO.enqueue(sg)
-		c.sl.Unlock()
+		c.readyo_lock.Unlock()
 		return
 	}
 
@@ -272,24 +280,27 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	}
 	// We have a sudog from the pool.
 	if c.pool[sg.id].isencl {
+		c.readye_lock.Lock()
 		c.readyE.enqueue(sg)
+		c.readye_lock.Unlock()
 	} else {
+		c.readyo_lock.Lock()
 		c.readyO.enqueue(sg)
+		c.readyo_lock.Unlock()
 	}
-	c.sl.Unlock()
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
-	c.sl.Lock()
+	c.syspool_lock.Lock()
 	for i, s := range c.sysPool {
 		if s.available == 1 {
 			c.sysPool[i].available = 0
 			c.sysPool[i].id = i
-			c.sl.Unlock()
+			c.syspool_lock.Unlock()
 			return i, c.sysPool[i].c
 		}
 	}
-	c.sl.Unlock()
+	c.syspool_lock.Unlock()
 	panicGosec("Ran out of syspool channels.")
 	return -1, nil
 }
@@ -302,9 +313,9 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 		panicGosec("Trying to release an available channel")
 	}
 
-	c.sl.Lock()
+	c.syspool_lock.Lock()
 	c.sysPool[id].available = 1
-	c.sl.Unlock()
+	c.syspool_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
@@ -312,16 +323,16 @@ func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
 }
 
 func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
-	c.sl.Lock()
+	c.allocpool_lock.Lock()
 	for i, s := range c.allocPool {
 		if s.available == 1 {
 			c.allocPool[i].available = 0
 			c.allocPool[i].id = i
-			c.sl.Unlock()
+			c.allocpool_lock.Unlock()
 			return i, c.allocPool[i].c
 		}
 	}
-	c.sl.Unlock()
+	c.allocpool_lock.Unlock()
 	panicGosec("Ran out of allocpool channels.")
 	return -1, nil
 }
@@ -334,9 +345,9 @@ func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
 		panicGosec("Trying to release an available channel")
 	}
 
-	c.sl.Lock()
+	c.allocpool_lock.Lock()
 	c.allocPool[id].available = 1
-	c.sl.Unlock()
+	c.allocpool_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
@@ -360,7 +371,7 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
 	Cooprt.OAllocReq = make(chan AllocAttr)
-	Cooprt.sl = &secspinlock{0}
+	//Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
 		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
 		Cooprt.pool[i].wg.id = int32(i)
@@ -407,7 +418,7 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
 	Cooprt.OAllocReq = make(chan AllocAttr)
-	Cooprt.sl = &secspinlock{0}
+	//Cooprt.sl = &secspinlock{0}
 	for i := range Cooprt.pool {
 		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
 		Cooprt.pool[i].wg.id = int32(i)
