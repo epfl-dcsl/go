@@ -172,6 +172,11 @@ func migrateCrossDomain() {
 		queue = &(Cooprt.readyO)
 		lock = &(Cooprt.readyo_lock)
 	}
+
+	if queue.first == nil {
+		return
+	}
+
 	lock.Lock()
 
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
