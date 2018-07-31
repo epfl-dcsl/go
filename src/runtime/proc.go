@@ -2606,7 +2606,7 @@ func park_m(gp *g) {
 	}
 
 	//TODO @aghosn check for crossdomain routines.
-	migrateCrossDomain()
+	//migrateCrossDomain()
 	schedule()
 }
 
