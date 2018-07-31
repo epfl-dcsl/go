@@ -10,7 +10,6 @@ TEXT gosec·asm_eenter(SB),$0-40
     MOVQ SI, (AX)
     RET
 
-// TODO implement
 // func asm_exception()
 TEXT gosec·asm_exception(SB),$0
     BYTE $0x0f; BYTE $0x01; BYTE $0xd7

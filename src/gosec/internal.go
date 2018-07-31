@@ -10,8 +10,6 @@ import (
 	"unsafe"
 )
 
-const ptrSize = 4 << (^uintptr(0) >> 63)
-
 func check(e error) {
 	if e != nil {
 		panic(e.Error())
@@ -39,7 +37,6 @@ func LoadEnclave() {
 	check(err)
 
 	// Remove the header by seeking the magic bytes.
-	// TODO(aghosn) should fix this and do it in a nicer way.
 	magic := []byte{0x7F, 0x45, 0x4C, 0x46}
 	var i = 0
 	for i = 0; i < len(bts)-len(magic); i++ {

@@ -13,8 +13,6 @@ import (
 	"unsafe"
 )
 
-const simSTACK = uintptr(0xe41ffd8000)
-
 func loadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
