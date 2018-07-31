@@ -132,6 +132,13 @@ func panicGosec(a string) {
 	panic(a)
 }
 
+func AvoidDeadlock() {
+	for {
+		Gosched()
+		//procyield(15)
+	}
+}
+
 // sysFutex allows to do a wakeup call on a futex while going through the
 // interposition mechanism.
 func sysFutex(addr *uint32, cnt uint32) {

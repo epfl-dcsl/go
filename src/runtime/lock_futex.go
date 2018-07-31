@@ -83,7 +83,9 @@ func lock(l *mutex) {
 					return
 				}
 			}
-			procyield(active_spin_cnt)
+			if !isEnclave {
+				procyield(15)
+			}
 		}
 
 		// Try for lock, rescheduling.
