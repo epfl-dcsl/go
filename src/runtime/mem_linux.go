@@ -59,7 +59,7 @@ func mmap_fixed(v unsafe.Pointer, n uintptr, prot, flags, fd int32, offset uint3
 //go:nosplit
 func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 	if isEnclave {
-		Cooprt.sl.Lock()
+		//Cooprt.sl.Lock()
 		if Cooprt.membuf_head+n > MEMBUF_START+MEMBUF_SIZE {
 			throw("Unable to sysAlloc in enclave, ran out of membuf memory")
 		}
@@ -70,7 +70,7 @@ func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 			naddr += 0x1000
 		}
 		Cooprt.membuf_head = naddr
-		Cooprt.sl.Unlock()
+		//Cooprt.sl.Unlock()
 		mSysStatInc(sysStat, n)
 		return unsafe.Pointer(res)
 	}
