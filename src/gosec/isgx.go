@@ -1,10 +1,7 @@
 package gosec
 
 import (
-	"os/exec"
 	"runtime"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -104,28 +101,4 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 		transposeOut(wrap.mhstart), wrap.mhsize,
 		transposeOut(wrap.membuf), nil}
 	return trans
-}
-
-func computeTLM0(path string) {
-	if path != "enclavebin" {
-		panic("Unexpected name for the enclave!")
-	}
-
-	out, err := exec.Command("bash", "-c", "go tool nm enclavebin | grep runtime.m0").Output()
-	check(err)
-	if len(out) == 0 {
-		panic("Unable to find the symbol for the runtime.m0")
-	}
-
-	sparse := strings.Split(string(out), " ")
-	if len(sparse) != 3 {
-		panic("error parsing the nm result")
-	}
-
-	s := sparse[0]
-	n, err := strconv.ParseUint(s, 16, 64)
-	if err != nil {
-		panic(err)
-	}
-	RT_M0 = uintptr(uint64(n))
 }

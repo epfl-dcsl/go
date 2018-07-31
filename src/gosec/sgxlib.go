@@ -54,10 +54,6 @@ func sgxLoadProgram(path string) {
 	sgxInit()
 	file, err := elf.Open(path)
 	check(err)
-	//defer func() { check(file.Close()) }()
-
-	// Get the TLS address and set it up.
-	computeTLM0(path)
 
 	secs, wrap := sgxCreateSecs(file)
 
@@ -225,9 +221,6 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	tcs.nssa = TCS_N_SSA
 	tcs.oentry = entry - secs.baseAddr
 	tcs.reserved2 = uint64(0)
-	if RT_M0 == 0 {
-		panic("Unable to access the RT M0")
-	}
 
 	tcs.ofsbasgx = uint64(wrap.tls) - secs.baseAddr
 	tcs.ogsbasgx = tcs.ofsbasgx

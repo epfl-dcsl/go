@@ -24,13 +24,6 @@ const (
 	TCS_DBGOPTION      = 1
 )
 
-type enclave_thread_t struct {
-	busy bool
-	addr uintptr
-}
-
-type EnclaveId uint64
-
 type einittoken_t struct {
 	valid              uint32
 	reserved           [44]uint8
@@ -71,49 +64,6 @@ type sigstruct_t struct {
 	reserved4     [12]uint8
 	q1            [384]uint8
 	q2            [384]uint8
-}
-
-type __jmp_buf struct {
-	rbx uint32
-	rsp uint32
-	rbp uint32
-	r12 uint32
-	r13 uint32
-	r14 uint32
-	r15 uint32
-	rip uint32
-}
-
-type jmp_buf struct {
-	__jb __jmp_buf
-	__fl uint32
-	__ss [4]uint32
-}
-
-/* Enclave parameters, maintained within enclave */
-type enclave_parms_t struct {
-	base         uint64
-	heap         uint64
-	stack        uint64
-	ossa         uint64
-	tcsn         uint64
-	heap_size    uint64
-	exit_addr    uint64
-	ursp         uint64
-	urbp         uint64
-	stack_size   uint64
-	enclave_size uint64
-	tid          uint64
-	tls_vaddr    uint64
-	tls_filesz   uint64
-	tls_memsz    uint64
-	thread_state uint64
-	eh_tcs_addr  uint64
-	eh_exit_addr uint64
-	eh_ursp      uint64
-	eh_urbp      uint64
-	eh_handling  uint64
-	regs         jmp_buf
 }
 
 type tcs_t struct {
@@ -170,83 +120,4 @@ type secs_eid_reserved_t struct {
 type secs_eid_pad_t struct {
 	eid     uint64     //!< Enclave Identifier
 	padding [352]uint8 //!< Padding pattern from Signature
-}
-
-func (m *miscselect_t) getExitinfo() uint8 {
-	return m.Value & 0x1
-}
-
-func (m *miscselect_t) seExitinfo(v uint8) {
-	setBit(&m.Value, v, 0)
-}
-
-func (m *miscselect_t) getReversed1() uint8 {
-	return m.Value & 0xFE
-}
-
-func (m *miscselect_t) setReserved1(v uint8) {
-	m.Value &= (v | 0x1)
-}
-
-func (a *attributes_t) getReserved1() uint8 {
-	return a.value & 0x1
-}
-
-func (a *attributes_t) setReserved1(v uint8) {
-	setBit(&a.value, v, 0)
-}
-
-func (a *attributes_t) getDebug() uint8 {
-	return a.value & 0x2
-}
-
-func (a *attributes_t) setDebug(v uint8) {
-	setBit(&a.value, v, 1)
-}
-
-func (a *attributes_t) getMode64Bit() uint8 {
-	return a.value & 0x4
-}
-
-func (a *attributes_t) setMode64Bit(v uint8) {
-	setBit(&a.value, v, 2)
-}
-
-func (a *attributes_t) getReserved2() uint8 {
-	return a.value & 0x8
-}
-
-func (a *attributes_t) setReserved2(v uint8) {
-	setBit(&a.value, v, 3)
-}
-
-func (a *attributes_t) getProvisionKey() uint8 {
-	return a.value & 0x16
-}
-
-func (a *attributes_t) setProvisionKey(v uint8) {
-	setBit(&a.value, v, 4)
-}
-
-func (a *attributes_t) getEinittokenkey() uint8 {
-	return a.value & 0x24
-}
-
-func (a *attributes_t) setEinittokenkey(v uint8) {
-	setBit(&a.value, v, 5)
-}
-
-func (a *attributes_t) getReserved3() uint8 {
-	return a.value & (3 << 6)
-}
-
-func (a *attributes_t) setReversed3(v uint8) {
-	v &= 0xC0
-	a.value &= 0xC0
-	a.value |= v
-}
-
-func setBit(value *uint8, bit, pos uint8) {
-	*value &= ^(1 << pos)
-	*value |= ((bit & 0x1) << pos)
 }
