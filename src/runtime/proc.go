@@ -2618,7 +2618,9 @@ func goschedImpl(gp *g) {
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
-	migrateCrossDomain()
+	if Cooprt != nil {
+		migrateCrossDomain()
+	}
 	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)

@@ -165,11 +165,7 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
-// Scheduler must be locked, as well as the Cooprt.
 func migrateCrossDomain() {
-	if Cooprt == nil {
-		return
-	}
 	var queue *waitq = nil
 	var lock *secspinlock = nil
 	if isEnclave {
@@ -188,13 +184,9 @@ func migrateCrossDomain() {
 
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
-		if isEnclave != sg.g.isencl {
-			panicGosec("We do not access the correct queue -> SGX memory error.")
-		}
 		gp := sg.g
 		gp.param = unsafe.Pointer(sg)
 		goready(gp, 3+1)
-		//globrunqput(sg.g)
 	}
 	lock.Unlock()
 }

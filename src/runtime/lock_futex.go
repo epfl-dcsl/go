@@ -72,8 +72,7 @@ func lock(l *mutex) {
 	if ncpu > 1 || isEnclave {
 		spin = active_spin
 	}
-	//TODO enclave might be worth trying the spin.
-	//TODO enclave should avoid the osyield as well.
+
 	for {
 	LSTART:
 		// Try for lock, spinning.
