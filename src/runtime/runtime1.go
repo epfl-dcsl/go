@@ -47,9 +47,11 @@ func gotraceback() (level int32, all, crash bool) {
 }
 
 var (
-	argc   int32
-	argv   **byte
-	Cooprt *CooperativeRuntime
+	argc     int32
+	argv     **byte
+	Cooprt   *CooperativeRuntime
+	cprtLock *secspinlock
+	cprtQ    *waitq
 )
 
 // nosplit for use in linux startup sysargs
@@ -70,6 +72,8 @@ func args(c int32, v **byte) {
 		Cooprt = (*CooperativeRuntime)(unsafe.Pointer((*ptrArgv)))
 		argv = Cooprt.argv
 		argc = 1
+		cprtQ = &(Cooprt.readyE)
+		cprtLock = &(Cooprt.readye_lock)
 		c = argc
 		v = argv
 		sysargs(c, v)
