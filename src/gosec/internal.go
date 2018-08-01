@@ -100,15 +100,10 @@ func allocServer() {
 	}
 }
 
-//go:nosplit
-func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
-	return unsafe.Pointer(uintptr(p) + x)
-}
-
 func bufcopy(dest []uint8, src *uint8, size int32) {
-	ptr := unsafe.Pointer(src)
-	for i := 0; i < int(size); i++ {
-		lptr := (*uint8)(add(ptr, uintptr(i)*unsafe.Sizeof(uint8(0))))
+	ptr := uintptr(unsafe.Pointer(src))
+	for i := uintptr(0); i < uintptr(size); i += unsafe.Sizeof(uint8(0)) {
+		lptr := (*uint8)(unsafe.Pointer(ptr + i))
 		dest[i] = *lptr
 	}
 }
@@ -117,10 +112,6 @@ func bufcopy(dest []uint8, src *uint8, size int32) {
 // It creates the enclave if it does not exist yet, and write to the cooperative channel.
 //go:nosplit
 func Gosecload(size int32, fn *funcval, b uint8) {
-	var argp *uint8 = nil
-	if size > 0 {
-		argp = &b
-	}
 	pc := runtime.FuncForPC(fn.fn)
 	if pc == nil {
 		log.Fatalln("Unable to find the name for the func at address ", fn.fn)
@@ -133,12 +124,10 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		go runtime.AvoidDeadlock()
 	}
 	//Copy the stack frame inside a buffer.
-	attrib := runtime.EcallAttr{}
-	attrib.Name, attrib.Siz = pc.Name(), size
-	attrib.Buf, attrib.Argp = nil, nil
+	attrib := runtime.EcallAttr{Name: pc.Name(), Siz: size, Buf: nil, Argp: nil}
 	if size > 0 {
 		attrib.Buf = make([]uint8, size, size)
-		bufcopy(attrib.Buf, argp, size)
+		bufcopy(attrib.Buf, &b, size)
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
 	runtime.Cooprt.Ecall <- attrib

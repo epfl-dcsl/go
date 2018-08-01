@@ -166,29 +166,29 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	var queue *waitq = nil
-	var lock *secspinlock = nil
-	if isEnclave {
-		queue = &(Cooprt.readyE)
-		lock = &(Cooprt.readye_lock)
-	} else {
-		queue = &(Cooprt.readyO)
-		lock = &(Cooprt.readyo_lock)
-	}
+	//var queue *waitq = nil
+	//var lock *secspinlock = nil
+	//if isEnclave {
+	//	queue = &(Cooprt.readyE)
+	//	lock = &(Cooprt.readye_lock)
+	//} else {
+	//	queue = &(Cooprt.readyO)
+	//	lock = &(Cooprt.readyo_lock)
+	//}
 
-	if queue.first == nil {
+	if cprtQ.first == nil {
 		return
 	}
 
-	lock.Lock()
+	cprtLock.Lock()
 
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
-	for sg := queue.dequeue(); sg != nil; sg = queue.dequeue() {
+	for sg := cprtQ.dequeue(); sg != nil; sg = cprtQ.dequeue() {
 		gp := sg.g
 		gp.param = unsafe.Pointer(sg)
 		goready(gp, 3+1)
 	}
-	lock.Unlock()
+	cprtLock.Unlock()
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -392,6 +392,8 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
 
 	Cooprt.eHeap = eS
+	cprtQ = &(Cooprt.readyO)
+	cprtLock = &(Cooprt.readyo_lock)
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -439,6 +441,8 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
 
 	Cooprt.eHeap = eS
+	cprtQ = &(Cooprt.readyO)
+	cprtLock = &(Cooprt.readyo_lock)
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
