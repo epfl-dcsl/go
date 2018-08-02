@@ -73,7 +73,7 @@ type CooperativeRuntime struct {
 
 	//pool of sudog structs allocated in non-trusted.
 	//sudogpool_lock secspinlock //lock for the pool of sudog
-	pool [100]*poolSudog
+	pool [5000]*poolSudog
 
 	//pool of answer channels.
 	//syspool_lock   secspinlock // lock for pool syschan
@@ -166,22 +166,10 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	//var queue *waitq = nil
-	//var lock *secspinlock = nil
-	//if isEnclave {
-	//	queue = &(Cooprt.readyE)
-	//	lock = &(Cooprt.readye_lock)
-	//} else {
-	//	queue = &(Cooprt.readyO)
-	//	lock = &(Cooprt.readyo_lock)
-	//}
-
 	if cprtQ.first == nil {
 		return
 	}
-
 	cprtLock.Lock()
-
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := cprtQ.dequeue(); sg != nil; sg = cprtQ.dequeue() {
 		gp := sg.g
@@ -278,20 +266,10 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		return
 	}
 
-	// TODO remove this check once we run in SGX
-	if isSimulation && c.pool[sg.id].isencl != sg.g.isencl {
-		panicGosec("The fake sudog does not reflect the domain of its g.")
-	}
 	// We have a sudog from the pool.
-	if c.pool[sg.id].isencl {
-		c.readye_lock.Lock()
-		c.readyE.enqueue(sg)
-		c.readye_lock.Unlock()
-	} else {
-		c.readyo_lock.Lock()
-		c.readyO.enqueue(sg)
-		c.readyo_lock.Unlock()
-	}
+	c.readye_lock.Lock()
+	c.readyE.enqueue(sg)
+	c.readye_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
