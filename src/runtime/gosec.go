@@ -73,7 +73,7 @@ type CooperativeRuntime struct {
 
 	//pool of sudog structs allocated in non-trusted.
 	//sudogpool_lock secspinlock //lock for the pool of sudog
-	pool [5000]*poolSudog
+	pool [100]*poolSudog
 
 	//pool of answer channels.
 	//syspool_lock   secspinlock // lock for pool syschan
