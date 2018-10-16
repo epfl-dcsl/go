@@ -166,7 +166,7 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	if cprtQ.first == nil {
+	if cprtQ == nil || cprtQ.first == nil {
 		return
 	}
 	cprtLock.Lock()
