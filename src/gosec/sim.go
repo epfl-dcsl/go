@@ -6,6 +6,7 @@ package gosec
 
 import (
 	"debug/elf"
+	"fmt"
 	"log"
 	"runtime"
 	"sort"
@@ -14,6 +15,7 @@ import (
 )
 
 func loadProgram(path string) {
+	fmt.Println("[DEBUG] loading the program in simulation.")
 	file, err := elf.Open(path)
 	check(err)
 	_, wrap := sgxCreateSecs(file)
