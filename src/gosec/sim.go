@@ -39,6 +39,8 @@ func loadProgram(path string) {
 	}
 	mapSections(aggreg)
 
+	//For debugging.
+	wrap.DumpDebugInfo()
 	// Map the enclave preallocated heap.
 	enclavePreallocate(wrap)
 

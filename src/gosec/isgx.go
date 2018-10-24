@@ -1,6 +1,7 @@
 package gosec
 
 import (
+	"fmt"
 	"runtime"
 )
 
@@ -91,6 +92,11 @@ type sgx_wrapper struct {
 	mhsize  uintptr // 0x108000
 	membuf  uintptr // To satisfy map(nil) requests
 	alloc   []byte
+}
+
+func (s *sgx_wrapper) DumpDebugInfo() {
+	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
+	fmt.Printf("{base: %x, siz: %x, stack: %x, ssiz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.stack, s.ssiz, s.mhstart, s.mhsize)
 }
 
 func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {

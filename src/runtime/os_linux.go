@@ -36,6 +36,10 @@ const (
 func futexsleep(addr *uint32, val uint32, ns int64) {
 	var ts timespec
 
+	// TODO @aghosn: just a check for the moment. Seems we have a problem here.
+	if !isEnclave && uintptr(unsafe.Pointer(addr)) > ENCLMASK {
+		panic("[DEBUG] trying to futexsleep from untrusted on trusted object.")
+	}
 	// Some Linux kernels have a bug where futex of
 	// FUTEX_WAIT returns an internal error code
 	// as an errno. Libpthread ignores the return value
