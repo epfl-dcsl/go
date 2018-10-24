@@ -72,8 +72,8 @@ type CooperativeRuntime struct {
 	readyO      waitq
 
 	//pool of sudog structs allocated in non-trusted.
-	//sudogpool_lock secspinlock //lock for the pool of sudog
-	pool [100]*poolSudog
+	sudogpool_lock secspinlock //lock for the pool of sudog
+	pool           [5000]*poolSudog
 
 	//pool of answer channels.
 	//syspool_lock   secspinlock // lock for pool syschan
@@ -133,6 +133,7 @@ func panicGosec(a string) {
 }
 
 func AvoidDeadlock() {
+	//LockOSThread()
 	for {
 		Gosched()
 		//procyield(15)
@@ -166,10 +167,10 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	if cprtQ == nil || cprtQ.first == nil {
+	if cprtQ == nil || cprtQ.first == nil || !cprtLock.TryLockN(5) {
 		return
 	}
-	cprtLock.Lock()
+	//cprtLock.Lock()
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := cprtQ.dequeue(); sg != nil; sg = cprtQ.dequeue() {
 		gp := sg.g
@@ -186,7 +187,6 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 	if size > SG_BUF_SIZE {
 		panic("fake sudog buffer is too small.")
 	}
-	//Cooprt.sudogpool_lock.Lock()
 	for i := range Cooprt.pool {
 		if Cooprt.pool[i].available != 0 {
 			Cooprt.pool[i].available = 0
@@ -194,7 +194,6 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 			Cooprt.pool[i].isencl = isEnclave
 			Cooprt.pool[i].orig = elem
 			Cooprt.pool[i].isRcv = isrcv
-			//Cooprt.sudogpool_lock.Unlock()
 			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
 			if elem != nil {
 				memmove(ptr, elem, uintptr(size))
@@ -203,7 +202,6 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		}
 	}
 	//TODO @aghosn should come up with something here.
-	//Cooprt.sudogpool_lock.Unlock()
 	panicGosec("Ran out of sudog in the pool.")
 	return nil, nil
 }
@@ -232,12 +230,11 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 
 	// Second step is if we are from the pool (and we are inside the enclave),
 	// We are runnable again. We just release the sudog from the pool.
-	//Cooprt.sudogpool_lock.Lock()
 	Cooprt.pool[sg.id].isencl = false
+	//TODO @aghosn Make this atomic
 	Cooprt.pool[sg.id].available = 1
 	Cooprt.pool[sg.id].orig = nil
 	Cooprt.pool[sg.id].isRcv = false
-	//Cooprt.sudogpool_lock.Unlock()
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.
@@ -296,6 +293,7 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 	}
 
 	//c.syspool_lock.Lock()
+	//TODO @aghosn make this atomic.
 	c.sysPool[id].available = 1
 	//c.syspool_lock.Unlock()
 }
