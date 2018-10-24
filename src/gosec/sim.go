@@ -14,7 +14,7 @@ import (
 	"unsafe"
 )
 
-func loadProgram(path string) {
+func simLoadProgram(path string) {
 	fmt.Println("[DEBUG] loading the program in simulation.")
 	file, err := elf.Open(path)
 	check(err)
@@ -42,7 +42,7 @@ func loadProgram(path string) {
 	//For debugging.
 	wrap.DumpDebugInfo()
 	// Map the enclave preallocated heap.
-	enclavePreallocate(wrap)
+	simPreallocate(wrap)
 
 	// mmap the stack
 	// try to allocate the stack.
@@ -71,10 +71,10 @@ func loadProgram(path string) {
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.AllocateOSThreadEncl(wrap.stack+wrap.ssiz, fn, wrap.mhstart)
+	runtime.StartSimOSThread(wrap.stack+wrap.ssiz, fn, wrap.mhstart)
 }
 
-func enclavePreallocate(wrap *sgx_wrapper) {
+func simPreallocate(wrap *sgx_wrapper) {
 	prot := _PROT_READ | _PROT_WRITE
 	flags := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 

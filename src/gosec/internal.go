@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -21,7 +22,7 @@ type funcval struct {
 	// variable-size, fn-specific data here
 }
 
-var isInit bool = false
+var initOnce sync.Once
 
 func LoadEnclave() {
 	p, err := elf.Open(os.Args[0])
@@ -59,8 +60,7 @@ func LoadEnclave() {
 	check(err)
 
 	//Start loading the program within the correct address space.
-	isInit = true
-	loadProgram(name)
+	simLoadProgram(name)
 	//sgxLoadProgram(name)
 }
 
@@ -116,13 +116,16 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	if pc == nil {
 		log.Fatalln("Unable to find the name for the func at address ", fn.fn)
 	}
-	if !isInit {
+
+	initOnce.Do(func() {
+		runtime.InitCooperativeRuntime()
 		LoadEnclave()
 		// Server to allocate requests & service system calls for the enclave.
 		go oCallServer()
 		go allocServer()
 		go runtime.AvoidDeadlock()
-	}
+	})
+
 	//Copy the stack frame inside a buffer.
 	attrib := runtime.EcallAttr{Name: pc.Name(), Siz: size, Buf: nil, Argp: nil}
 	if size > 0 {

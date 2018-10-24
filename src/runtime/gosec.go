@@ -73,13 +73,13 @@ type CooperativeRuntime struct {
 
 	//pool of sudog structs allocated in non-trusted.
 	sudogpool_lock secspinlock //lock for the pool of sudog
-	pool           [5000]*poolSudog
+	pool           []*poolSudog
 
 	//pool of answer channels.
 	//syspool_lock   secspinlock // lock for pool syschan
-	sysPool [100]*poolSysChan
+	sysPool []*poolSysChan
 	//allocpool_lock secspinlock
-	allocPool [100]*poolAllocChan
+	allocPool []*poolAllocChan
 
 	membuf_head uintptr
 
@@ -100,10 +100,53 @@ const (
 
 	SG_BUF_SIZE = 100 // size in bytes
 
+	POOL_INIT_SIZE = 500 //Default size for the pools.
+
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
 	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
 )
+
+func InitCooperativeRuntime() {
+	if Cooprt != nil {
+		return
+	}
+
+	Cooprt = &CooperativeRuntime{}
+	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ocall = make(chan OcallReq)
+	Cooprt.OAllocReq = make(chan AllocAttr)
+
+	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
+	for i := range Cooprt.pool {
+		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
+		Cooprt.pool[i].wg.id = int32(i)
+	}
+
+	Cooprt.sysPool = make([]*poolSysChan, POOL_INIT_SIZE)
+	for i := range Cooprt.sysPool {
+		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
+	}
+
+	Cooprt.allocPool = make([]*poolAllocChan, POOL_INIT_SIZE)
+	for i := range Cooprt.allocPool {
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
+	}
+
+	Cooprt.membuf_head = uintptr(MEMBUF_START)
+
+	Cooprt.eHeap = 0
+	cprtQ = &(Cooprt.readyO)
+	cprtLock = &(Cooprt.readyo_lock)
+}
+
+func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
+	if c.eHeap != 0 {
+		return false
+	}
+	c.eHeap = e
+	return true
+}
 
 func IsEnclave() bool {
 	return isEnclave
@@ -133,7 +176,6 @@ func panicGosec(a string) {
 }
 
 func AvoidDeadlock() {
-	//LockOSThread()
 	for {
 		Gosched()
 		//procyield(15)
@@ -347,29 +389,7 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	*ptrArgc = argc
 
 	// Initialize the Cooprt
-	Cooprt = &CooperativeRuntime{}
-	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
-	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.OAllocReq = make(chan AllocAttr)
-	//Cooprt.sl = &secspinlock{0}
-	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
-		Cooprt.pool[i].wg.id = int32(i)
-	}
-
-	for i := range Cooprt.sysPool {
-		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
-	}
-
-	for i := range Cooprt.allocPool {
-		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
-	}
-
-	Cooprt.membuf_head = uintptr(MEMBUF_START)
-
-	Cooprt.eHeap = eS
-	cprtQ = &(Cooprt.readyO)
-	cprtLock = &(Cooprt.readyo_lock)
+	Cooprt.SetHeapValue(eS)
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
@@ -385,7 +405,7 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
-func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
+func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	if isEnclave {
 		panicGosec("Should not allocate enclave from the enclave.")
 	}
@@ -395,30 +415,8 @@ func AllocateOSThreadEncl(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 	ptrArgc := (*int32)(unsafe.Pointer(addrArgc))
 	*ptrArgc = argc
 
-	// Initialize the Cooprt
-	Cooprt = &CooperativeRuntime{}
-	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
-	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.OAllocReq = make(chan AllocAttr)
-	//Cooprt.sl = &secspinlock{0}
-	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
-		Cooprt.pool[i].wg.id = int32(i)
-	}
-
-	for i := range Cooprt.sysPool {
-		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
-	}
-
-	for i := range Cooprt.allocPool {
-		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
-	}
-
-	Cooprt.membuf_head = uintptr(MEMBUF_START)
-
-	Cooprt.eHeap = eS
-	cprtQ = &(Cooprt.readyO)
-	cprtLock = &(Cooprt.readyo_lock)
+	// Set heap in Cooprt
+	Cooprt.SetHeapValue(eS)
 
 	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
 	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
