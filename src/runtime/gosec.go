@@ -178,7 +178,7 @@ func panicGosec(a string) {
 func AvoidDeadlock() {
 	for {
 		Gosched()
-		//procyield(15)
+		procyield(70)
 	}
 }
 
@@ -442,6 +442,31 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	systemstack(func() {
 		newproc1(fn, argp, siz, pc)
 	})
+}
+
+//go:noescape
+func sched_setaffinity(pid, len uintptr, buf *uintptr) int32
+
+func SchedSetAffinity(pid, set int) {
+	var buf [1]uintptr
+	buf[0] = uintptr(set)
+	r := sched_setaffinity(uintptr(pid), unsafe.Sizeof(buf), &buf[0])
+	if r < 0 {
+		panic("Could not set sched affinity")
+	}
+}
+
+func SchedGetAffinity() []uintptr {
+	res := make([]uintptr, 1)
+	r := sched_getaffinity(0, unsafe.Sizeof(res), &res[0])
+	if r < 0 {
+		panic("Unable to get sched affinity")
+	}
+	return res
+}
+
+func enclave_schedaffinity() {
+	SchedSetAffinity(0, 0x8)
 }
 
 // TODO @aghosn To remove
