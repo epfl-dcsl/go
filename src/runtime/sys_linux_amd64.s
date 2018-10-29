@@ -38,6 +38,7 @@
 #define SYS_gettid		186
 #define SYS_tkill		200
 #define SYS_futex		202
+#define SYS_sched_setaffinity 203
 #define SYS_sched_getaffinity	204
 #define SYS_epoll_create	213
 #define SYS_exit_group		231
@@ -593,6 +594,15 @@ TEXT runtime·sched_getaffinity(SB),NOSPLIT,$0
 	MOVL	$SYS_sched_getaffinity, AX
 	SYSCALL
 	MOVL	AX, ret+24(FP)
+	RET
+
+TEXT runtime·sched_setaffinity(SB),NOSPLIT,$0
+	MOVQ	pid+0(FP), DI
+	MOVQ	len+8(FP), SI
+	MOVQ	buf+16(FP), DX
+	MOVL 	$SYS_sched_setaffinity, AX
+	SYSCALL
+	MOVL 	AX, ret+24(FP)
 	RET
 
 // int32 runtime·epollcreate(int32 size);

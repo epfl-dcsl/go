@@ -312,6 +312,12 @@ func goready(gp *g, traceskip int) {
 	})
 }
 
+func goready1(gp *g, traceskip int) {
+	systemstack(func() {
+		ready(gp, traceskip, false)
+	})
+}
+
 //go:nosplit
 func acquireSudog() *sudog {
 	// Delicate dance: the semaphore implementation calls
@@ -519,6 +525,9 @@ func schedinit() {
 	}
 	if isEnclave {
 		procs = 1
+	} else {
+		procs = 3
+		SchedSetAffinity(0, 0x1|0x2|0x4)
 	}
 
 	if procresize(procs) != nil {
@@ -2604,9 +2613,7 @@ func park_m(gp *g) {
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
-
-	//TODO @aghosn check for crossdomain routines.
-	//migrateCrossDomain()
+	migrateCrossDomain()
 	schedule()
 }
 
