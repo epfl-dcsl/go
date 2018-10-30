@@ -7,7 +7,7 @@ FILE="_run.sh"
 #Creating the command file.
 if [ -f "$FILE" ]; then
 	rm -f $FILE
-fi 
+fi
 
 echo "
 #!/bin/bash
@@ -20,6 +20,7 @@ chmod +x $FILE
 # Installing command.
 echo "Installing cmd as $NAME"
 echo "........................."
+rm /usr/local/bin/$NAME
 ln -s $CURRENT/$FILE /usr/local/bin/$NAME
 echo "Done."
 which $NAME

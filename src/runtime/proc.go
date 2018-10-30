@@ -524,6 +524,7 @@ func schedinit() {
 		procs = n
 	} else if !isEnclave && procs > 1 {
 		procs--
+		SchedSetAffinity(0, 0x1|0x2|0x4)
 	}
 	if isEnclave {
 		procs = 1
