@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -50,7 +51,7 @@ type poolAllocChan struct {
 type poolSudog struct {
 	wg        *sudog
 	isencl    bool
-	available int
+	available uint32
 	buff      []byte
 	orig      unsafe.Pointer
 	isRcv     bool
@@ -176,6 +177,7 @@ func panicGosec(a string) {
 }
 
 func AvoidDeadlock() {
+	LockOSThread()
 	for {
 		Gosched()
 		procyield(70)
@@ -209,17 +211,41 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	if cprtQ == nil || cprtQ.first == nil || !cprtLock.TryLockN(5) {
+	if cprtQ == nil || cprtQ.first == nil {
 		return
 	}
-	//cprtLock.Lock()
+	spins := 10
+	if !isEnclave {
+		spins = 7
+	}
+	if !cprtLock.TryLockN(spins) {
+		return
+	}
+	var head *g = nil
+	var prev *g = nil
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
 	for sg := cprtQ.dequeue(); sg != nil; sg = cprtQ.dequeue() {
+		//TODO @aghosn could this be set before blocking? Try it out.
 		gp := sg.g
 		gp.param = unsafe.Pointer(sg)
-		goready(gp, 3+1)
+		//goready(gp, 3+1)
+		if head == nil {
+			head = gp
+		}
+		if prev != nil {
+			prev.schedlink.set(gp)
+		}
+		prev = gp
 	}
 	cprtLock.Unlock()
+	if prev != nil {
+		if head == nil {
+			panic("Previous not nil, but head is.")
+		}
+		prev.schedlink = 0
+		injectglist(head)
+	}
+
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -230,8 +256,8 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		panic("fake sudog buffer is too small.")
 	}
 	for i := range Cooprt.pool {
-		if Cooprt.pool[i].available != 0 {
-			Cooprt.pool[i].available = 0
+		if atomic.Xchg(&Cooprt.pool[i].available, 0) == 1 {
+			//Cooprt.pool[i].available = 0
 			Cooprt.pool[i].wg.id = int32(i)
 			Cooprt.pool[i].isencl = isEnclave
 			Cooprt.pool[i].orig = elem
@@ -273,10 +299,10 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 	// Second step is if we are from the pool (and we are inside the enclave),
 	// We are runnable again. We just release the sudog from the pool.
 	Cooprt.pool[sg.id].isencl = false
-	//TODO @aghosn Make this atomic
-	Cooprt.pool[sg.id].available = 1
 	Cooprt.pool[sg.id].orig = nil
 	Cooprt.pool[sg.id].isRcv = false
+	//TODO @aghosn Make this atomic
+	atomic.Store(&Cooprt.pool[sg.id].available, 1)
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.
@@ -434,6 +460,7 @@ func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
 		exit(1)
 	}
+	SchedSetAffinity(int(ret), 0xF-0x7)
 }
 
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
@@ -463,10 +490,6 @@ func SchedGetAffinity() []uintptr {
 		panic("Unable to get sched affinity")
 	}
 	return res
-}
-
-func enclave_schedaffinity() {
-	SchedSetAffinity(0, 0x8)
 }
 
 // TODO @aghosn To remove

@@ -171,9 +171,6 @@ needtls:
 	MOVQ (R9), R8
 	MOVQ R8, runtime·mglobal(SB)
 
-	//Set the sched affinity
-	//CALL runtime·enclave_schedaffinity(SB)
-
 	//Check if we are in simulation mode.
 	MOVQ $SIM_FLAG, R9
 	MOVQ (R9), R8
