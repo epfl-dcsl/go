@@ -5,8 +5,10 @@ import (
 )
 
 const (
-	mspins = 10
-	yspin  = 25
+	mspins     = 10
+	yspin      = 25
+	SSLOCKED   = 1
+	SSUNLOCKED = 0
 )
 
 type secspinlock struct {
@@ -28,7 +30,7 @@ func (sl *secspinlock) Lock() {
 }
 
 func (sl *secspinlock) TryLock() bool {
-	return atomic.Cas(&(sl.f), 0, 1)
+	return atomic.Cas(&(sl.f), SSUNLOCKED, SSLOCKED)
 }
 
 // TryLockN attempts at most n times to acquire the spinlock.
@@ -45,5 +47,5 @@ func (sl *secspinlock) TryLockN(n int) bool {
 }
 
 func (sl *secspinlock) Unlock() {
-	atomic.Cas(&(sl.f), 1, 0)
+	atomic.Cas(&(sl.f), SSLOCKED, SSUNLOCKED)
 }

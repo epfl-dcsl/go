@@ -300,7 +300,7 @@ type sudog struct {
 	// are only accessed when holding a semaRoot lock.
 
 	id          int32     //TODO @aghosn id in the pool (-1) if does not apply
-	schednext   lfuintptr //TODO @aghosn using this for lists compatible with WB
+	schednext   sguintptr //TODO @aghosn using this for lists compatible with WB
 	acquiretime int64
 	releasetime int64
 	ticket      uint32
