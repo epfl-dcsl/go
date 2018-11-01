@@ -50,7 +50,7 @@ var (
 	argc     int32
 	argv     **byte
 	Cooprt   *CooperativeRuntime
-	cprtLock *secspinlock
+	cprtLock *mutex
 	cprtQ    *waitq
 )
 

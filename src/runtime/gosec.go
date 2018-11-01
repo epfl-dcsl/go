@@ -65,11 +65,9 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	//sl secspinlock // for membuf
-
-	readye_lock secspinlock //spinlock for readyE
-	readyE      waitq       //Ready to be rescheduled
-	readyo_lock secspinlock //spinlock for readyO
+	readye_lock mutex //lock for readyE
+	readyE      waitq //Ready to be rescheduled
+	readyo_lock mutex //lock for readyO
 	readyO      waitq
 
 	//pool of sudog structs allocated in non-trusted.
@@ -214,13 +212,14 @@ func migrateCrossDomain() {
 	if cprtQ == nil || cprtQ.first == nil {
 		return
 	}
-	spins := 10
-	if !isEnclave {
-		spins = 7
-	}
-	if !cprtLock.TryLockN(spins) {
-		return
-	}
+	//spins := 10
+	//if !isEnclave {
+	//	spins = 7
+	//}
+	//if !cprtLock.TryLockN(spins) {
+	//	return
+	//}
+	lock(cprtLock)
 	var head *g = nil
 	var prev *g = nil
 	// Do not release the sudog yet. This is done when the routine is rescheduled.
@@ -237,7 +236,8 @@ func migrateCrossDomain() {
 		}
 		prev = gp
 	}
-	cprtLock.Unlock()
+	//cprtLock.Unlock()
+	unlock(cprtLock)
 	if prev != nil {
 		if head == nil {
 			panic("Previous not nil, but head is.")
@@ -325,16 +325,20 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-		c.readyo_lock.Lock()
+		//c.readyo_lock.Lock()
+		lock(&c.readyo_lock)
 		c.readyO.enqueue(sg)
-		c.readyo_lock.Unlock()
+		//c.readyo_lock.Unlock()
+		unlock(&c.readyo_lock)
 		return
 	}
 
 	// We have a sudog from the pool.
-	c.readye_lock.Lock()
+	//c.readye_lock.Lock()
+	lock(&c.readye_lock)
 	c.readyE.enqueue(sg)
-	c.readye_lock.Unlock()
+	unlock(&c.readye_lock)
+	//c.readye_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {

@@ -4,13 +4,26 @@ import (
 	"runtime/internal/atomic"
 )
 
+const (
+	mspins = 10
+	yspin  = 25
+)
+
 type secspinlock struct {
 	f uint32
 }
 
 func (sl *secspinlock) Lock() {
+	spins := 0
 	for !sl.TryLock() {
-		//osyield()
+		spins++
+		if spins%mspins == 0 {
+			procyield(yspin)
+		}
+		if spins > 1000 {
+			println("Fuu in secspsinlock ", isEnclave)
+			panic("shit")
+		}
 	}
 }
 
