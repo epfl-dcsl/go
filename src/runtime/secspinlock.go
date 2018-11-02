@@ -6,7 +6,7 @@ import (
 
 const (
 	mspins     = 10
-	yspin      = 25
+	yspin      = 50
 	SSLOCKED   = 1
 	SSUNLOCKED = 0
 )
@@ -17,12 +17,15 @@ type secspinlock struct {
 
 func (sl *secspinlock) Lock() {
 	spins := 0
-	for !sl.TryLock() {
+	nbyields := 0
+	for !sl.TryLockN(3) {
 		spins++
-		if spins%mspins == 0 {
-			procyield(yspin)
+		if spins >= mspins {
+			procyield(fastrandn(yspin) + 1)
+			spins = 0
+			nbyields++
 		}
-		if spins > 1000 {
+		if nbyields > 1000 {
 			println("Fuu in secspsinlock ", isEnclave)
 			panic("shit")
 		}
@@ -47,5 +50,7 @@ func (sl *secspinlock) TryLockN(n int) bool {
 }
 
 func (sl *secspinlock) Unlock() {
-	atomic.Cas(&(sl.f), SSLOCKED, SSUNLOCKED)
+	if !atomic.Cas(&(sl.f), SSLOCKED, SSUNLOCKED) {
+		panic("[secspinlock] problem unlocking.")
+	}
 }

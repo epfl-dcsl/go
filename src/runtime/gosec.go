@@ -65,10 +65,8 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	readye_lock mutex //lock for readyE
-	readyE      waitq //Ready to be rescheduled
-	readyo_lock mutex //lock for readyO
-	readyO      waitq
+	readyE sgqueue //Ready to be rescheduled in the enclave
+	readyO sgqueue //Ready to be rescheduled outside of the enclave
 
 	//pool of sudog structs allocated in non-trusted.
 	sudogpool_lock secspinlock //lock for the pool of sudog
@@ -136,7 +134,6 @@ func InitCooperativeRuntime() {
 
 	Cooprt.eHeap = 0
 	cprtQ = &(Cooprt.readyO)
-	cprtLock = &(Cooprt.readyo_lock)
 }
 
 func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
@@ -209,43 +206,37 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
 func migrateCrossDomain() {
-	if cprtQ == nil || cprtQ.first == nil {
+	if cprtQ == nil || cprtQ.size == 0 {
 		return
 	}
-	//spins := 10
-	//if !isEnclave {
-	//	spins = 7
-	//}
-	//if !cprtLock.TryLockN(spins) {
-	//	return
-	//}
-	lock(cprtLock)
+
+	sgq, size := sgqtrydrain(cprtQ)
+	if size == 0 {
+		return
+	}
 	var head *g = nil
 	var prev *g = nil
-	// Do not release the sudog yet. This is done when the routine is rescheduled.
-	for sg := cprtQ.dequeue(); sg != nil; sg = cprtQ.dequeue() {
-		//TODO @aghosn could this be set before blocking? Try it out.
+	for i := 0; i < size; i++ {
+		sg := sgq
 		gp := sg.g
 		gp.param = unsafe.Pointer(sg)
-		//goready(gp, 3+1)
 		if head == nil {
 			head = gp
 		}
 		if prev != nil {
 			prev.schedlink.set(gp)
 		}
-		prev = gp
-	}
-	//cprtLock.Unlock()
-	unlock(cprtLock)
-	if prev != nil {
-		if head == nil {
-			panic("Previous not nil, but head is.")
+		if sgq.schednext != 0 {
+			sgq = sgq.schednext.ptr()
 		}
+		prev = gp
+		sg.schednext = 0
+	}
+
+	if prev != nil {
 		prev.schedlink = 0
 		injectglist(head)
 	}
-
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -325,20 +316,12 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-		//c.readyo_lock.Lock()
-		lock(&c.readyo_lock)
-		c.readyO.enqueue(sg)
-		//c.readyo_lock.Unlock()
-		unlock(&c.readyo_lock)
+		sgqput(&c.readyO, sg)
 		return
 	}
 
 	// We have a sudog from the pool.
-	//c.readye_lock.Lock()
-	lock(&c.readye_lock)
-	c.readyE.enqueue(sg)
-	unlock(&c.readye_lock)
-	//c.readye_lock.Unlock()
+	sgqput(&c.readyE, sg)
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
