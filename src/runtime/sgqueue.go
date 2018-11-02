@@ -99,7 +99,7 @@ func sgqdrain(q *sgqueue) (*sudog, int) {
 }
 
 func sgqtrydrain(q *sgqueue) (*sudog, int) {
-	if q.lock.TryLockN(SGQMAXTRIALS) {
+	if !q.lock.TryLockN(SGQMAXTRIALS) {
 		return nil, 0
 	}
 
