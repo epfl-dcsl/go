@@ -219,7 +219,7 @@ func migrateCrossDomain() {
 	for i := 0; i < size; i++ {
 		sg := sgq
 		gp := sg.g
-		gp.param = unsafe.Pointer(sg)
+		//gp.param = unsafe.Pointer(sg)
 		if head == nil {
 			head = gp
 		}

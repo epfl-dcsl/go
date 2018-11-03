@@ -2534,6 +2534,10 @@ top:
 	}
 
 	if gp == nil {
+		migrateCrossDomain()
+	}
+
+	if gp == nil {
 		// Check the global runnable queue once in a while to ensure fairness.
 		// Otherwise two goroutines can completely occupy the local runqueue
 		// by constantly respawning each other.
@@ -2613,7 +2617,7 @@ func park_m(gp *g) {
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
-	migrateCrossDomain()
+	//migrateCrossDomain()
 	schedule()
 }
 
@@ -2625,9 +2629,9 @@ func goschedImpl(gp *g) {
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
-	if Cooprt != nil {
-		migrateCrossDomain()
-	}
+	//if Cooprt != nil {
+	//	migrateCrossDomain()
+	//}
 	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)
