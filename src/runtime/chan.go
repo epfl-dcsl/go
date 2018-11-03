@@ -246,10 +246,11 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	mysg.elem = ep
 	mysg.waitlink = nil
 	mysg.g = gp
+	gp.param = unsafe.Pointer(mysg)
 	mysg.isSelect = false
 	mysg.c = c
 	gp.waiting = mysg
-	gp.param = nil
+	//gp.param = nil
 	c.sendq.enqueue(mysg)
 	goparkunlock(&c.lock, "chan send", traceEvGoBlockSend, 3)
 
