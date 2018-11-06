@@ -15,22 +15,19 @@ type secspinlock struct {
 	f  uint32
 	id uint32
 
-	enclSuccess    uint32
-	nonenclSuccess uint32
+	enclock  uint32
+	nenclock uint32
 
-	enclhardLock    uint32
-	nonenclhardLock uint32
-
-	enclFail    uint32
-	nonenclFail uint32
+	enclfail  uint32
+	nenclfail uint32
 }
 
 func (sl *secspinlock) Lock() {
 	spins := 0
 	nbyields := 0
-	for !sl.TryLockN(3) {
+	for !sl.TryLock() {
 		spins++
-		if spins >= mspins {
+		if spins >= SGQMAXTRIALS {
 			procyield(fastrandn(yspin) + 1)
 			spins = 0
 			nbyields++
@@ -38,20 +35,18 @@ func (sl *secspinlock) Lock() {
 		if nbyields > 2000 {
 			println("Fuu in secspsinlock")
 			println("id:", sl.id)
-			println("enclSuccess: ", sl.enclSuccess)
-			println("nonenclSuccess: ", sl.nonenclSuccess)
-			println("enclhardlock:", sl.enclhardLock)
-			println("nonenclhardLock: ", sl.nonenclhardLock)
-			println("enclFail:", sl.enclFail)
-			println("nonenclFail:", sl.nonenclFail)
+			println("enclock: ", sl.enclock)
+			println("nenclock: ", sl.nenclock)
+			println("enclfail:", sl.enclfail)
+			println("nenclfail: ", sl.nenclfail)
 			throw("failure")
 		}
 	}
 
 	if isEnclave {
-		sl.enclhardLock++
+		sl.enclock++
 	} else {
-		sl.nonenclhardLock++
+		sl.nenclock++
 	}
 }
 
@@ -67,17 +62,17 @@ func (sl *secspinlock) TryLockN(n int) bool {
 	for i := 0; i < n; i++ {
 		if sl.TryLock() {
 			if isEnclave {
-				sl.enclSuccess++
+				sl.enclock++
 			} else {
-				sl.nonenclSuccess++
+				sl.nenclock++
 			}
 			return true
 		}
 	}
 	if isEnclave {
-		sl.enclFail++
+		sl.enclfail++
 	} else {
-		sl.nonenclFail++
+		sl.nenclfail++
 	}
 	return false
 }
