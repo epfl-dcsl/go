@@ -64,13 +64,6 @@ func LoadEnclave() {
 	//sgxLoadProgram(name)
 }
 
-// Spins on the scheduler. Avoids triggering the deadlock detector when routines
-// are blocked on cross domain channels.
-//TODO @aghosn try not to use this anymore, instead have it in syscall server.
-//func avoidDeadlock() {
-//	runtime.AvoidDeadlock()
-//}
-
 func oCallServer() {
 	for {
 		sys := <-runtime.Cooprt.Ocall
@@ -123,7 +116,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		// Server to allocate requests & service system calls for the enclave.
 		go oCallServer()
 		go allocServer()
-		go runtime.AvoidDeadlock()
+		//go runtime.AvoidDeadlock()
 	})
 
 	//Copy the stack frame inside a buffer.

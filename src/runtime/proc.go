@@ -2242,6 +2242,10 @@ top:
 		asmcgocall(*cgo_yield, nil)
 	}
 
+	if cprtQ != nil && cprtQ.size > 0 {
+		migrateCrossDomain(true)
+	}
+
 	// local runq
 	if gp, inheritTime := runqget(_p_); gp != nil {
 		return gp, inheritTime
@@ -2358,6 +2362,10 @@ stop:
 		}
 	}
 
+	if cprtQ != nil && cprtQ.size > 0 {
+		migrateCrossDomain(false)
+	}
+
 	// check all runqueues once again
 	for _, _p_ := range allp {
 		if !runqempty(_p_) {
@@ -2422,6 +2430,7 @@ stop:
 			injectglist(gp)
 		}
 	}
+
 	stopm()
 	goto top
 }
@@ -2533,8 +2542,10 @@ top:
 		gp = gcController.findRunnableGCWorker(_g_.m.p.ptr())
 	}
 
-	if gp == nil {
-		migrateCrossDomain()
+	if gp == nil && cprtQ != nil {
+		if _g_.m.p.ptr().schedtick%5 == 0 && cprtQ.size > 0 {
+			migrateCrossDomain(true)
+		}
 	}
 
 	if gp == nil {

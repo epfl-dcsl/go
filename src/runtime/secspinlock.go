@@ -12,7 +12,17 @@ const (
 )
 
 type secspinlock struct {
-	f uint32
+	f  uint32
+	id uint32
+
+	enclSuccess    uint32
+	nonenclSuccess uint32
+
+	enclhardLock    uint32
+	nonenclhardLock uint32
+
+	enclFail    uint32
+	nonenclFail uint32
 }
 
 func (sl *secspinlock) Lock() {
@@ -25,10 +35,23 @@ func (sl *secspinlock) Lock() {
 			spins = 0
 			nbyields++
 		}
-		if nbyields > 1000 {
-			println("Fuu in secspsinlock ", isEnclave)
-			panic("shit")
+		if nbyields > 2000 {
+			println("Fuu in secspsinlock")
+			println("id:", sl.id)
+			println("enclSuccess: ", sl.enclSuccess)
+			println("nonenclSuccess: ", sl.nonenclSuccess)
+			println("enclhardlock:", sl.enclhardLock)
+			println("nonenclhardLock: ", sl.nonenclhardLock)
+			println("enclFail:", sl.enclFail)
+			println("nonenclFail:", sl.nonenclFail)
+			throw("failure")
 		}
+	}
+
+	if isEnclave {
+		sl.enclhardLock++
+	} else {
+		sl.nonenclhardLock++
 	}
 }
 
@@ -43,8 +66,18 @@ func (sl *secspinlock) TryLockN(n int) bool {
 	}
 	for i := 0; i < n; i++ {
 		if sl.TryLock() {
+			if isEnclave {
+				sl.enclSuccess++
+			} else {
+				sl.nonenclSuccess++
+			}
 			return true
 		}
+	}
+	if isEnclave {
+		sl.enclFail++
+	} else {
+		sl.nonenclFail++
 	}
 	return false
 }

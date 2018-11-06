@@ -132,6 +132,10 @@ func InitCooperativeRuntime() {
 
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
 
+	//TODO for debugging remove afterwards
+	Cooprt.readyO.lock.id = 1
+	Cooprt.readyE.lock.id = 2
+
 	Cooprt.eHeap = 0
 	cprtQ = &(Cooprt.readyO)
 }
@@ -172,7 +176,6 @@ func panicGosec(a string) {
 }
 
 func AvoidDeadlock() {
-	LockOSThread()
 	for {
 		Gosched()
 		procyield(70)
@@ -205,9 +208,9 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the global run queue.
-func migrateCrossDomain() {
-	if cprtQ == nil || cprtQ.size == 0 {
-		return
+func migrateCrossDomain(local bool) {
+	if cprtQ == nil {
+		throw("migrateCrossdomain called on uninit cprtQ.")
 	}
 
 	sgq, size := sgqtrydrain(cprtQ)
@@ -219,7 +222,6 @@ func migrateCrossDomain() {
 	for i := 0; i < size; i++ {
 		sg := sgq
 		gp := sg.g
-		//gp.param = unsafe.Pointer(sg)
 		if head == nil {
 			head = gp
 		}
@@ -232,10 +234,13 @@ func migrateCrossDomain() {
 		prev = gp
 		sg.schednext = 0
 	}
-
 	if prev != nil {
 		prev.schedlink = 0
-		injectglist(head)
+		if local {
+			injectglistnolock(head)
+		} else {
+			injectglist(head)
+		}
 	}
 }
 

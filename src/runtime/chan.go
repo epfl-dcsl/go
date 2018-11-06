@@ -307,7 +307,6 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	}
 
 	if !isReschedulable(sg) {
-		//TODO @aghosn don't know what to do with the gp.param.
 		unlockf()
 		if !isEnclave && sg.releasetime != 0 {
 			sg.releasetime = cputicks()
