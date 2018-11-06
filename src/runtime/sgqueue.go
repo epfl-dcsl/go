@@ -42,12 +42,8 @@ func setSGNoWB(sg **sudog, new *sudog) {
 	(*sguintptr)(unsafe.Pointer(sg)).set(new)
 }
 
-//sgqget pop sudog from the head of the lf sgqueue.
-//This method locks the queue for the moment and does not fail.
-func sgqget(q *sgqueue) *sudog {
-	q.lock.Lock()
+func sgqgetnolock(q *sgqueue) *sudog {
 	if q.size == 0 {
-		q.lock.Unlock()
 		return nil
 	}
 	h := q.head.ptr()
@@ -57,6 +53,18 @@ func sgqget(q *sgqueue) *sudog {
 		q.head = 0
 		q.tail = 0
 	}
+	return h
+}
+
+//sgqget pop sudog from the head of the lf sgqueue.
+//This method locks the queue for the moment and does not fail.
+func sgqget(q *sgqueue) *sudog {
+	q.lock.Lock()
+	if q.size == 0 {
+		q.lock.Unlock()
+		return nil
+	}
+	h := sgqget(q)
 	q.lock.Unlock()
 	return h
 }
@@ -71,15 +79,21 @@ func sgqtryget(q *sgqueue) *sudog {
 		q.lock.Unlock()
 		return nil
 	}
-	h := q.head.ptr()
-	q.head = h.schednext
-	q.size--
-	if q.size == 0 {
-		q.head = 0
-		q.tail = 0
-	}
+	h := sgqgetnolock(q)
 	q.lock.Unlock()
 	return h
+}
+
+func sgqdrainnolock(q *sgqueue) (*sudog, int) {
+	if q.size == 0 {
+		return nil, 0
+	}
+	h := q.head.ptr()
+	s := q.size
+	q.head = 0
+	q.tail = 0
+	q.size = 0
+	return h, int(s)
 }
 
 //sgdrain removes all the *sudog in the queue at once.
@@ -89,38 +103,26 @@ func sgqdrain(q *sgqueue) (*sudog, int) {
 		q.lock.Unlock()
 		return nil, 0
 	}
-	h := q.head.ptr()
-	s := q.size
-	q.head = 0
-	q.tail = 0
-	q.size = 0
+	h, s := sgqdrainnolock(q)
 	q.lock.Unlock()
-	return h, int(s)
+	return h, s
 }
 
 func sgqtrydrain(q *sgqueue) (*sudog, int) {
 	if !q.lock.TryLockN(SGQMAXTRIALS) {
 		return nil, 0
 	}
-
 	if q.size == 0 {
 		q.lock.Unlock()
 		return nil, 0
 	}
-	h := q.head.ptr()
-	s := q.size
-	q.head = 0
-	q.tail = 0
-	q.size = 0
+	h, s := sgqdrainnolock(q)
 	q.lock.Unlock()
-	return h, int(s)
+	return h, s
 }
 
-//sgqput puts an element at the end of the queue.
-//It sets the head as well if the queue is empty.
-func sgqput(q *sgqueue, elem *sudog) {
+func sgqputnolock(q *sgqueue, elem *sudog) {
 	elem.schednext = 0
-	q.lock.Lock()
 	if q.tail != 0 {
 		q.tail.ptr().schednext.set(elem)
 	} else {
@@ -128,6 +130,13 @@ func sgqput(q *sgqueue, elem *sudog) {
 	}
 	q.tail.set(elem)
 	q.size++
+}
+
+//sgqput puts an element at the end of the queue.
+//It sets the head as well if the queue is empty.
+func sgqput(q *sgqueue, elem *sudog) {
+	q.lock.Lock()
+	sgqputnolock(q, elem)
 	q.lock.Unlock()
 }
 
