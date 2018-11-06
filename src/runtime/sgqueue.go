@@ -145,3 +145,24 @@ func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
 	q.size += n
 	q.lock.Unlock()
 }
+
+//injectglistnolock allows to add the glist to the globalrunq.
+//TODO Global runqueue NOT CHECKED OFTEN ENOUGH
+//sched must be locked.
+func injectglistnolock(glist *g) {
+	if glist == nil {
+		return
+	}
+
+	var n int
+	for n = 0; glist != nil; n++ {
+		gp := glist
+		glist = gp.schedlink.ptr()
+		gp.schedlink = 0
+		ready(gp, 3, false)
+	}
+	_g_ := getg()
+	if n != 0 && _g_.m.spinning {
+		resetspinning()
+	}
+}

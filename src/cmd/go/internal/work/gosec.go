@@ -24,16 +24,10 @@ import(
 	{{ printf "%q" . }}{{end}}
 )
 
-func __ff() {
-	for {
-		runtime.Gosched()
-	}
-}
-
 func main() {
 	// Starting the functions.
 
-	go __ff()
+	go runtime.AvoidDeadlock()
 	{{range .Functions}}
 
 	gosecu.RegisterSecureFunction({{ . }})
