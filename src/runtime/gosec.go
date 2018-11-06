@@ -244,6 +244,23 @@ func migrateCrossDomain(local bool) {
 	}
 }
 
+func Schedticks() uint32 {
+	_g_ := getg()
+	return _g_.m.p.ptr().schedtick
+}
+
+func CPRTQLocks() uint32 {
+	if cprtQ == nil {
+		return 0
+	}
+	res := cprtQ.lock.enclock + cprtQ.lock.nenclock
+	return res
+}
+
+func StatsDebugging() (uint32, uint32) {
+	return Schedticks(), CPRTQLocks()
+}
+
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
 	if !isEnclave {
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
