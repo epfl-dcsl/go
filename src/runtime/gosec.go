@@ -210,12 +210,16 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // them in the global run queue.
 func migrateCrossDomain(local bool) {
 	if cprtQ == nil {
-		throw("migrateCrossdomain called on uninit cprtQ.")
+		throw("migrateCrossdomain called on un-init cprtQ.")
 	}
 
-	sgq, size := sgqtrydrain(cprtQ)
+	sgq, tail, size := sgqtrydrain(cprtQ)
 	if size == 0 {
 		return
+	}
+	if sgq == nil {
+		println("Oh mighty fucks: ", size)
+		throw("Crashy crash")
 	}
 	var head *g = nil
 	var prev *g = nil
@@ -230,6 +234,8 @@ func migrateCrossDomain(local bool) {
 		}
 		if sgq.schednext != 0 {
 			sgq = sgq.schednext.ptr()
+		} else if sgq != tail {
+			throw("malformed sgqueue, tail does not match tail(q)")
 		}
 		prev = gp
 		sg.schednext = 0
@@ -242,6 +248,23 @@ func migrateCrossDomain(local bool) {
 			injectglist(head)
 		}
 	}
+}
+
+func migratelocalqueue() {
+	_g_ := getg()
+	if _g_.m.p.ptr().migrateq.size == 0 {
+		// Nothing to do.
+		return
+	}
+	head, tail, size := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
+	if size == 0 {
+		throw("local queue got emptied randomly.")
+	}
+	if isEnclave {
+		sgqputbatch(&Cooprt.readyO, head, tail, int32(size))
+		return
+	}
+	sgqputbatch(&Cooprt.readyE, head, tail, int32(size))
 }
 
 func Schedticks() uint32 {
@@ -334,16 +357,18 @@ func isReschedulable(sg *sudog) bool {
 func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	// We are about to make ready a sudog that is not from the pool.
 	// This can happen only when non-trusted has blocked on a channel.
+	_g_ := getg()
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-		sgqput(&c.readyO, sg)
-		return
+		//sgqput(&c.readyO, sg)
+		//return
 	}
 
 	// We have a sudog from the pool.
-	sgqput(&c.readyE, sg)
+	//sgqput(&c.readyE, sg)
+	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {

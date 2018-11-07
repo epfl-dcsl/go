@@ -84,41 +84,42 @@ func sgqtryget(q *sgqueue) *sudog {
 	return h
 }
 
-func sgqdrainnolock(q *sgqueue) (*sudog, int) {
+func sgqdrainnolock(q *sgqueue) (*sudog, *sudog, int) {
 	if q.size == 0 {
-		return nil, 0
+		return nil, nil, 0
 	}
 	h := q.head.ptr()
+	t := q.tail.ptr()
 	s := q.size
 	q.head = 0
 	q.tail = 0
 	q.size = 0
-	return h, int(s)
+	return h, t, int(s)
 }
 
 //sgdrain removes all the *sudog in the queue at once.
-func sgqdrain(q *sgqueue) (*sudog, int) {
+func sgqdrain(q *sgqueue) (*sudog, *sudog, int) {
 	q.lock.Lock()
 	if q.size == 0 {
 		q.lock.Unlock()
-		return nil, 0
+		return nil, nil, 0
 	}
-	h, s := sgqdrainnolock(q)
+	h, t, s := sgqdrainnolock(q)
 	q.lock.Unlock()
-	return h, s
+	return h, t, s
 }
 
-func sgqtrydrain(q *sgqueue) (*sudog, int) {
+func sgqtrydrain(q *sgqueue) (*sudog, *sudog, int) {
 	if !q.lock.TryLockN(SGQMAXTRIALS) {
-		return nil, 0
+		return nil, nil, 0
 	}
 	if q.size == 0 {
 		q.lock.Unlock()
-		return nil, 0
+		return nil, nil, 0
 	}
-	h, s := sgqdrainnolock(q)
+	h, t, s := sgqdrainnolock(q)
 	q.lock.Unlock()
-	return h, s
+	return h, t, s
 }
 
 func sgqputnolock(q *sgqueue, elem *sudog) {
@@ -148,7 +149,10 @@ func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
 	if q.tail != 0 {
 		q.tail.ptr().schednext.set(sghead)
 	} else {
-		q.tail.set(sghead)
+		if q.head != 0 {
+			throw("sgqueue empty tail, non empty head!")
+		}
+		q.head.set(sghead)
 	}
 	q.tail.set(sgtail)
 	q.size += n

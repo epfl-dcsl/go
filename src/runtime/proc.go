@@ -2508,6 +2508,10 @@ func schedule() {
 		throw("schedule: holding locks")
 	}
 
+	if _g_.m.p.ptr().migrateq.size > 0 {
+		migratelocalqueue()
+	}
+
 	if _g_.m.lockedg != 0 {
 		stoplockedm()
 		execute(_g_.m.lockedg.ptr(), false) // Never returns.
