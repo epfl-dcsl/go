@@ -468,6 +468,9 @@ type m struct {
 	libcallg  guintptr
 	syscall   libcall // stores syscall parameters on windows
 
+	//TODO @aghosn trying to keep an M that never blocks.
+	spincross bool
+
 	mOS
 }
 
@@ -610,6 +613,18 @@ type schedt struct {
 
 	procresizetime int64 // nanotime() of last change to gomaxprocs
 	totaltime      int64 // ∫gomaxprocs dt up to procresizetime
+
+	//TODO: @aghosn, we try a first approach. We will keep a spinning thread if
+	// no spinning, and ncrossed is greater than 0.
+	// I am not sure that this is sufficient, since unlocking a routine requires
+	// to send a syscall for a futex wakeup from the enclave, which might be
+	// problematic if the syscall server is actually the one blocked on the futex.
+	// I should prevent the futex sleep for the servers in general.
+	// Would it be acceptable to keep an idle as long as we have something
+	// running in the enclave? In that case I should move this from the scheduler
+	// into cooprt? and do atomic operations on that. Or do both nspawned and ncrossed and see later.
+	//ncrossed   int32
+	ncrossidle uint32
 }
 
 // Values for the flags field of a sigTabT.

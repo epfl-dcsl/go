@@ -84,6 +84,10 @@ type CooperativeRuntime struct {
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
 	eHeap uintptr
+
+	// Keep track of live routines in the enclave.
+	// Mostly for debugging & runtime process idle logic.
+	nespawned uint32
 }
 
 const (
@@ -146,6 +150,48 @@ func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
 	}
 	c.eHeap = e
 	return true
+}
+
+func fspincross() {
+	getg().m.spincross = true
+}
+
+func wakecrossp() {
+	if isEnclave {
+		throw("Should not be called from enclave.")
+	}
+	if !atomic.Cas(&sched.ncrossidle, 0, 1) {
+		return
+	}
+	startcrossm()
+}
+
+func startcrossm() {
+	lock(&sched.lock)
+	_p_ := pidleget()
+	if _p_ == nil {
+		unlock(&sched.lock)
+		return
+		//throw("Impossible to acquire a p for cross m")
+	}
+	mp := mget()
+	unlock(&sched.lock)
+	if mp == nil {
+		var fn func()
+		fn = fspincross
+		newm(fn, _p_)
+		return
+	}
+	if mp.spincross {
+		throw("startcrossm: m is spincross")
+	}
+	if mp.nextp != 0 {
+		throw("startcrossm: m has p")
+	}
+
+	mp.spincross = true
+	mp.nextp.set(_p_)
+	notewakeup(&mp.park)
 }
 
 func IsEnclave() bool {
@@ -498,6 +544,10 @@ func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 }
 
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
+	if Cooprt == nil {
+		panic("Cooprt must be init before calling gosec.go:Newproc")
+	}
+	atomic.Xadd(&Cooprt.nespawned, 1)
 	fn := &funcval{ptr}
 	pc := getcallerpc()
 	systemstack(func() {
