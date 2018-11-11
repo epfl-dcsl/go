@@ -2287,6 +2287,15 @@ top:
 		// Neither of that submits to local run queues, so no point in stealing.
 		goto stop
 	}
+
+	//Trial TODO @aghosn
+	if Cooprt != nil && atomic.Load(&Cooprt.nespawned) > 0 {
+		if atomic.Load(&sched.ncrossidle) < 1 {
+			atomic.Xadd(&sched.ncrossidle, 1)
+			_g_.m.spincross = true
+			goto top
+		}
+	}
 	// If number of spinning M's >= number of busy P's, block.
 	// This is necessary to prevent excessive CPU consumption
 	// when GOMAXPROCS>>1 but the program parallelism is low.
@@ -2579,6 +2588,15 @@ top:
 		resetspinning()
 	}
 
+	if _g_.m.spincross {
+		_g_.m.spincross = false
+		if atomic.Xadd(&sched.ncrossidle, -1) < 0 {
+			throw("Error negative ncrossidle")
+		}
+		//TODO @aghosn see if this works.
+		wakecrossp()
+	}
+
 	if gp.lockedm != 0 {
 		// Hands off own p to the locked m,
 		// then blocks waiting for a new p.
@@ -2701,6 +2719,10 @@ func goexit0(gp *g) {
 	if isSystemGoroutine(gp) {
 		atomic.Xadd(&sched.ngsys, -1)
 	}
+	if isEnclave {
+		atomic.Xadd(&Cooprt.nespawned, -1)
+	}
+
 	gp.m = nil
 	locked := gp.lockedm != 0
 	gp.lockedm = 0
