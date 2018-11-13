@@ -32,15 +32,15 @@ func (sl *secspinlock) Lock() {
 			spins = 0
 			nbyields++
 		}
-		if nbyields > 2000 {
-			println("Fuu in secspsinlock")
-			println("id:", sl.id)
-			println("enclock: ", sl.enclock)
-			println("nenclock: ", sl.nenclock)
-			println("enclfail:", sl.enclfail)
-			println("nenclfail: ", sl.nenclfail)
-			throw("failure")
-		}
+		//if nbyields > 2000 {
+		//	println("Fuu in secspsinlock")
+		//	println("id:", sl.id)
+		//	println("enclock: ", sl.enclock)
+		//	println("nenclock: ", sl.nenclock)
+		//	println("enclfail:", sl.enclfail)
+		//	println("nenclfail: ", sl.nenclfail)
+		//	throw("failure")
+		//}
 	}
 
 	if isEnclave {

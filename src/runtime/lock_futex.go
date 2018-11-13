@@ -106,6 +106,9 @@ func lock(l *mutex) {
 		if v == mutex_unlocked {
 			return
 		}
+		if gp.markednofutex {
+			goto LSTART
+		}
 		wait = mutex_sleeping
 		futexsleep(key32(&l.key), mutex_sleeping, -1)
 	}
