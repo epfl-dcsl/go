@@ -65,11 +65,14 @@ func LoadEnclave() {
 }
 
 func oCallServer() {
+	runtime.MarkNoFutex()
+	log.Printf("Address of cooprt ocall %p\n", runtime.Cooprt.Ocall)
 	for {
 		sys := <-runtime.Cooprt.Ocall
 		var r1 uintptr
 		var r2 uintptr
 		var err syscall.Errno
+		//TODO @aghosn maybe do that inside a goroutine.
 		if sys.Big {
 			r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
 		} else {
@@ -126,5 +129,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		bufcopy(attrib.Buf, &b, size)
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
+	runtime.MarkNoFutex()
 	runtime.Cooprt.Ecall <- attrib
+	runtime.MarkFutex()
 }

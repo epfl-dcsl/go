@@ -194,6 +194,16 @@ func startcrossm() {
 	notewakeup(&mp.park)
 }
 
+func MarkNoFutex() {
+	_g_ := getg()
+	_g_.markednofutex = true
+}
+
+func MarkFutex() {
+	_g_ := getg()
+	_g_.markednofutex = false
+}
+
 func IsEnclave() bool {
 	return isEnclave
 }

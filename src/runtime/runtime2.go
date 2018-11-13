@@ -398,7 +398,8 @@ type g struct {
 	// determines how this corresponds to scan work debt.
 	gcAssistBytes int64
 
-	isencl bool
+	isencl        bool
+	markednofutex bool
 }
 
 type m struct {
