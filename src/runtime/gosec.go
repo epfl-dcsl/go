@@ -418,13 +418,17 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-		//sgqput(&c.readyO, sg)
-		//return
+		if !sgqtryput(&c.readyO, sg) {
+			sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+		}
+		return
 	}
 
 	// We have a sudog from the pool.
 	//sgqput(&c.readyE, sg)
-	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+	if !sgqtryput(&c.readyE, sg) {
+		sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+	}
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
