@@ -624,7 +624,6 @@ type schedt struct {
 	// Would it be acceptable to keep an idle as long as we have something
 	// running in the enclave? In that case I should move this from the scheduler
 	// into cooprt? and do atomic operations on that. Or do both nspawned and ncrossed and see later.
-	//ncrossed   int32
 	ncrossidle uint32
 }
 

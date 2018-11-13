@@ -408,27 +408,44 @@ func isReschedulable(sg *sudog) bool {
 }
 
 // crossGoready takes a sudog and makes it ready to be rescheduled.
-// It picks the proper ready queue for the sudog in the cooperative runtime.
 // This method should be called only once the isReschedulable returned false.
 func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	// We are about to make ready a sudog that is not from the pool.
 	// This can happen only when non-trusted has blocked on a channel.
-	_g_ := getg()
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-		if !sgqtryput(&c.readyO, sg) {
-			sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
-		}
+
+		sgqput(&c.readyO, sg)
+		//optimizingCrossReady(&c.readyO, sg)
+		//if !sgqtryput(&c.readyO, sg) {
+		//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+		//}
 		return
 	}
-
+	//optimizingCrossReady(&c.readyE, sg)
 	// We have a sudog from the pool.
-	//sgqput(&c.readyE, sg)
-	if !sgqtryput(&c.readyE, sg) {
-		sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+	sgqput(&c.readyE, sg)
+	//if !sgqtryput(&c.readyE, sg) {
+	//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+	//}
+}
+
+func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
+	_g_ := getg()
+	if foreign.lock.TryLockN(SGQMAXTRIALS) {
+		// We have a lock on it so better use it.
+		h, t, s := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
+		if s > 0 {
+			sgqputbatchnolock(foreign, h, t, int32(s))
+		}
+		sgqputnolock(foreign, sg)
+		foreign.lock.Unlock()
+		return
 	}
+	// We failed to move everything at once, default back.
+	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
