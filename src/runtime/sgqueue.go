@@ -150,11 +150,8 @@ func sgqput(q *sgqueue, elem *sudog) {
 	q.lock.Unlock()
 }
 
-//sgqputbatch puts an entire batch at once inside the queue.
-// WARNING: there is no check that n corresponds to the given list.
-func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
+func sgqputbatchnolock(q *sgqueue, sghead, sgtail *sudog, n int32) {
 	sgtail.schednext = 0
-	q.lock.Lock()
 	if q.tail != 0 {
 		q.tail.ptr().schednext.set(sghead)
 	} else {
@@ -165,6 +162,13 @@ func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
 	}
 	q.tail.set(sgtail)
 	q.size += n
+}
+
+//sgqputbatch puts an entire batch at once inside the queue.
+// WARNING: there is no check that n corresponds to the given list.
+func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
+	q.lock.Lock()
+	sgqputbatchnolock(q, sghead, sgtail, n)
 	q.lock.Unlock()
 }
 
