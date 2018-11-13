@@ -550,7 +550,7 @@ func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
 		exit(1)
 	}
-	SchedSetAffinity(int(ret), 0xF-0x7)
+	// SchedSetAffinity(int(ret), 0xF-0x7)
 }
 
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
