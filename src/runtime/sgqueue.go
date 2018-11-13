@@ -133,6 +133,15 @@ func sgqputnolock(q *sgqueue, elem *sudog) {
 	q.size++
 }
 
+func sgqtryput(q *sgqueue, elem *sudog) bool {
+	if !q.lock.TryLockN(SGQMAXTRIALS) {
+		return false
+	}
+	sgqputnolock(q, elem)
+	q.lock.Unlock()
+	return true
+}
+
 //sgqput puts an element at the end of the queue.
 //It sets the head as well if the queue is empty.
 func sgqput(q *sgqueue, elem *sudog) {
