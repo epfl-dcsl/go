@@ -60,13 +60,12 @@ func LoadEnclave() {
 	check(err)
 
 	//Start loading the program within the correct address space.
-	simLoadProgram(name)
-	//sgxLoadProgram(name)
+	//simLoadProgram(name)
+	sgxLoadProgram(name)
 }
 
 func oCallServer() {
 	runtime.MarkNoFutex()
-	log.Printf("Address of cooprt ocall %p\n", runtime.Cooprt.Ocall)
 	for {
 		sys := <-runtime.Cooprt.Ocall
 		var r1 uintptr

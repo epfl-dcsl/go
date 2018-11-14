@@ -6,7 +6,7 @@ import (
 
 const (
 	mspins     = 10
-	yspin      = 70
+	yspin      = 15
 	ssunlocked = 0
 	sslocked   = 1
 )
@@ -23,24 +23,8 @@ type secspinlock struct {
 }
 
 func (sl *secspinlock) Lock() {
-	spins := 0
-	//nbyields := 0
-	for !sl.TryLock() {
-		spins++
-		if spins >= SGQMAXTRIALS {
-			procyield(fastrandn(yspin) + 1)
-			spins = 0
-			//nbyields++
-		}
-		//if nbyields > 2000 {
-		//	println("Fuu in secspsinlock")
-		//	println("id:", sl.id)
-		//	println("enclock: ", sl.enclock)
-		//	println("nenclock: ", sl.nenclock)
-		//	println("enclfail:", sl.enclfail)
-		//	println("nenclfail: ", sl.nenclfail)
-		//	throw("failure")
-		//}
+	for !sl.TryLockN(SGQMAXTRIALS) {
+		procyield(fastrandn(yspin) + 1)
 	}
 
 	if isEnclave {

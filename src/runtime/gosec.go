@@ -194,20 +194,26 @@ func startcrossm() {
 	notewakeup(&mp.park)
 }
 
+//MarkNoFutex sets the g's markednofutex attribute to true.
+//This prevents blocking on a channel operation.
 func MarkNoFutex() {
 	_g_ := getg()
 	_g_.markednofutex = true
 }
 
+//MarkFutex sets the g's markednofutex to false.
+//This allows the routine to futex sleep on a lock.
 func MarkFutex() {
 	_g_ := getg()
 	_g_.markednofutex = false
 }
 
+//IsEnclave exposes the runtime.isEnclave value to the outside.
 func IsEnclave() bool {
 	return isEnclave
 }
 
+//IsSimulation exposes the runtime.isSimulation to the outside.
 func IsSimulation() bool {
 	return isSimulation
 }
@@ -231,10 +237,10 @@ func panicGosec(a string) {
 	panic(a)
 }
 
+//AvoidDeadlock drives the scheduler forever.
 func AvoidDeadlock() {
 	for {
 		Gosched()
-		//procyield(70)
 	}
 }
 
@@ -277,8 +283,8 @@ func migrateCrossDomain(local bool) {
 		println("Oh mighty fucks: ", size)
 		throw("Crashy crash")
 	}
-	var head *g = nil
-	var prev *g = nil
+	var head *g //= nil
+	var prev *g //= nil
 	for i := 0; i < size; i++ {
 		sg := sgq
 		gp := sg.g
@@ -323,11 +329,13 @@ func migratelocalqueue() {
 	sgqputbatch(&Cooprt.readyE, head, tail, int32(size))
 }
 
+//Schedticks returns the local p number of scheduler ticks.
 func Schedticks() uint32 {
 	_g_ := getg()
 	return _g_.m.p.ptr().schedtick
 }
 
+//CPRTQLocks reports the total number of times cprtQ was locked.
 func CPRTQLocks() uint32 {
 	if cprtQ == nil {
 		return 0
@@ -336,6 +344,7 @@ func CPRTQLocks() uint32 {
 	return res
 }
 
+//StatsDebugging returns both schedticks and cprtQlocks
 func StatsDebugging() (uint32, uint32) {
 	return Schedticks(), CPRTQLocks()
 }
@@ -419,17 +428,11 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 
 		//sgqput(&c.readyO, sg)
 		optimizingCrossReady(&c.readyO, sg)
-		//if !sgqtryput(&c.readyO, sg) {
-		//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
-		//}
 		return
 	}
-	optimizingCrossReady(&c.readyE, sg)
 	// We have a sudog from the pool.
 	//sgqput(&c.readyE, sg)
-	//if !sgqtryput(&c.readyE, sg) {
-	//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
-	//}
+	optimizingCrossReady(&c.readyE, sg)
 }
 
 func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
@@ -449,16 +452,13 @@ func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
-	//c.syspool_lock.Lock()
 	for i, s := range c.sysPool {
 		if s.available == 1 {
 			c.sysPool[i].available = 0
 			c.sysPool[i].id = i
-			//c.syspool_lock.Unlock()
 			return i, c.sysPool[i].c
 		}
 	}
-	//c.syspool_lock.Unlock()
 	panicGosec("Ran out of syspool channels.")
 	return -1, nil
 }
@@ -471,10 +471,8 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 		panicGosec("Trying to release an available channel")
 	}
 
-	//c.syspool_lock.Lock()
 	//TODO @aghosn make this atomic.
 	c.sysPool[id].available = 1
-	//c.syspool_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
@@ -482,16 +480,13 @@ func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
 }
 
 func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
-	//c.allocpool_lock.Lock()
 	for i, s := range c.allocPool {
 		if s.available == 1 {
 			c.allocPool[i].available = 0
 			c.allocPool[i].id = i
-			//c.allocpool_lock.Unlock()
 			return i, c.allocPool[i].c
 		}
 	}
-	//c.allocpool_lock.Unlock()
 	panicGosec("Ran out of allocpool channels.")
 	return -1, nil
 }
@@ -503,10 +498,7 @@ func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
 	if c.allocPool[id].available != 0 {
 		panicGosec("Trying to release an available channel")
 	}
-
-	//c.allocpool_lock.Lock()
 	c.allocPool[id].available = 1
-	//c.allocpool_lock.Unlock()
 }
 
 func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
@@ -571,7 +563,6 @@ func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
 		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
 		exit(1)
 	}
-	// SchedSetAffinity(int(ret), 0xF-0x7)
 }
 
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
@@ -588,37 +579,6 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 
 //go:noescape
 func sched_setaffinity(pid, len uintptr, buf *uintptr) int32
-
-func SchedSetAffinity(pid, set int) {
-	var buf [1]uintptr
-	buf[0] = uintptr(set)
-	r := sched_setaffinity(uintptr(pid), unsafe.Sizeof(buf), &buf[0])
-	if r < 0 {
-		panic("Could not set sched affinity")
-	}
-}
-
-func SchedGetAffinity() []uintptr {
-	res := make([]uintptr, 1)
-	r := sched_getaffinity(0, unsafe.Sizeof(res), &res[0])
-	if r < 0 {
-		panic("Unable to get sched affinity")
-	}
-	return res
-}
-
-// TODO @aghosn To remove
-func GetIsEnclave() bool {
-	return isEnclave
-}
-
-// Functions and datastructures used during the runtime init.
-
-// Addresses that we need to allocate before hand.
-type Relocation struct {
-	Addr uintptr
-	Size uintptr
-}
 
 func enclaveIsMapped(ptr uintptr, n uintptr) bool {
 	if ptr >= Cooprt.eHeap && ptr+n <= Cooprt.eHeap+_MaxMemEncl {
