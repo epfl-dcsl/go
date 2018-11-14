@@ -6,9 +6,10 @@ import (
 
 const (
 	mspins     = 10
-	yspin      = 50
-	SSLOCKED   = 1
+	yspin      = 70
 	SSUNLOCKED = 0
+	SSLOCKED   = 1
+	SSLOCKED2  = 2
 )
 
 type secspinlock struct {
@@ -24,13 +25,13 @@ type secspinlock struct {
 
 func (sl *secspinlock) Lock() {
 	spins := 0
-	nbyields := 0
+	//nbyields := 0
 	for !sl.TryLock() {
 		spins++
 		if spins >= SGQMAXTRIALS {
 			procyield(fastrandn(yspin) + 1)
 			spins = 0
-			nbyields++
+			//nbyields++
 		}
 		//if nbyields > 2000 {
 		//	println("Fuu in secspsinlock")
@@ -51,7 +52,16 @@ func (sl *secspinlock) Lock() {
 }
 
 func (sl *secspinlock) TryLock() bool {
-	return atomic.Cas(&(sl.f), SSUNLOCKED, SSLOCKED)
+	locking := uint32(SSLOCKED)
+	if isEnclave {
+		locking = SSLOCKED2
+	}
+	res := atomic.Cas(&(sl.f), SSUNLOCKED, locking)
+	if res {
+		gp := getg()
+		gp.m.locks++
+	}
+	return res
 }
 
 // TryLockN attempts at most n times to acquire the spinlock.
@@ -78,7 +88,9 @@ func (sl *secspinlock) TryLockN(n int) bool {
 }
 
 func (sl *secspinlock) Unlock() {
-	if !atomic.Cas(&(sl.f), SSLOCKED, SSUNLOCKED) {
+	if v := atomic.Xchg(&(sl.f), SSUNLOCKED); v != SSLOCKED && v != SSLOCKED2 {
 		panic("[secspinlock] problem unlocking.")
 	}
+	gp := getg()
+	gp.m.locks--
 }

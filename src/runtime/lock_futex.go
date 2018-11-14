@@ -23,9 +23,10 @@ import (
 //		If any procs are sleeping on addr, wake up at most cnt.
 
 const (
-	mutex_unlocked = 0
-	mutex_locked   = 1
-	mutex_sleeping = 2
+	mutex_unlocked       = 0
+	mutex_locked         = 1
+	mutex_sleeping       = 2
+	mutex_locked_enclave = 3
 
 	active_spin     = 4
 	active_spin_cnt = 30
@@ -45,6 +46,11 @@ func key32(p *uintptr) *uint32 {
 
 func lock(l *mutex) {
 	gp := getg()
+	locked_val := uint32(mutex_locked)
+	chg := false
+	if gp.isencl {
+		locked_val = mutex_locked_enclave
+	}
 
 	if gp.m.locks < 0 {
 		throw("runtime·lock: lock count")
@@ -52,7 +58,7 @@ func lock(l *mutex) {
 	gp.m.locks++
 
 	// Speculative grab for lock.
-	v := atomic.Xchg(key32(&l.key), mutex_locked)
+	v := atomic.Xchg(key32(&l.key), locked_val)
 	if v == mutex_unlocked {
 		return
 	}
@@ -75,6 +81,10 @@ func lock(l *mutex) {
 
 	for {
 	LSTART:
+		if chg {
+			gp.markednofutex = false
+			chg = false
+		}
 		// Try for lock, spinning.
 		for i := 0; i < spin; i++ {
 			for l.key == mutex_unlocked {
@@ -101,12 +111,20 @@ func lock(l *mutex) {
 			osyield()
 		}
 
+		if !isEnclave && v == mutex_locked_enclave && !gp.markednofutex {
+			chg = true
+			gp.markednofutex = true
+		}
 		// Sleep.
+		if gp.markednofutex {
+			goto LSTART
+		}
+
 		v = atomic.Xchg(key32(&l.key), mutex_sleeping)
 		if v == mutex_unlocked {
 			return
 		}
-		if gp.markednofutex {
+		if v == mutex_locked_enclave && !isEnclave {
 			goto LSTART
 		}
 		wait = mutex_sleeping

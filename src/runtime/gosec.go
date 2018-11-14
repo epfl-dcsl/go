@@ -234,7 +234,7 @@ func panicGosec(a string) {
 func AvoidDeadlock() {
 	for {
 		Gosched()
-		procyield(70)
+		//procyield(70)
 	}
 }
 
@@ -417,16 +417,16 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
 
-		sgqput(&c.readyO, sg)
-		//optimizingCrossReady(&c.readyO, sg)
+		//sgqput(&c.readyO, sg)
+		optimizingCrossReady(&c.readyO, sg)
 		//if !sgqtryput(&c.readyO, sg) {
 		//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
 		//}
 		return
 	}
-	//optimizingCrossReady(&c.readyE, sg)
+	optimizingCrossReady(&c.readyE, sg)
 	// We have a sudog from the pool.
-	sgqput(&c.readyE, sg)
+	//sgqput(&c.readyE, sg)
 	//if !sgqtryput(&c.readyE, sg) {
 	//	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
 	//}
