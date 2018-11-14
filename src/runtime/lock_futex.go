@@ -92,9 +92,7 @@ func lock(l *mutex) {
 					return
 				}
 			}
-			//if !isEnclave {
 			procyield(15)
-			//}
 		}
 
 		// Try for lock, rescheduling.
