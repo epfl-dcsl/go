@@ -7,9 +7,8 @@ import (
 const (
 	mspins     = 10
 	yspin      = 70
-	SSUNLOCKED = 0
-	SSLOCKED   = 1
-	SSLOCKED2  = 2
+	ssunlocked = 0
+	sslocked   = 1
 )
 
 type secspinlock struct {
@@ -52,11 +51,7 @@ func (sl *secspinlock) Lock() {
 }
 
 func (sl *secspinlock) TryLock() bool {
-	locking := uint32(SSLOCKED)
-	if isEnclave {
-		locking = SSLOCKED2
-	}
-	res := atomic.Cas(&(sl.f), SSUNLOCKED, locking)
+	res := atomic.Cas(&(sl.f), ssunlocked, sslocked)
 	if res {
 		gp := getg()
 		gp.m.locks++
@@ -88,7 +83,7 @@ func (sl *secspinlock) TryLockN(n int) bool {
 }
 
 func (sl *secspinlock) Unlock() {
-	if v := atomic.Xchg(&(sl.f), SSUNLOCKED); v != SSLOCKED && v != SSLOCKED2 {
+	if v := atomic.Xchg(&(sl.f), ssunlocked); v != sslocked {
 		panic("[secspinlock] problem unlocking.")
 	}
 	gp := getg()
