@@ -5,8 +5,7 @@ import (
 )
 
 const (
-	mspins     = 10
-	yspin      = 15
+	yspin      = 4
 	ssunlocked = 0
 	sslocked   = 1
 )
@@ -24,7 +23,7 @@ type secspinlock struct {
 
 func (sl *secspinlock) Lock() {
 	for !sl.TryLockN(SGQMAXTRIALS) {
-		procyield(fastrandn(yspin) + 1)
+		//procyield(fastrandn(yspin) + 1)
 	}
 
 	if isEnclave {
@@ -35,6 +34,7 @@ func (sl *secspinlock) Lock() {
 }
 
 func (sl *secspinlock) TryLock() bool {
+	panic("Should not be called.")
 	res := atomic.Cas(&(sl.f), ssunlocked, sslocked)
 	if res {
 		gp := getg()
@@ -49,13 +49,17 @@ func (sl *secspinlock) TryLockN(n int) bool {
 		return false
 	}
 	for i := 0; i < n; i++ {
-		if sl.TryLock() {
-			if isEnclave {
-				sl.enclock++
-			} else {
-				sl.nenclock++
+		for sl.f == ssunlocked {
+			if ok := atomic.Cas(&(sl.f), ssunlocked, sslocked); ok {
+				gp := getg()
+				gp.m.locks++
+				if isEnclave {
+					sl.enclock++
+				} else {
+					sl.nenclock++
+				}
+				return true
 			}
-			return true
 		}
 	}
 	if isEnclave {
