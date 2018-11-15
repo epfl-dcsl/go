@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	yspin      = 4
+	yspin      = 15
 	ssunlocked = 0
 	sslocked   = 1
 )
@@ -23,7 +23,7 @@ type secspinlock struct {
 
 func (sl *secspinlock) Lock() {
 	for !sl.TryLockN(SGQMAXTRIALS) {
-		//procyield(fastrandn(yspin) + 1)
+		procyield(fastrandn(yspin) + 1)
 	}
 
 	if isEnclave {

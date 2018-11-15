@@ -60,8 +60,8 @@ func LoadEnclave() {
 	check(err)
 
 	//Start loading the program within the correct address space.
-	//simLoadProgram(name)
-	sgxLoadProgram(name)
+	simLoadProgram(name)
+	//sgxLoadProgram(name)
 }
 
 func oCallServer() {
