@@ -5,7 +5,18 @@ import (
 	"unsafe"
 )
 
-type EcallAttr struct {
+//EcallServerRequest type is used to send a request for the enclave to spawn
+//a new dedicated ecall server listening on the provided private PC channel.
+type EcallServerRequest struct {
+	PrivChan chan EcallReq
+}
+
+//EcallReq contains the arguments for an ecall. Mimics the newproc interface.
+//Name is the target routine's name.
+//Siz is the size of the argument buffer.
+//Argp all the arguments.
+//Buf an extra slice buffer.
+type EcallReq struct {
 	Name string
 	Siz  int32
 	Argp *uint8 //TODO @aghosn not sure about this one.
@@ -30,7 +41,7 @@ type OcallRes struct {
 	Err uintptr
 }
 
-type AllocAttr struct {
+type AllocReq struct {
 	Siz int
 	Buf []byte
 	Id  int
@@ -45,7 +56,7 @@ type poolSysChan struct {
 type poolAllocChan struct {
 	id        int
 	available int
-	c         chan *AllocAttr
+	c         chan *AllocReq
 }
 
 type poolSudog struct {
@@ -58,9 +69,9 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall     chan EcallAttr
-	Ocall     chan OcallReq
-	OAllocReq chan AllocAttr
+	Ecall  chan EcallReq
+	Ocall  chan OcallReq
+	OAlloc chan AllocReq
 
 	argc int32
 	argv **byte
@@ -114,9 +125,9 @@ func InitCooperativeRuntime() {
 	}
 
 	Cooprt = &CooperativeRuntime{}
-	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallAttr), -1, argv
+	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.OAllocReq = make(chan AllocAttr)
+	Cooprt.OAlloc = make(chan AllocReq)
 
 	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
 	for i := range Cooprt.pool {
@@ -131,7 +142,7 @@ func InitCooperativeRuntime() {
 
 	Cooprt.allocPool = make([]*poolAllocChan, POOL_INIT_SIZE)
 	for i := range Cooprt.allocPool {
-		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocAttr)}
+		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocReq)}
 	}
 
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
@@ -479,7 +490,7 @@ func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
 	c.sysPool[id].c <- r
 }
 
-func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocAttr) {
+func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocReq) {
 	for i, s := range c.allocPool {
 		if s.available == 1 {
 			c.allocPool[i].available = 0
@@ -501,7 +512,7 @@ func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
 	c.allocPool[id].available = 1
 }
 
-func (c *CooperativeRuntime) AllocSend(id int, r *AllocAttr) {
+func (c *CooperativeRuntime) AllocSend(id int, r *AllocReq) {
 	c.allocPool[id].c <- r
 }
 

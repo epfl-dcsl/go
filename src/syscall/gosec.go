@@ -21,7 +21,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			allocid, cal := runtime.Cooprt.AcquireAllocPool()
 
 			//Copy the content of the buffer outside of the enclave.
-			runtime.Cooprt.OAllocReq <- runtime.AllocAttr{int(a3), nil, allocid}
+			runtime.Cooprt.OAlloc <- runtime.AllocReq{int(a3), nil, allocid}
 			buf := <-cal
 			destptr := uintptr(unsafe.Pointer(&(buf.Buf[0])))
 			memcpy(destptr, a2, a3)
@@ -38,7 +38,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			allocid, cal := runtime.Cooprt.AcquireAllocPool()
 
 			//Copy the content of the buffer outside of the enclave.
-			runtime.Cooprt.OAllocReq <- runtime.AllocAttr{int(a2), nil, allocid}
+			runtime.Cooprt.OAlloc <- runtime.AllocReq{int(a2), nil, allocid}
 			buf := <-cal
 			destptr := uintptr(unsafe.Pointer(&(buf.Buf[0])))
 			runtime.Cooprt.ReleaseAllocPool(allocid)

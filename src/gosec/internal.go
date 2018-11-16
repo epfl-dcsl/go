@@ -84,10 +84,10 @@ func oCallServer() {
 
 func allocServer() {
 	for {
-		allocBytes := <-runtime.Cooprt.OAllocReq
+		allocBytes := <-runtime.Cooprt.OAlloc
 		if allocBytes.Siz > 0 {
 			//TODO @aghosn check if this correct (garbage collected?)
-			copy := &runtime.AllocAttr{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
+			copy := &runtime.AllocReq{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
 			go runtime.Cooprt.AllocSend(allocBytes.Id, copy)
 		} else {
 			panic("Request for a non positive size allocation.")
@@ -122,7 +122,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	})
 
 	//Copy the stack frame inside a buffer.
-	attrib := runtime.EcallAttr{Name: pc.Name(), Siz: size, Buf: nil, Argp: nil}
+	attrib := runtime.EcallReq{Name: pc.Name(), Siz: size, Buf: nil, Argp: nil}
 	if size > 0 {
 		attrib.Buf = make([]uint8, size, size)
 		bufcopy(attrib.Buf, &b, size)
