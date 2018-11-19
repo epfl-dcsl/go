@@ -368,7 +368,8 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		panic("fake sudog buffer is too small.")
 	}
 	for i := range Cooprt.pool {
-		if Cooprt.pool[i].available == 1 && atomic.Xchg(&Cooprt.pool[i].available, 0) == 1 {
+		if Cooprt.pool[i].available == 1 {
+			Cooprt.pool[i].available = 0
 			//Cooprt.pool[i].available = 0
 			Cooprt.pool[i].wg.id = int32(i)
 			Cooprt.pool[i].isencl = isEnclave
@@ -414,7 +415,8 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 	Cooprt.pool[sg.id].orig = nil
 	Cooprt.pool[sg.id].isRcv = false
 	//TODO @aghosn Make this atomic
-	atomic.Store(&Cooprt.pool[sg.id].available, 1)
+	//atomic.Store(&Cooprt.pool[sg.id].available, 1)
+	Cooprt.pool[sg.id].available = 1
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.
