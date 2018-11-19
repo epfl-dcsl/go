@@ -592,26 +592,23 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 //TODO @aghosn: Maybe should change to avoid performing several copies!
 func GosecureSend(req EcallReq) {
 	gp := getg()
-	if gp == nil || gp.m == nil || gp.m.p.ptr() == nil {
-		throw("Gosecure: un-init g, m, or p.")
+	if gp == nil {
+		throw("Gosecure: un-init g.")
 	}
 
 	if Cooprt == nil {
 		throw("Cooprt not initialized.")
 	}
 
-	pp := gp.m.p.ptr()
-	if pp.ecallchan == nil {
-		pp.ecallchan = make(chan EcallReq)
-		//print("Creating private server: ", pp.ecallchan, "\n")
-		srvreq := EcallServerReq{pp.ecallchan}
+	if gp.ecallchan == nil {
+		gp.ecallchan = make(chan EcallReq)
+		srvreq := EcallServerReq{gp.ecallchan}
 		MarkNoFutex()
 		Cooprt.EcallSrv <- srvreq
 		MarkFutex()
 	}
-	//print("Writing to ", pp.ecallchan, "\n")
 	MarkNoFutex()
-	pp.ecallchan <- req
+	gp.ecallchan <- req
 	MarkFutex()
 }
 
