@@ -112,7 +112,7 @@ const (
 
 	SG_BUF_SIZE = 100 // size in bytes
 
-	POOL_INIT_SIZE = 500 //Default size for the pools.
+	POOL_INIT_SIZE = 5000 //Default size for the pools.
 
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
@@ -368,7 +368,7 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		panic("fake sudog buffer is too small.")
 	}
 	for i := range Cooprt.pool {
-		if atomic.Xchg(&Cooprt.pool[i].available, 0) == 1 {
+		if Cooprt.pool[i].available == 1 && atomic.Xchg(&Cooprt.pool[i].available, 0) == 1 {
 			//Cooprt.pool[i].available = 0
 			Cooprt.pool[i].wg.id = int32(i)
 			Cooprt.pool[i].isencl = isEnclave
