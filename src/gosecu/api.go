@@ -1,6 +1,7 @@
 package gosecu
 
 import (
+	"fmt"
 	"reflect"
 	"runtime"
 )
@@ -9,6 +10,7 @@ import (
 var secureMap map[string]func(size int32, argp *uint8)
 
 func privateServer(c chan runtime.EcallReq) {
+	success := 0
 	for {
 		call :=  <- c
 		//if !ok {
@@ -16,11 +18,13 @@ func privateServer(c chan runtime.EcallReq) {
 		//}
 
 		if fn := secureMap[call.Name]; fn != nil {
+			success++
 			go fn(call.Siz, call.Argp)
 		} else {
 			panic("gosecu: illegal gosecure call.")
 		}
 	}
+	fmt.Println("Closing the privateServer ", success)
 	panic("Closing the shit")
 }
 

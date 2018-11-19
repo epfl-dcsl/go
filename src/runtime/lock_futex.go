@@ -78,12 +78,16 @@ func lock(l *mutex) {
 	if ncpu > 1 || isEnclave {
 		spin = active_spin
 	}
+	nbfailures := 0
 
 	for {
 	LSTART:
 		if chg {
 			gp.markednofutex = false
 			chg = false
+		}
+		if nbfailures > 100 {
+			throw("Too many spins")
 		}
 		// Try for lock, spinning.
 		for i := 0; i < spin; i++ {
@@ -115,6 +119,7 @@ func lock(l *mutex) {
 		}
 		// Sleep.
 		if gp.markednofutex {
+			nbfailures++
 			goto LSTART
 		}
 
@@ -123,6 +128,7 @@ func lock(l *mutex) {
 			return
 		}
 		if v == mutex_locked_enclave && !isEnclave {
+			nbfailures++
 			goto LSTART
 		}
 		wait = mutex_sleeping
