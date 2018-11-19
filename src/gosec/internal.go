@@ -128,7 +128,5 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		bufcopy(attrib.Buf, &b, size)
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
-	runtime.MarkNoFutex()
-	runtime.Cooprt.Ecall <- attrib
-	runtime.MarkFutex()
+	runtime.GosecureSend(attrib)
 }

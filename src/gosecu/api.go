@@ -8,21 +8,35 @@ import (
 // Slice of gosecure targets.
 var secureMap map[string]func(size int32, argp *uint8)
 
-// EcallServer keeps polling the Cooprt.Ecall queue for incoming gosecure calls.
+func privateServer(c chan runtime.EcallReq) {
+	for {
+		call :=  <- c
+		//if !ok {
+		//	break
+		//}
+
+		if fn := secureMap[call.Name]; fn != nil {
+			go fn(call.Siz, call.Argp)
+		} else {
+			panic("gosecu: illegal gosecure call.")
+		}
+	}
+	panic("Closing the shit")
+}
+
+// EcallServer keeps polling the Cooprt.Ecall queue for incoming private ecall
+// server requests.
 // We cannot use reflect to get the value of the arguments. Instead, we give
 // a pointer to a buffer allocated inside the ecall attribute and use it to pass
 // the arguments from the stack frame.
 func EcallServer() {
 	for {
-		call := <-runtime.Cooprt.Ecall
-		//TODO here create the buffer of memory that will be used for the call.
-		//We need to carefully copy the content and replace the function pointer.
-		if fn := secureMap[call.Name]; fn != nil {
-			fn(call.Siz, call.Argp)
-		} else {
-			//log.Fatalln("Unable to find secure func ", call.Name)
-			panic("gosecu: illegal gosecure call.")
+		req := <-runtime.Cooprt.EcallSrv
+		if req.PrivChan == nil {
+			continue
 		}
+
+		go privateServer(req.PrivChan)
 	}
 }
 

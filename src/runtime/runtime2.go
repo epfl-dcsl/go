@@ -549,6 +549,7 @@ type p struct {
 	pad [sys.CacheLineSize]byte
 
 	migrateq sgqueue
+	ecallchan chan EcallReq
 }
 
 type schedt struct {
