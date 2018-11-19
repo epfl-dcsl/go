@@ -97,7 +97,7 @@ type sgx_wrapper struct {
 func (s *sgx_wrapper) DumpDebugInfo() {
 	if runtime.Cooprt != nil {
 		fmt.Printf("Cooprt at %p\n", runtime.Cooprt)
-		fmt.Printf("Cooprt.Ecall %p, Cooprt.Ocall %p\n", runtime.Cooprt.Ecall, runtime.Cooprt.Ocall)
+		fmt.Printf("Cooprt.Ecall %p, Cooprt.Ocall %p\n", runtime.Cooprt.EcallSrv, runtime.Cooprt.Ocall)
 	}
 	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
 	fmt.Printf("{base: %x, siz: %x, stack: %x, ssiz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.stack, s.ssiz, s.mhstart, s.mhsize)

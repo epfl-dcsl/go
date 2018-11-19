@@ -7,7 +7,7 @@ import (
 
 //EcallServerRequest type is used to send a request for the enclave to spawn
 //a new dedicated ecall server listening on the provided private PC channel.
-type EcallServerRequest struct {
+type EcallServerReq struct {
 	PrivChan chan EcallReq
 }
 
@@ -69,7 +69,7 @@ type poolSudog struct {
 }
 
 type CooperativeRuntime struct {
-	Ecall  chan EcallReq
+	EcallSrv  chan EcallServerReq
 	Ocall  chan OcallReq
 	OAlloc chan AllocReq
 
@@ -125,7 +125,7 @@ func InitCooperativeRuntime() {
 	}
 
 	Cooprt = &CooperativeRuntime{}
-	Cooprt.Ecall, Cooprt.argc, Cooprt.argv = make(chan EcallReq), -1, argv
+	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
 	Cooprt.OAlloc = make(chan AllocReq)
 
@@ -586,6 +586,33 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	systemstack(func() {
 		newproc1(fn, argp, siz, pc)
 	})
+}
+
+//GosecureSend sends an ecall request on the p's private channel.
+//TODO @aghosn: Maybe should change to avoid performing several copies!
+func GosecureSend(req EcallReq) {
+	gp := getg()
+	if gp == nil || gp.m == nil || gp.m.p.ptr() == nil {
+		throw("Gosecure: un-init g, m, or p.")
+	}
+
+	if Cooprt == nil {
+		throw("Cooprt not initialized.")
+	}
+
+	pp := gp.m.p.ptr()
+	if pp.ecallchan == nil {
+		pp.ecallchan = make(chan EcallReq)
+		//print("Creating private server: ", pp.ecallchan, "\n")
+		srvreq := EcallServerReq{pp.ecallchan}
+		MarkNoFutex()
+		Cooprt.EcallSrv <- srvreq
+		MarkFutex()
+	}
+	//print("Writing to ", pp.ecallchan, "\n")
+	MarkNoFutex()
+	pp.ecallchan <- req
+	MarkFutex()
 }
 
 //go:noescape
