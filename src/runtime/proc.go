@@ -831,7 +831,7 @@ func casgstatus(gp *g, oldval, newval uint32) {
 			for x := 0; x < 10 && gp.atomicstatus != oldval; x++ {
 				procyield(1)
 			}
-		} else {
+		} else if !isEnclave {
 			osyield()
 			nextYield = nanotime() + yieldDelay/2
 		}
@@ -2325,6 +2325,10 @@ top:
 
 stop:
 
+	if _g_.m.p.ptr().migrateq.size > 0 {
+		migratelocalqueue(true)
+	}
+
 	// We have nothing to do. If we're in the GC mark phase, can
 	// safely scan and blacken objects, and have work to do, run
 	// idle-time marking rather than give up the P.
@@ -2525,7 +2529,7 @@ func schedule() {
 	}
 
 	if _g_.m.p.ptr().migrateq.size > 0 {
-		migratelocalqueue()
+		migratelocalqueue(false)
 	}
 
 	if _g_.m.lockedg != 0 {
@@ -4653,6 +4657,9 @@ func globrunqget(_p_ *p, max int32) *g {
 func pidleput(_p_ *p) {
 	if !runqempty(_p_) {
 		throw("pidleput: P has non-empty run queue")
+	}
+	if _p_.migrateq.size > 0 {
+		throw("pidleput: P has migrateq run queue")
 	}
 	_p_.link = sched.pidle
 	sched.pidle.set(_p_)

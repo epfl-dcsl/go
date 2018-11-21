@@ -286,21 +286,24 @@ func migrateCrossDomain(local bool) {
 	//if !isEnclave && size > 1 && sched.npidle > 0 && sched.midle > 0 {
 	//	wakep()
 	//}
-	//if !isEnclave && size > 0 && sched.npidle > 0 {
-	//	srunnings, srunnables, ssys := countRunning()
-	//	println("npidles ", sched.npidle, ":", size, ":", sched.nmidle, "::", srunnings, ":", srunnables, ":", ssys)
-	//}
+	// if !isEnclave && size > 0 && sched.npidle > 0 {
+	// 	srunnings, srunnables, ssys := countRunning()
+	// 	println("npidles ", sched.npidle, ":", size, ":", sched.nmidle, "::", srunnings, ":", srunnables, ":", ssys)
+	// }
 }
 
 // func countRunning() (int, int, int) {
 // 	grunning := 0
 // 	grunnable := 0
-// 	gsyscall := 0
+// 	gserver := 0
 // 	lock(&allglock)
 // 	for i := 0; i < len(allgs); i++ {
 // 		gp := allgs[i]
 // 		if isSystemGoroutine(gp) {
 // 			continue
+// 		}
+// 		if gp.ecallchan != nil {
+// 			gserver++
 // 		}
 // 		s := readgstatus(gp)
 // 		switch s &^ _Gscan {
@@ -309,15 +312,13 @@ func migrateCrossDomain(local bool) {
 // 		case _Grunnable,
 // 			_Grunning:
 // 			grunnable++
-// 		case _Gsyscall:
-// 			gsyscall++
 // 		}
 // 	}
 // 	unlock(&allglock)
-// 	return grunning, grunnable, gsyscall
+// 	return grunning, grunnable, gserver
 // }
 
-func migratelocalqueue() {
+func migratelocalqueue(force bool) {
 	_g_ := getg()
 	if _g_.m.p.ptr().migrateq.size == 0 {
 		// Nothing to do.
@@ -327,11 +328,19 @@ func migratelocalqueue() {
 	if size == 0 {
 		throw("local queue got emptied randomly.")
 	}
+	target := &Cooprt.readyE
 	if isEnclave {
-		sgqputbatch(&Cooprt.readyO, head, tail, int32(size))
-		return
+		target = &Cooprt.readyO
 	}
-	sgqputbatch(&Cooprt.readyE, head, tail, int32(size))
+
+	if !force {
+		if !sgqtryputbatch(target, head, tail, int32(size)) {
+			// failed so we put it back
+			sgqputbatchnolock(&_g_.m.p.ptr().migrateq, head, tail, int32(size))
+		}
+	} else {
+		sgqputbatch(target, head, tail, int32(size))
+	}
 }
 
 //Schedticks returns the local p number of scheduler ticks.
@@ -364,7 +373,6 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 	for i := range Cooprt.pool {
 		if Cooprt.pool[i].available == 1 {
 			Cooprt.pool[i].available = 0
-			//Cooprt.pool[i].available = 0
 			Cooprt.pool[i].wg.id = int32(i)
 			Cooprt.pool[i].isencl = isEnclave
 			Cooprt.pool[i].orig = elem
@@ -428,18 +436,23 @@ func isReschedulable(sg *sudog) bool {
 func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	// We are about to make ready a sudog that is not from the pool.
 	// This can happen only when non-trusted has blocked on a channel.
+	target := &c.readyE
+	//local := &c.readyO
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
 
-		//sgqput(&c.readyO, sg)
-		optimizingCrossReady(&c.readyO, sg)
-		return
+		target = &c.readyO
+		//local = &c.readyE
 	}
 	// We have a sudog from the pool.
-	//sgqput(&c.readyE, sg)
-	optimizingCrossReady(&c.readyE, sg)
+	optimizingCrossReady(target, sg)
+
+	//Try and snatch them
+	//if local.size > 0 {
+	//	migrateCrossDomain(true)
+	//}
 }
 
 func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
