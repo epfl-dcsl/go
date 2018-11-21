@@ -16,7 +16,7 @@ import (
 type sguintptr uintptr
 
 const (
-	SGQMAXTRIALS = 10 // number of authorized spins. For debugging
+	SGQMAXTRIALS = 5 // number of authorized spins. For debugging
 )
 
 type sgqueue struct {
@@ -170,6 +170,15 @@ func sgqputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) {
 	q.lock.Lock()
 	sgqputbatchnolock(q, sghead, sgtail, n)
 	q.lock.Unlock()
+}
+
+func sgqtryputbatch(q *sgqueue, sghead, sgtail *sudog, n int32) bool {
+	if !q.lock.TryLockN(SGQMAXTRIALS) {
+		return false
+	}
+	sgqputbatchnolock(q, sghead, sgtail, n)
+	q.lock.Unlock()
+	return true
 }
 
 //injectglistnolock allows to add the glist to the globalrunq.
