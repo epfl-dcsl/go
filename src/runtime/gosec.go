@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -95,10 +94,6 @@ type CooperativeRuntime struct {
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
 	eHeap uintptr
-
-	// Keep track of live routines in the enclave.
-	// Mostly for debugging & runtime process idle logic.
-	nespawned uint32
 }
 
 const (
@@ -163,48 +158,6 @@ func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
 	return true
 }
 
-func fspincross() {
-	getg().m.spincross = true
-}
-
-func wakecrossp() {
-	if isEnclave {
-		throw("Should not be called from enclave.")
-	}
-	if !atomic.Cas(&sched.ncrossidle, 0, 1) {
-		return
-	}
-	startcrossm()
-}
-
-func startcrossm() {
-	lock(&sched.lock)
-	_p_ := pidleget()
-	if _p_ == nil {
-		unlock(&sched.lock)
-		return
-		//throw("Impossible to acquire a p for cross m")
-	}
-	mp := mget()
-	unlock(&sched.lock)
-	if mp == nil {
-		var fn func()
-		fn = fspincross
-		newm(fn, _p_)
-		return
-	}
-	if mp.spincross {
-		throw("startcrossm: m is spincross")
-	}
-	if mp.nextp != 0 {
-		throw("startcrossm: m has p")
-	}
-
-	mp.spincross = true
-	mp.nextp.set(_p_)
-	notewakeup(&mp.park)
-}
-
 //MarkNoFutex sets the g's markednofutex attribute to true.
 //This prevents blocking on a channel operation.
 func MarkNoFutex() {
@@ -251,7 +204,13 @@ func panicGosec(a string) {
 //AvoidDeadlock drives the scheduler forever.
 func AvoidDeadlock() {
 	for {
-		Gosched()
+		//if isEnclave {
+			Gosched()
+		//} else {
+		//	usleep(1000)
+		//	Gosched()
+		//}
+
 	}
 }
 
@@ -280,7 +239,7 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 }
 
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
-// them in the global run queue.
+// them in the local or global run queue.
 func migrateCrossDomain(local bool) {
 	if cprtQ == nil {
 		throw("migrateCrossdomain called on un-init cprtQ.")
@@ -321,7 +280,42 @@ func migrateCrossDomain(local bool) {
 			injectglist(head)
 		}
 	}
+	//TODO maybe if that is the case put some in global queue.
+	//Might want spinning == 0 though? or spinning <= 1
+	//Use sched.midle
+	//if !isEnclave && size > 1 && sched.npidle > 0 && sched.midle > 0 {
+	//	wakep()
+	//}
+	//if !isEnclave && size > 0 && sched.npidle > 0 {
+	//	srunnings, srunnables, ssys := countRunning()
+	//	println("npidles ", sched.npidle, ":", size, ":", sched.nmidle, "::", srunnings, ":", srunnables, ":", ssys)
+	//}
 }
+
+// func countRunning() (int, int, int) {
+// 	grunning := 0
+// 	grunnable := 0
+// 	gsyscall := 0
+// 	lock(&allglock)
+// 	for i := 0; i < len(allgs); i++ {
+// 		gp := allgs[i]
+// 		if isSystemGoroutine(gp) {
+// 			continue
+// 		}
+// 		s := readgstatus(gp)
+// 		switch s &^ _Gscan {
+// 		case _Gwaiting:
+// 			grunning++
+// 		case _Grunnable,
+// 			_Grunning:
+// 			grunnable++
+// 		case _Gsyscall:
+// 			gsyscall++
+// 		}
+// 	}
+// 	unlock(&allglock)
+// 	return grunning, grunnable, gsyscall
+// }
 
 func migratelocalqueue() {
 	_g_ := getg()
@@ -582,7 +576,6 @@ func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	if Cooprt == nil {
 		panic("Cooprt must be init before calling gosec.go:Newproc")
 	}
-	atomic.Xadd(&Cooprt.nespawned, 1)
 	fn := &funcval{ptr}
 	pc := getcallerpc()
 	systemstack(func() {
@@ -601,7 +594,6 @@ func GosecureSend(req EcallReq) {
 	if Cooprt == nil {
 		throw("Cooprt not initialized.")
 	}
-
 	if gp.ecallchan == nil {
 		gp.ecallchan = make(chan EcallReq)
 		srvreq := EcallServerReq{gp.ecallchan}

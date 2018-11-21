@@ -1963,6 +1963,20 @@ func stopm() {
 
 retry:
 	lock(&sched.lock)
+	if cprtQ != nil {
+		run := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
+		if run == 1 && sched.gcwaiting == 0{
+			//We are the last and hence should not block, and there should be a p.
+			//Code inspired from startm.
+			_p_ := pidleget()
+			unlock(&sched.lock)
+			if _p_ == nil {
+				throw("Spinner for enclave unable to find a p.")
+			}
+			_g_.m.nextp.set(_p_)
+			goto wakeup
+		}
+	}
 	mput(_g_.m)
 	unlock(&sched.lock)
 	notesleep(&_g_.m.park)
@@ -1974,6 +1988,7 @@ retry:
 		_g_.m.p = 0
 		goto retry
 	}
+wakeup:
 	acquirep(_g_.m.nextp.ptr())
 	_g_.m.nextp = 0
 }
@@ -2153,6 +2168,7 @@ func gcstopm() {
 	if sched.gcwaiting == 0 {
 		throw("gcstopm: not waiting for gc")
 	}
+
 	if _g_.m.spinning {
 		_g_.m.spinning = false
 		// OK to just drop nmspinning here,
@@ -2285,14 +2301,6 @@ top:
 		goto stop
 	}
 
-	//Trial TODO @aghosn
-	if Cooprt != nil && atomic.Load(&Cooprt.nespawned) > 0 {
-		if atomic.Load(&sched.ncrossidle) < 1 {
-			atomic.Xadd(&sched.ncrossidle, 1)
-			_g_.m.spincross = true
-			goto top
-		}
-	}
 	// If number of spinning M's >= number of busy P's, block.
 	// This is necessary to prevent excessive CPU consumption
 	// when GOMAXPROCS>>1 but the program parallelism is low.
@@ -2329,7 +2337,6 @@ stop:
 		}
 		return gp, false
 	}
-
 	// return P and block
 	lock(&sched.lock)
 	if sched.gcwaiting != 0 || _p_.runSafePointFn != 0 {
@@ -2368,9 +2375,9 @@ stop:
 		}
 	}
 
-	if cprtQ != nil && cprtQ.size > 0 {
-		migrateCrossDomain(false)
-	}
+	//if cprtQ != nil && cprtQ.size > 0 {
+	//	migrateCrossDomain(false)
+	//}
 
 	// check all runqueues once again
 	for _, _p_ := range allp {
@@ -2451,6 +2458,9 @@ func pollWork() bool {
 	}
 	p := getg().m.p.ptr()
 	if !runqempty(p) {
+		return true
+	}
+	if cprtQ != nil && cprtQ.size > 0 {
 		return true
 	}
 	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && sched.lastpoll != 0 {
@@ -2585,15 +2595,6 @@ top:
 		resetspinning()
 	}
 
-	if _g_.m.spincross {
-		_g_.m.spincross = false
-		if atomic.Xadd(&sched.ncrossidle, -1) < 0 {
-			throw("Error negative ncrossidle")
-		}
-		//TODO @aghosn see if this works.
-		wakecrossp()
-	}
-
 	if gp.lockedm != 0 {
 		// Hands off own p to the locked m,
 		// then blocks waiting for a new p.
@@ -2715,9 +2716,6 @@ func goexit0(gp *g) {
 	casgstatus(gp, _Grunning, _Gdead)
 	if isSystemGoroutine(gp) {
 		atomic.Xadd(&sched.ngsys, -1)
-	}
-	if isEnclave {
-		atomic.Xadd(&Cooprt.nespawned, -1)
 	}
 
 	gp.m = nil
@@ -4209,7 +4207,7 @@ func checkdead() {
 		return
 	}
 
-	getg().m.throwing = -1 // do not dump full stacks
+	//getg().m.throwing = -1 // do not dump full stacks
 	throw("all goroutines are asleep - deadlock!")
 }
 

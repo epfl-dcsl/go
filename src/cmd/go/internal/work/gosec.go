@@ -19,7 +19,7 @@ package main
 
 import(
 	"gosecu"
-	"runtime"
+	//"runtime"
 	{{range .Imports}}
 	{{ printf "%q" . }}{{end}}
 )
@@ -27,7 +27,7 @@ import(
 func main() {
 	// Starting the functions.
 
-	go runtime.AvoidDeadlock()
+	//go runtime.AvoidDeadlock()
 	{{range .Functions}}
 
 	gosecu.RegisterSecureFunction({{ . }})
