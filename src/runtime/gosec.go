@@ -253,70 +253,22 @@ func migrateCrossDomain(local bool) {
 		println("Oh mighty fucks: ", size)
 		throw("Crashy crash")
 	}
-	var head *g //= nil
-	var prev *g //= nil
 	for i := 0; i < size; i++ {
 		sg := sgq
 		gp := sg.g
-		if head == nil {
-			head = gp
-		}
-		if prev != nil {
-			prev.schedlink.set(gp)
-		}
 		if sgq.schednext != 0 {
 			sgq = sgq.schednext.ptr()
 		} else if sgq != tail {
 			throw("malformed sgqueue, tail does not match tail(q)")
 		}
-		prev = gp
 		sg.schednext = 0
+		ready(gp, 3+1, false)
 	}
-	if prev != nil {
-		prev.schedlink = 0
-		if local {
-			injectglistnolock(head)
-		} else {
-			injectglist(head)
-		}
+	_g_ := getg()
+	if size > 0 && _g_.m.spinning {
+		resetspinning()
 	}
-	//TODO maybe if that is the case put some in global queue.
-	//Might want spinning == 0 though? or spinning <= 1
-	//Use sched.midle
-	//if !isEnclave && size > 1 && sched.npidle > 0 && sched.midle > 0 {
-	//	wakep()
-	//}
-	// if !isEnclave && size > 0 && sched.npidle > 0 {
-	// 	srunnings, srunnables, ssys := countRunning()
-	// 	println("npidles ", sched.npidle, ":", size, ":", sched.nmidle, "::", srunnings, ":", srunnables, ":", ssys)
-	// }
 }
-
-// func countRunning() (int, int, int) {
-// 	grunning := 0
-// 	grunnable := 0
-// 	gserver := 0
-// 	lock(&allglock)
-// 	for i := 0; i < len(allgs); i++ {
-// 		gp := allgs[i]
-// 		if isSystemGoroutine(gp) {
-// 			continue
-// 		}
-// 		if gp.ecallchan != nil {
-// 			gserver++
-// 		}
-// 		s := readgstatus(gp)
-// 		switch s &^ _Gscan {
-// 		case _Gwaiting:
-// 			grunning++
-// 		case _Grunnable,
-// 			_Grunning:
-// 			grunnable++
-// 		}
-// 	}
-// 	unlock(&allglock)
-// 	return grunning, grunnable, gserver
-// }
 
 func migratelocalqueue(force bool) {
 	_g_ := getg()
@@ -416,8 +368,6 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 	Cooprt.pool[sg.id].isencl = false
 	Cooprt.pool[sg.id].orig = nil
 	Cooprt.pool[sg.id].isRcv = false
-	//TODO @aghosn Make this atomic
-	//atomic.Store(&Cooprt.pool[sg.id].available, 1)
 	Cooprt.pool[sg.id].available = 1
 }
 
@@ -437,22 +387,15 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 	// We are about to make ready a sudog that is not from the pool.
 	// This can happen only when non-trusted has blocked on a channel.
 	target := &c.readyE
-	//local := &c.readyO
 	if sg.id == -1 {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
 
 		target = &c.readyO
-		//local = &c.readyE
 	}
 	// We have a sudog from the pool.
 	optimizingCrossReady(target, sg)
-
-	//Try and snatch them
-	//if local.size > 0 {
-	//	migrateCrossDomain(true)
-	//}
 }
 
 func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
