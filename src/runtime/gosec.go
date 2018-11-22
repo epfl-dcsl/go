@@ -268,6 +268,9 @@ func migrateCrossDomain(local bool) {
 	if size > 0 && _g_.m.spinning {
 		resetspinning()
 	}
+
+	cprtQ.polled++
+	cprtQ.retrieved+=uint32(size)
 }
 
 func migratelocalqueue(force bool) {
@@ -310,9 +313,53 @@ func CPRTQLocks() uint32 {
 	return res
 }
 
+func MigrateDepths() (int, int) {
+	if Cooprt == nil {
+		return 0, 0
+	}
+	return int(Cooprt.readyO.size), int(Cooprt.readyE.size)
+}
+
+func LockRatios() (float64, float64) {
+	if Cooprt == nil {
+		return 0.0, 0.0
+	}
+	enclfail := Cooprt.readyO.lock.enclfail + Cooprt.readyE.lock.enclfail
+	enclsuccess := Cooprt.readyO.lock.enclock + Cooprt.readyE.lock.enclock
+	nenclfail := Cooprt.readyO.lock.nenclfail + Cooprt.readyE.lock.nenclfail
+	nenclsuccess := Cooprt.readyO.lock.nenclock + Cooprt.readyE.lock.nenclock
+	ratioencl, rationencl := 1.0, 1.0
+	if enclsuccess > 0 {
+		ratioencl = float64(enclfail)/float64(enclsuccess)
+	}
+	if nenclsuccess > 0 {
+		rationencl = float64(nenclfail)/float64(nenclsuccess)
+	}
+	return rationencl, ratioencl
+}
+
+func QueuesRatios() (float64, float64){
+	if Cooprt == nil {
+		return 0.0, 0.0
+	}
+
+	eratio := 0.0
+	oratio := 0.0
+
+	if polled := Cooprt.readyE.polled; polled > 0 {
+		eratio = float64(Cooprt.readyE.retrieved) / float64(polled)
+	}
+
+	if polled := Cooprt.readyO.polled; polled > 0 {
+		oratio = float64(Cooprt.readyO.retrieved) / float64(polled)
+	}
+	return eratio, oratio
+}
+
 //StatsDebugging returns both schedticks and cprtQlocks
-func StatsDebugging() (uint32, uint32) {
-	return Schedticks(), CPRTQLocks()
+func StatsDebugging() (uint32, int, int) {
+	a, b := MigrateDepths()
+	return Schedticks(), a, b
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -400,16 +447,16 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 
 func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
 	_g_ := getg()
-	if foreign.lock.TryLockN(SGQMAXTRIALS) {
-		// We have a lock on it so better use it.
-		h, t, s := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
-		if s > 0 {
-			sgqputbatchnolock(foreign, h, t, int32(s))
-		}
-		sgqputnolock(foreign, sg)
-		foreign.lock.Unlock()
-		return
-	}
+	//if foreign.lock.TryLockN(SGQMAXTRIALS) {
+	//	// We have a lock on it so better use it.
+	//	h, t, s := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
+	//	if s > 0 {
+	//		sgqputbatchnolock(foreign, h, t, int32(s))
+	//	}
+	//	sgqputnolock(foreign, sg)
+	//	foreign.lock.Unlock()
+	//	return
+	//}
 	// We failed to move everything at once, default back.
 	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
 }
