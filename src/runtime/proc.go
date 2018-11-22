@@ -1965,7 +1965,8 @@ retry:
 	lock(&sched.lock)
 	if cprtQ != nil {
 		run := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
-		if run == 1 && sched.gcwaiting == 0{
+		if run == 1 && sched.gcwaiting == 0 {
+			//throw("Should not be here !")
 			//We are the last and hence should not block, and there should be a p.
 			//Code inspired from startm.
 			_p_ := pidleget()
@@ -1975,6 +1976,10 @@ retry:
 			}
 			_g_.m.nextp.set(_p_)
 			goto wakeup
+		} else if run == 0 {
+			throw("Apparently this can happen")
+		} else if isEnclave {
+			throw("This should not happen either")
 		}
 	}
 	mput(_g_.m)
@@ -2329,6 +2334,11 @@ stop:
 		migratelocalqueue(true)
 	}
 
+	if isEnclave {
+		//We only have one thread so fuck that, go back to beginning
+		goto top
+	}
+
 	// We have nothing to do. If we're in the GC mark phase, can
 	// safely scan and blacken objects, and have work to do, run
 	// idle-time marking rather than give up the P.
@@ -2352,6 +2362,17 @@ stop:
 		unlock(&sched.lock)
 		return gp, false
 	}
+
+	if cprtQ != nil {
+		rcount := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
+		if rcount == 1 && sched.gcwaiting == 0 {
+			//we are te last and hence should not block.
+			//we still have our p.
+			unlock(&sched.lock)
+			goto top
+		}
+	}
+
 	if releasep() != _p_ {
 		throw("findrunnable: wrong p")
 	}

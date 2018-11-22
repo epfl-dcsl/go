@@ -194,7 +194,7 @@ func injectglistnolock(glist *g) {
 		gp := glist
 		glist = gp.schedlink.ptr()
 		gp.schedlink = 0
-		ready(gp, 3, false)
+		ready(gp, 3+1, false)
 	}
 	_g_ := getg()
 	if n != 0 && _g_.m.spinning {
