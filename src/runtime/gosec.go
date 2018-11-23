@@ -75,8 +75,8 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	readyE sgqueue //Ready to be rescheduled in the enclave
-	readyO sgqueue //Ready to be rescheduled outside of the enclave
+	readyE lfqueue //Ready to be rescheduled in the enclave
+	readyO lfqueue //Ready to be rescheduled outside of the enclave
 
 	//pool of sudog structs allocated in non-trusted.
 	sudogpool_lock secspinlock //lock for the pool of sudog
@@ -141,10 +141,6 @@ func InitCooperativeRuntime() {
 	}
 
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
-
-	//TODO for debugging remove afterwards
-	Cooprt.readyO.lock.id = 1
-	Cooprt.readyE.lock.id = 2
 
 	Cooprt.eHeap = 0
 	cprtQ = &(Cooprt.readyO)
@@ -240,12 +236,13 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the local or global run queue.
-func migrateCrossDomain(local bool) {
+// the locked argument tells us if sched.lock is locked.
+func migrateCrossDomain(locked bool) {
 	if cprtQ == nil {
 		throw("migrateCrossdomain called on un-init cprtQ.")
 	}
 
-	sgq, tail, size := sgqtrydrain(cprtQ)
+	sgq, tail, size := lfqget(cprtQ, locked)
 	if size == 0 {
 		return
 	}
@@ -268,98 +265,6 @@ func migrateCrossDomain(local bool) {
 	if size > 0 && _g_.m.spinning {
 		resetspinning()
 	}
-
-	cprtQ.polled++
-	cprtQ.retrieved+=uint32(size)
-}
-
-func migratelocalqueue(force bool) {
-	_g_ := getg()
-	if _g_.m.p.ptr().migrateq.size == 0 {
-		// Nothing to do.
-		return
-	}
-	head, tail, size := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
-	if size == 0 {
-		throw("local queue got emptied randomly.")
-	}
-	target := &Cooprt.readyE
-	if isEnclave {
-		target = &Cooprt.readyO
-	}
-
-	if !force {
-		if !sgqtryputbatch(target, head, tail, int32(size)) {
-			// failed so we put it back
-			sgqputbatchnolock(&_g_.m.p.ptr().migrateq, head, tail, int32(size))
-		}
-	} else {
-		sgqputbatch(target, head, tail, int32(size))
-	}
-}
-
-//Schedticks returns the local p number of scheduler ticks.
-func Schedticks() uint32 {
-	_g_ := getg()
-	return _g_.m.p.ptr().schedtick
-}
-
-//CPRTQLocks reports the total number of times cprtQ was locked.
-func CPRTQLocks() uint32 {
-	if cprtQ == nil {
-		return 0
-	}
-	res := cprtQ.lock.enclock + cprtQ.lock.nenclock
-	return res
-}
-
-func MigrateDepths() (int, int) {
-	if Cooprt == nil {
-		return 0, 0
-	}
-	return int(Cooprt.readyO.size), int(Cooprt.readyE.size)
-}
-
-func LockRatios() (float64, float64) {
-	if Cooprt == nil {
-		return 0.0, 0.0
-	}
-	enclfail := Cooprt.readyO.lock.enclfail + Cooprt.readyE.lock.enclfail
-	enclsuccess := Cooprt.readyO.lock.enclock + Cooprt.readyE.lock.enclock
-	nenclfail := Cooprt.readyO.lock.nenclfail + Cooprt.readyE.lock.nenclfail
-	nenclsuccess := Cooprt.readyO.lock.nenclock + Cooprt.readyE.lock.nenclock
-	ratioencl, rationencl := 1.0, 1.0
-	if enclsuccess > 0 {
-		ratioencl = float64(enclfail)/float64(enclsuccess)
-	}
-	if nenclsuccess > 0 {
-		rationencl = float64(nenclfail)/float64(nenclsuccess)
-	}
-	return rationencl, ratioencl
-}
-
-func QueuesRatios() (float64, float64){
-	if Cooprt == nil {
-		return 0.0, 0.0
-	}
-
-	eratio := 0.0
-	oratio := 0.0
-
-	if polled := Cooprt.readyE.polled; polled > 0 {
-		eratio = float64(Cooprt.readyE.retrieved) / float64(polled)
-	}
-
-	if polled := Cooprt.readyO.polled; polled > 0 {
-		oratio = float64(Cooprt.readyO.retrieved) / float64(polled)
-	}
-	return eratio, oratio
-}
-
-//StatsDebugging returns both schedticks and cprtQlocks
-func StatsDebugging() (uint32, int, int) {
-	a, b := MigrateDepths()
-	return Schedticks(), a, b
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -438,27 +343,10 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		if sg.g.isencl || sg.g.isencl == isEnclave {
 			panicGosec("Misspredicted the crossdomain scenario.")
 		}
-
 		target = &c.readyO
 	}
-	// We have a sudog from the pool.
-	optimizingCrossReady(target, sg)
-}
 
-func optimizingCrossReady(foreign *sgqueue, sg *sudog) {
-	_g_ := getg()
-	//if foreign.lock.TryLockN(SGQMAXTRIALS) {
-	//	// We have a lock on it so better use it.
-	//	h, t, s := sgqdrainnolock(&_g_.m.p.ptr().migrateq)
-	//	if s > 0 {
-	//		sgqputbatchnolock(foreign, h, t, int32(s))
-	//	}
-	//	sgqputnolock(foreign, sg)
-	//	foreign.lock.Unlock()
-	//	return
-	//}
-	// We failed to move everything at once, default back.
-	sgqputnolock(&_g_.m.p.ptr().migrateq, sg)
+	lfqput(target, sg)
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {

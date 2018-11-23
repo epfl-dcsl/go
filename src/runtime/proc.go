@@ -2261,7 +2261,7 @@ top:
 	}
 
 	if cprtQ != nil && cprtQ.size > 0 {
-		migrateCrossDomain(true)
+		migrateCrossDomain(false)
 	}
 
 	// local runq
@@ -2329,10 +2329,6 @@ top:
 	}
 
 stop:
-
-	if _g_.m.p.ptr().migrateq.size > 0 {
-		migratelocalqueue(true)
-	}
 
 	if isEnclave {
 		//We only have one thread so fuck that, go back to beginning
@@ -2549,10 +2545,6 @@ func schedule() {
 		throw("schedule: holding locks")
 	}
 
-	if _g_.m.p.ptr().migrateq.size > 0 {
-		migratelocalqueue(false)
-	}
-
 	if _g_.m.lockedg != 0 {
 		stoplockedm()
 		execute(_g_.m.lockedg.ptr(), false) // Never returns.
@@ -2589,7 +2581,7 @@ top:
 
 	if gp == nil && cprtQ != nil {
 		if _g_.m.p.ptr().schedtick%5 == 0 && cprtQ.size > 0 {
-			migrateCrossDomain(true)
+			migrateCrossDomain(false)
 		}
 	}
 
@@ -4678,9 +4670,6 @@ func globrunqget(_p_ *p, max int32) *g {
 func pidleput(_p_ *p) {
 	if !runqempty(_p_) {
 		throw("pidleput: P has non-empty run queue")
-	}
-	if _p_.migrateq.size > 0 {
-		throw("pidleput: P has migrateq run queue")
 	}
 	_p_.link = sched.pidle
 	sched.pidle.set(_p_)

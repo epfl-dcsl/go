@@ -22,20 +22,24 @@ type lfqueue struct {
 //lfget drain as much as possible from the queue.
 // We need mutual exclusion among the consumers,
 // if locked, do not lock the sched.
-func lfget(q *lfqueue, locked bool) (*sudog, *sudog, int) {
+func lfqget(q *lfqueue, locked bool) (*sudog, *sudog, int) {
     var drainer [lfsize]sguintptr
     index := 0
     if !locked {
         lock(&sched.lock)
     }
+    fsize := int(q.size)
     for i := 0; i < lfsize; i++ {
         if q.avails[i] == lffull {
             drainer[index] = q.values[i]   //acquire value.
             index++
-            //atomic.Xadd(&q.size, -1)
             q.avails[i] = lfempty //make it available again
+            if index >= fsize {
+                break
+            }
         }
     }
+    atomic.Xadd(&q.size, -int32(index))
     if !locked {
         unlock(&sched.lock)
     }
@@ -72,7 +76,7 @@ func lfqput(q *lfqueue, elem *sudog) {
                 if atomic.Cas(&q.avails[i], lfempty, lfreserved) {
                     q.values[i].set(elem)
                     q.avails[i] = lffull //make it visible to others
-                    //atomic.Xadd(&q.size, 1)
+                    atomic.Xadd(&q.size, 1)
                     return
                 }
                 contention++
