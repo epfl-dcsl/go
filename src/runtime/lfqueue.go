@@ -2,6 +2,7 @@ package runtime
 
 import(
     "runtime/internal/atomic"
+    "unsafe"
 )
 
 const(
@@ -11,6 +12,25 @@ const(
     lffull = 1
     lfreserved =2
 )
+
+type sguintptr uintptr
+
+//go:nosplit
+func (l sguintptr) ptr() *sudog {
+	return (*sudog)(unsafe.Pointer(l))
+}
+
+//go:nosplit
+func (l *sguintptr) set(sg *sudog) {
+	*l = sguintptr(unsafe.Pointer(sg))
+}
+
+//go:nosplit
+//go:nowritebarrier
+func setSGNoWB(sg **sudog, new *sudog) {
+	(*sguintptr)(unsafe.Pointer(sg)).set(new)
+}
+
 
 type lfqueue struct {
     //does not work, need to be only one array.

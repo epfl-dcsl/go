@@ -79,7 +79,7 @@ type CooperativeRuntime struct {
 	readyO lfqueue //Ready to be rescheduled outside of the enclave
 
 	//pool of sudog structs allocated in non-trusted.
-	sudogpool_lock secspinlock //lock for the pool of sudog
+	//sudogpool_lock secspinlock //lock for the pool of sudog
 	pool           []*poolSudog
 
 	//pool of answer channels.
