@@ -192,6 +192,7 @@ func sysUsed(v unsafe.Pointer, n uintptr) {
 //go:nosplit
 func sysFree(v unsafe.Pointer, n uintptr, sysStat *uint64) {
 	if isEnclave {
+		println("Oups: ", v, "(", n, ")")
 		panic("Calling free in the enclave")
 	}
 	mSysStatDec(sysStat, n)

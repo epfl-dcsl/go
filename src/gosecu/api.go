@@ -7,16 +7,14 @@ import (
 )
 
 // Slice of gosecure targets.
-var secureMap map[string]func(size int32, argp *uint8)
+var (
+	secureMap map[string]func(size int32, argp *uint8)
+)
 
 func privateServer(c chan runtime.EcallReq) {
 	success := 0
 	for {
-		call :=  <- c
-		//if !ok {
-		//	break
-		//}
-
+		call := <-c
 		if fn := secureMap[call.Name]; fn != nil {
 			success++
 			go fn(call.Siz, call.Argp)
@@ -34,6 +32,7 @@ func privateServer(c chan runtime.EcallReq) {
 // a pointer to a buffer allocated inside the ecall attribute and use it to pass
 // the arguments from the stack frame.
 func EcallServer() {
+	//Init the unprotected memory allocator
 	for {
 		req := <-runtime.Cooprt.EcallSrv
 		if req.PrivChan == nil {
@@ -50,6 +49,7 @@ func EcallServer() {
 func RegisterSecureFunction(f interface{}) {
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
+		runtime.UnsafeAllocator.Initialize(runtime.Cooprt.StartUnsafe, runtime.Cooprt.SizeUnsafe)
 	}
 
 	ptr := reflect.ValueOf(f).Pointer()

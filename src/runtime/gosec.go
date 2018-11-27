@@ -67,10 +67,11 @@ type poolSudog struct {
 	isRcv     bool
 }
 
+//CooperativeRuntime structure contains information and channels for runtime cooperation.
 type CooperativeRuntime struct {
-	EcallSrv  chan EcallServerReq
-	Ocall  chan OcallReq
-	OAlloc chan AllocReq
+	EcallSrv chan EcallServerReq
+	Ocall    chan OcallReq
+	OAlloc   chan AllocReq
 
 	argc int32
 	argv **byte
@@ -79,16 +80,16 @@ type CooperativeRuntime struct {
 	readyO lfqueue //Ready to be rescheduled outside of the enclave
 
 	//pool of sudog structs allocated in non-trusted.
-	//sudogpool_lock secspinlock //lock for the pool of sudog
-	pool           []*poolSudog
+	pool []*poolSudog
 
 	//pool of answer channels.
-	//syspool_lock   secspinlock // lock for pool syschan
-	sysPool []*poolSysChan
-	//allocpool_lock secspinlock
+	sysPool   []*poolSysChan
 	allocPool []*poolAllocChan
 
 	membuf_head uintptr
+
+	StartUnsafe uintptr
+	SizeUnsafe  uintptr
 
 	// The enclave heap region.
 	// This is the equivalent of my previous preallocated regions.
@@ -112,8 +113,15 @@ const (
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
 	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
+	_unsafeSize  = PSIZE * 100
 )
 
+var (
+	//UnsafeAllocator manages unsafe memory from the enclave.
+	UnsafeAllocator uledger
+)
+
+//InitCooperativeRuntime initializes the global variable Cooprt.
 func InitCooperativeRuntime() {
 	if Cooprt != nil {
 		return
@@ -144,6 +152,14 @@ func InitCooperativeRuntime() {
 
 	Cooprt.eHeap = 0
 	cprtQ = &(Cooprt.readyO)
+
+	//Allocate the unsafe zone for the enclave.
+	ptr, err := mmap(nil, _unsafeSize, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+	if err != 0 {
+		panic("Error allocating the unsafe zone.")
+	}
+	Cooprt.StartUnsafe = uintptr(ptr)
+	Cooprt.SizeUnsafe = _unsafeSize
 }
 
 func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
@@ -200,13 +216,7 @@ func panicGosec(a string) {
 //AvoidDeadlock drives the scheduler forever.
 func AvoidDeadlock() {
 	for {
-		//if isEnclave {
-			Gosched()
-		//} else {
-		//	usleep(1000)
-		//	Gosched()
-		//}
-
+		Gosched()
 	}
 }
 
@@ -271,6 +281,7 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 	if !isEnclave {
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
+	//return UnsafeAllocator.AcquireUnsafeSudog(elem, isrcv, size)
 	if size > SG_BUF_SIZE {
 		panic("fake sudog buffer is too small.")
 	}
@@ -302,6 +313,7 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 		return
 	}
 
+	//UnsafeAllocator.ReleaseUnsafeSudog(sg, size)
 	// This is called from someone who just woke up.
 	// We are executing and are in the correct domain.
 	// Hence this is our first check: id != -1 implies we are in the enclave

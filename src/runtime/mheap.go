@@ -341,6 +341,7 @@ func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 		oldAllspans := h.allspans
 		h.allspans = new
 		if len(oldAllspans) != 0 {
+			//TODO aghosn handle that better.
 			sysFree(unsafe.Pointer(&oldAllspans[0]), uintptr(cap(oldAllspans))*unsafe.Sizeof(oldAllspans[0]), &memstats.other_sys)
 		}
 	}

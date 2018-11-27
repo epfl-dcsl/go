@@ -161,6 +161,7 @@ skipsysmon:
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
+	//TODO @aghosn terrible
 	if isEnclave {
 		goto skipgcenable
 	}

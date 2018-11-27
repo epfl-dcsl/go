@@ -1,7 +1,7 @@
 package runtime
 
-var (
-	encledger uledger
+import (
+	"unsafe"
 )
 
 const (
@@ -26,23 +26,35 @@ type umentry struct {
 	mask uint64
 }
 
+type sgentry struct {
+	sg    *sudog
+	isrcv bool
+	orig  unsafe.Pointer
+	buff  unsafe.Pointer
+}
+
 type uledger struct {
 	start     uintptr
 	size      uintptr
 	allspans  []uspan
 	freespans []*uspan
 	fullspans []*uspan
+
+	inusesg map[uintptr]sgentry //map that keeps track of untrusted sudog
+	poolsg  []*sudog            //keep a pool of allocated sgs
+	inited  bool
 }
 
 //initialize takes the start and size (in bytes) of the unsafe memory pool.
-func (u *uledger) initialize(start, size uintptr) {
+func (u *uledger) Initialize(start, size uintptr) {
 	if size == 0 || size%_psize != 0 {
 		throw("uledger: bad init values")
 	}
 	u.start = start
 	u.size = size
-	nbpages := size % _psize
+	nbpages := size / _psize
 	u.allspans = make([]uspan, nbpages)
+	u.inusesg = make(map[uintptr]sgentry)
 	for i := 0; i < int(nbpages); i++ {
 		sp := &u.allspans[i]
 		sp.id = uint32(i)
@@ -54,8 +66,10 @@ func (u *uledger) initialize(start, size uintptr) {
 	}
 }
 
-func (u *uledger) malloc(size uintptr) uintptr {
+func (u *uledger) Malloc(size uintptr) uintptr {
 	if len(u.freespans) == 0 {
+		println("Size of allspans ", len(u.allspans), ", full ", len(u.fullspans))
+		println("Size of a sudog ", unsafe.Sizeof(sudog{}), " - ", u.inited)
 		throw("uledger: ran out of memory")
 	}
 	for i := 0; i < len(u.freespans); i++ {
@@ -76,7 +90,7 @@ func (u *uledger) malloc(size uintptr) uintptr {
 	return uintptr(0)
 }
 
-func (u *uledger) free(ptr uintptr) {
+func (u *uledger) Free(ptr uintptr) {
 	index := (ptr - u.start) / _psize //find the pod
 	move, ok := u.allspans[index].deallocate(ptr)
 	if !ok { //Failed de-allocating
@@ -91,6 +105,49 @@ func (u *uledger) free(ptr uintptr) {
 			}
 		}
 	}
+}
+
+//AllocateSudog allocates an unsafe sudog
+func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
+	if !isEnclave {
+		panicGosec("Trying to allocate sudog from untrusted")
+	}
+	var sg *sudog
+	if len(u.poolsg) > 0 {
+		sg = u.poolsg[0]
+		u.poolsg = u.poolsg[1:]
+	} else {
+		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sudog{}))))
+	}
+	sg.id = 1
+	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
+	if elem != nil {
+		memmove(buff, elem, uintptr(size))
+	}
+	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff}
+	return sg, buff
+}
+
+//ReleaseUnsafeSudog
+func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
+	if sg.id != -1 && !isEnclave {
+		panicGosec("Wrong call to realeaseUnsafeSudog")
+	}
+
+	e, ok := u.inusesg[uintptr(unsafe.Pointer(sg))]
+	if !ok {
+		panicGosec("Cannot find the sudog in the inusesg map")
+	}
+	if e.isrcv && e.orig != nil {
+		memmove(e.orig, e.buff, uintptr(size))
+	}
+	//Free the buffer
+	u.Free(uintptr(e.buff))
+	if len(u.poolsg) < 500 {
+		u.poolsg = append(u.poolsg, sg)
+		return
+	}
+	u.Free(uintptr(unsafe.Pointer(sg)))
 }
 
 func (u *uspan) allocate(size uintptr) (uintptr, bool) {

@@ -60,8 +60,8 @@ func LoadEnclave() {
 	check(err)
 
 	//Start loading the program within the correct address space.
-	//simLoadProgram(name)
-	sgxLoadProgram(name)
+	simLoadProgram(name)
+	//sgxLoadProgram(name)
 }
 
 func oCallServer() {
@@ -117,7 +117,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		LoadEnclave()
 		// Server to allocate requests & service system calls for the enclave.
 		go oCallServer()
-		go allocServer()
+		//go allocServer()
 		//go runtime.AvoidDeadlock()
 	})
 
