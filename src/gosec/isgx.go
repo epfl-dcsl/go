@@ -82,16 +82,20 @@ type isgx_secinfo struct {
 type sgx_wrapper struct {
 	base    uintptr
 	siz     uintptr
-	stack   uintptr
-	ssiz    uintptr
-	tcs     uintptr // tcs size 0x1000.
-	ssa     uintptr
-	msgx    uintptr // size 0x1000
-	tls     uintptr // size 0x1000
+	tcss    []sgx_tcs_info
 	mhstart uintptr // 0x1000
 	mhsize  uintptr // 0x108000
 	membuf  uintptr // To satisfy map(nil) requests
 	alloc   []byte
+}
+
+type sgx_tcs_info struct {
+	stack uintptr
+	ssiz  uintptr
+	tcs   uintptr // tcs size 0x1000.
+	ssa   uintptr
+	msgx  uintptr // size 0x1000
+	tls   uintptr // size 0x1000
 }
 
 func (s *sgx_wrapper) DumpDebugInfo() {
@@ -100,15 +104,31 @@ func (s *sgx_wrapper) DumpDebugInfo() {
 		fmt.Printf("Cooprt.Ecall %p, Cooprt.Ocall %p\n", runtime.Cooprt.EcallSrv, runtime.Cooprt.Ocall)
 	}
 	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
-	fmt.Printf("{base: %x, siz: %x, stack: %x, ssiz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.stack, s.ssiz, s.mhstart, s.mhsize)
+	fmt.Printf("{base: %x, siz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.mhstart, s.mhsize)
+}
+
+func (s *sgx_wrapper) defaultTcs() *sgx_tcs_info {
+	if s.tcss == nil || len(s.tcss) == 0 {
+		panic("Early call to get defaulttcs")
+	}
+	return &s.tcss[0]
 }
 
 func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 	trans := &sgx_wrapper{
-		transposeOut(wrap.base), wrap.siz, transposeOut(wrap.stack),
-		wrap.ssiz, transposeOut(wrap.tcs), transposeOut(wrap.ssa),
-		transposeOut(wrap.msgx), transposeOut(wrap.tls),
+		transposeOut(wrap.base), wrap.siz, nil,
 		transposeOut(wrap.mhstart), wrap.mhsize,
 		transposeOut(wrap.membuf), nil}
+
+	trans.tcss = make([]sgx_tcs_info, len(wrap.tcss))
+	for i := 0; i < len(wrap.tcss); i++ {
+		trans.tcss[i] = transposeOutTCS(wrap.tcss[i])
+	}
 	return trans
+}
+
+func transposeOutTCS(orig sgx_tcs_info) sgx_tcs_info {
+	return sgx_tcs_info{
+		transposeOut(orig.stack), orig.ssiz, transposeOut(orig.tcs),
+		transposeOut(orig.ssa), transposeOut(orig.msgx), transposeOut(orig.tls)}
 }

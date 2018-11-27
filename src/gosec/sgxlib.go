@@ -24,6 +24,7 @@ const (
 	SIM_FLAG     = 0x050000000008
 	MSGX_ADDR    = 0x050000000020
 	TLS_MSGX_OFF = (0x60 + 8)
+	NBTCS        = 1 // how many extra tcs do we provide.
 )
 
 type SortedElfSections []*elf.Section
@@ -91,11 +92,11 @@ func sgxLoadProgram(path string) {
 	sgxMapSections(secs, aggreg, wrap, srcRegion)
 
 	//Setup the stack arguments and Cooprt.
-	pstack := runtime.SetupEnclSysStack(srcRegion.stack+srcRegion.ssiz, wrap.mhstart)
+	pstack := runtime.SetupEnclSysStack(srcRegion.defaultTcs().stack+srcRegion.defaultTcs().ssiz, wrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
 	sgxStackPreallocEadd(secs, wrap, srcRegion)
-	sgxInitEaddTCS(file.Entry, secs, wrap, srcRegion)
+	sgxInitEaddTCS(file.Entry, secs, wrap.defaultTcs(), srcRegion.defaultTcs())
 
 	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
@@ -108,7 +109,7 @@ func sgxLoadProgram(path string) {
 
 	transpstack := transposeIn(pstack)
 
-	sgxEEnter(wrap, uint64(wrap.tcs), uint64(transpstack))
+	sgxEEnter(wrap, uint64(wrap.defaultTcs().tcs), uint64(transpstack))
 }
 
 // palign does a page align.
@@ -169,24 +170,37 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	secs.attributes = 0x06
 
 	// Check the stack as well
-	saddr := uintptr(palign(endAddr, false)) + 2*PSIZE
-	ssize := uintptr(STACK_SIZE)
-	if saddr+ssize > ENCLMASK+ENCLSIZE {
-		log.Fatalln("gosec: stack goes beyond enclave limits.")
-	}
+	//saddr := uintptr(palign(endAddr, false)) + 2*PSIZE
+	//ssize := uintptr(STACK_SIZE)
+	//if saddr+ssize > ENCLMASK+ENCLSIZE {
+	//	log.Fatalln("gosec: stack goes beyond enclave limits.")
+	//}
 
-	// Here we should setup stack | guard page | TCS | SSA | guard page | MSG | TCS
+	// Here we should setup stack | guard page | TCS | SSA | guard page | MSG | TLS
 	//Check the tcs, ssa, etc..
 	wrapper := &sgx_wrapper{}
 	wrapper.base = uintptr(secs.baseAddr)
 	wrapper.siz = uintptr(secs.size)
-	wrapper.stack = saddr
-	wrapper.ssiz = uintptr(STACK_SIZE)
-	wrapper.tcs = wrapper.stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
-	wrapper.ssa = wrapper.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
-	wrapper.msgx = wrapper.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
-	wrapper.tls = wrapper.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
-	wrapper.mhstart = wrapper.tls + TLS_SIZE + TLS_MHSTART_OFF
+	wrapper.tcss = make([]sgx_tcs_info, NBTCS)
+	for i := 0; i < NBTCS; i++ {
+		ptcs := &wrapper.tcss[i]
+		ptcs.stack = uintptr(palign(endAddr, false)) + 2*PSIZE
+		ptcs.ssiz = uintptr(STACK_SIZE)
+		ptcs.tcs = ptcs.stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
+		ptcs.ssa = ptcs.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
+		ptcs.msgx = ptcs.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
+		ptcs.tls = ptcs.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
+		endAddr = uint64(ptcs.tls + TLS_SIZE)
+	}
+
+	//wrapper.stack = saddr
+	//wrapper.ssiz = uintptr(STACK_SIZE)
+	//wrapper.tcs = wrapper.stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
+	//wrapper.ssa = wrapper.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
+	//wrapper.msgx = wrapper.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
+	//wrapper.tls = wrapper.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
+	//wrapper.mhstart = wrapper.tls + TLS_SIZE + TLS_MHSTART_OFF
+	wrapper.mhstart = uintptr(endAddr) + TLS_MHSTART_OFF
 	wrapper.mhsize = runtime.EnclHeapSizeToAllocate()
 	wrapper.membuf = ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE
 	if wrapper.membuf < wrapper.mhstart+wrapper.mhsize {
@@ -204,7 +218,7 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 
 func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
-	sgxAddRegion(secs, wrap.stack, srcRegion.stack, wrap.ssiz, prot, SGX_SECINFO_REG)
+	sgxAddRegion(secs, wrap.defaultTcs().stack, srcRegion.defaultTcs().stack, wrap.defaultTcs().ssiz, prot, SGX_SECINFO_REG)
 
 	// Preallocate the heap and membuf
 	sgxAddRegion(secs, wrap.mhstart, srcRegion.mhstart, wrap.mhsize, prot, SGX_SECINFO_REG)
@@ -212,17 +226,17 @@ func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 }
 
 // TODO should maybe change the layout.
-func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
-	tcs := (*tcs_t)(unsafe.Pointer(srcRegion.tcs))
+func sgxInitEaddTCS(entry uint64, secs *secs_t, dest, src *sgx_tcs_info) {
+	tcs := (*tcs_t)(unsafe.Pointer(src.tcs))
 	tcs.reserved1 = uint64(0)
 	tcs.flags = uint64(0)
-	tcs.ossa = uint64(wrap.ssa) - secs.baseAddr
+	tcs.ossa = uint64(dest.ssa) - secs.baseAddr
 	tcs.cssa = uint32(0)
 	tcs.nssa = TCS_N_SSA
 	tcs.oentry = entry - secs.baseAddr
 	tcs.reserved2 = uint64(0)
 
-	tcs.ofsbasgx = uint64(wrap.tls) - secs.baseAddr
+	tcs.ofsbasgx = uint64(dest.tls) - secs.baseAddr
 	tcs.ogsbasgx = tcs.ofsbasgx
 	tcs.fslimit = SGX_FS_LIMIT
 	tcs.gslimit = SGX_GS_LIMIT
@@ -231,15 +245,15 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, wrap, srcRegion *sgx_wrapper) {
 	}
 
 	// Add the TCS
-	sgxAddRegion(secs, wrap.tcs, srcRegion.tcs, PSIZE, _PROT_READ|_PROT_WRITE,
+	sgxAddRegion(secs, dest.tcs, src.tcs, PSIZE, _PROT_READ|_PROT_WRITE,
 		SGX_SECINFO_TCS)
 
 	// Add the SSA and FS.
-	sgxAddRegion(secs, wrap.ssa, srcRegion.ssa,
+	sgxAddRegion(secs, dest.ssa, src.ssa,
 		SSA_SIZE, _PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 
 	// Add the MSGX and TLS regions
-	sgxAddRegion(secs, wrap.msgx, srcRegion.msgx, uintptr(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE),
+	sgxAddRegion(secs, dest.msgx, src.msgx, uintptr(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE),
 		_PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 }
 
@@ -411,7 +425,7 @@ func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 
 	// Write the tcs address on it.
 	msgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	*msgx = uint64(wrapper.tls) - uint64(TLS_MSGX_OFF)
+	*msgx = uint64(wrapper.defaultTcs().tls) - uint64(TLS_MSGX_OFF)
 
 	// Set up the stack arguments.
 	// RSP 32

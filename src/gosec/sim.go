@@ -44,34 +44,58 @@ func simLoadProgram(path string) {
 	// Map the enclave preallocated heap.
 	simPreallocate(wrap)
 
+	for i, tcs := range wrap.tcss {
+		prot := _PROT_READ | _PROT_WRITE
+		manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
+		// mmap the stack
+		_, err = syscall.RMmap(tcs.stack, int(tcs.ssiz), prot, manon, -1, 0)
+		check(err)
+
+		// Map the MSGX+TLS area
+		size := int(MSGX_SIZE + MSGX_TLS_OFF + TLS_SIZE)
+		_, err = syscall.RMmap(tcs.msgx, size, prot, manon, -1, 0)
+		check(err)
+
+		//For the moment to handle the second stack, TODO @aghosn cleaner later
+		if i == 0 {
+			_, err = syscall.RMmap(MMMASK, int(0x8000), prot, manon, -1, 0)
+			check(err)
+			// write the value checked for TLS-setup to differentiate between SIM and non SIM
+			ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
+			*ptrFlag = uint64(1)
+			//write the msgx value
+			ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
+			*ptrMsgx = uint64(tcs.tls - uintptr(TLS_MSGX_OFF))
+		}
+	}
 	// mmap the stack
 	// try to allocate the stack.
-	prot := _PROT_READ | _PROT_WRITE
-	_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
-	check(err)
+	//prot := _PROT_READ | _PROT_WRITE
+	//_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	//check(err)
 
-	// second stack
-	prot = _PROT_READ | _PROT_WRITE
-	ssiz := int(0x8000)
-	_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
-	check(err)
+	//// second stack
+	//prot = _PROT_READ | _PROT_WRITE
+	//ssiz := int(0x8000)
+	//_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
+	//check(err)
 
-	// write the value checked for TLS-setup to differentiate between SIM and non SIM
-	ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
-	*ptrFlag = uint64(1)
+	//// write the value checked for TLS-setup to differentiate between SIM and non SIM
+	//ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
+	//*ptrFlag = uint64(1)
 
-	// Map the MSGX+TLS area
-	_, err = syscall.RMmap(wrap.msgx, int(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE), prot,
-		_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
-	check(err)
+	//// Map the MSGX+TLS area
+	//_, err = syscall.RMmap(wrap.msgx, int(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE), prot,
+	//	_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
+	//check(err)
 
-	//write the msgx value
-	ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	*ptrMsgx = uint64(wrap.tls - uintptr(TLS_MSGX_OFF))
+	////write the msgx value
+	//ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
+	//*ptrMsgx = uint64(wrap.tls - uintptr(TLS_MSGX_OFF))
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.StartSimOSThread(wrap.stack+wrap.ssiz, fn, wrap.mhstart)
+	runtime.StartSimOSThread(wrap.defaultTcs().stack+wrap.defaultTcs().ssiz, fn, wrap.mhstart)
 }
 
 func simPreallocate(wrap *sgx_wrapper) {
