@@ -161,7 +161,7 @@ func ThreadServer() {
 		// msgx address - 32 RSP
 		swsptr -= unsafe.Sizeof(uint64(0))
 		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-		*ptrs = uint64(dest.msgx - TLS_MSGX_OFF)
+		*ptrs = uint64(dest.tls - TLS_MSGX_OFF)
 
 		//Put the arguments for the sgxEEnter
 		rdi, rsi := uint64(0), uint64(0)
