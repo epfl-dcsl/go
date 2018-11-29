@@ -12,6 +12,12 @@
 // in an enclave.
 TEXT _encl0_amd64(SB),NOSPLIT,$-40
 	MOVQ	nst+32(FP), SP
+	//See if we need trampoline or not
+	MOVB runtime·isEnclave(SB), R8
+	CMPB R8, $1
+	JNE needinit
+	JMP runtime·sgxtramp_encl(SB)
+needinit: 
 	MOVQ	$-1, DI		//argc for enclave
 	LEAQ	0(SP), SI 	// argv
 	JMP runtime·sgx_rt0_go(SB)

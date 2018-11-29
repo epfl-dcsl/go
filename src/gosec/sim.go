@@ -18,7 +18,7 @@ func simLoadProgram(path string) {
 	fmt.Println("[DEBUG] loading the program in simulation.")
 	file, err := elf.Open(path)
 	check(err)
-	_, wrap := sgxCreateSecs(file)
+	_, enclWrap = sgxCreateSecs(file)
 	defer func() { check(file.Close()) }()
 
 	// Check that the sections are sorted now.
@@ -40,11 +40,12 @@ func simLoadProgram(path string) {
 	mapSections(aggreg)
 
 	//For debugging.
-	wrap.DumpDebugInfo()
+	enclWrap.DumpDebugInfo()
 	// Map the enclave preallocated heap.
-	simPreallocate(wrap)
+	simPreallocate(enclWrap)
 
-	for i, tcs := range wrap.tcss {
+	//TODO aghosn now we must try to do the clone with the fn pointer.
+	for i, tcs := range enclWrap.tcss {
 		prot := _PROT_READ | _PROT_WRITE
 		manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
 		// mmap the stack
@@ -68,34 +69,9 @@ func simLoadProgram(path string) {
 			*ptrMsgx = uint64(tcs.tls - uintptr(TLS_MSGX_OFF))
 		}
 	}
-	// mmap the stack
-	// try to allocate the stack.
-	//prot := _PROT_READ | _PROT_WRITE
-	//_, err = syscall.RMmap(wrap.stack, int(wrap.ssiz), prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
-	//check(err)
-
-	//// second stack
-	//prot = _PROT_READ | _PROT_WRITE
-	//ssiz := int(0x8000)
-	//_, err = syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
-	//check(err)
-
-	//// write the value checked for TLS-setup to differentiate between SIM and non SIM
-	//ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
-	//*ptrFlag = uint64(1)
-
-	//// Map the MSGX+TLS area
-	//_, err = syscall.RMmap(wrap.msgx, int(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE), prot,
-	//	_MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
-	//check(err)
-
-	////write the msgx value
-	//ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	//*ptrMsgx = uint64(wrap.tls - uintptr(TLS_MSGX_OFF))
-
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.StartSimOSThread(wrap.defaultTcs().stack+wrap.defaultTcs().ssiz, fn, wrap.mhstart)
+	runtime.StartSimOSThread(enclWrap.defaultTcs().stack+enclWrap.defaultTcs().ssiz, fn, enclWrap.mhstart)
 }
 
 func simPreallocate(wrap *sgx_wrapper) {

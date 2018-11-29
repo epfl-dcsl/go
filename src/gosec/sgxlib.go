@@ -42,7 +42,9 @@ func (s SortedElfSections) Less(i, j int) bool {
 }
 
 var (
-	sgxFd *os.File = nil
+	sgxFd    *os.File = nil
+	enclWrap *sgx_wrapper
+	srcWrap  *sgx_wrapper
 )
 
 // asm_eenter calls the enclu.
@@ -55,21 +57,21 @@ func sgxLoadProgram(path string) {
 	sgxInit()
 	file, err := elf.Open(path)
 	check(err)
-
-	secs, wrap := sgxCreateSecs(file)
+	var secs *secs_t
+	secs, enclWrap = sgxCreateSecs(file)
 
 	// ECREATE & mmap enclave
 	sgxEcreate(secs)
 
 	// Allocate the equivalent region for the eadd page.
-	srcRegion := transposeOutWrapper(wrap)
+	srcWrap = transposeOutWrapper(enclWrap)
 
-	src := srcRegion.base
+	src := srcWrap.base
 	prot := int(_PROT_READ | _PROT_WRITE)
-	srcptr, ret := syscall.RMmap(src, int(srcRegion.siz), prot,
+	srcptr, ret := syscall.RMmap(src, int(srcWrap.siz), prot,
 		_MAP_NORESERVE|_MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
 	check(ret)
-	srcRegion.alloc = srcptr
+	srcWrap.alloc = srcptr
 
 	// Check that the sections are sorted now.
 	sort.Sort(SortedElfSections(file.Sections))
@@ -85,18 +87,20 @@ func sgxLoadProgram(path string) {
 			continue
 		}
 
-		sgxMapSections(secs, aggreg, wrap, srcRegion)
+		sgxMapSections(secs, aggreg, enclWrap, srcWrap)
 		aggreg = nil
 		aggreg = append(aggreg, sec)
 	}
-	sgxMapSections(secs, aggreg, wrap, srcRegion)
+	sgxMapSections(secs, aggreg, enclWrap, srcWrap)
 
 	//Setup the stack arguments and Cooprt.
-	pstack := runtime.SetupEnclSysStack(srcRegion.defaultTcs().stack+srcRegion.defaultTcs().ssiz, wrap.mhstart)
+	pstack := runtime.SetupEnclSysStack(srcWrap.defaultTcs().stack+srcWrap.defaultTcs().ssiz, enclWrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
-	sgxStackPreallocEadd(secs, wrap, srcRegion)
-	sgxInitEaddTCS(file.Entry, secs, wrap.defaultTcs(), srcRegion.defaultTcs())
+	sgxEaddPrealloc(secs, enclWrap, srcWrap)
+	// initialize the TCS and Eadd their elements.
+	sgxRegisterTCSs(enclWrap, srcWrap)
+	//	sgxInitEaddTCS(file.Entry, secs, enclWrap.defaultTcs(), srcWrap.defaultTcs())
 
 	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
@@ -109,7 +113,7 @@ func sgxLoadProgram(path string) {
 
 	transpstack := transposeIn(pstack)
 
-	sgxEEnter(wrap, uint64(wrap.defaultTcs().tcs), uint64(transpstack))
+	sgxEEnter(enclWrap, uint64(enclWrap.defaultTcs().tcs), uint64(transpstack))
 }
 
 // palign does a page align.
@@ -134,13 +138,11 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	fnFilter := func(e *elf.Section) bool {
 		return e.Flags&elf.SHF_ALLOC == elf.SHF_ALLOC
 	}
-
 	for _, sec := range file.Sections {
 		if fnFilter(sec) {
 			aggreg = append(aggreg, sec)
 		}
 	}
-
 	var baseAddr = uint64(ENCLMASK * 2)
 	var endAddr = uint64(0x0)
 	for _, sec := range aggreg {
@@ -151,7 +153,6 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 			endAddr = sec.Addr + sec.Size
 		}
 	}
-
 	// We can create the bounds that we want for the enclave as long as it contains
 	// the values from the binary.
 	if baseAddr < ENCLMASK {
@@ -161,21 +162,12 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	if endAddr > ENCLMASK+ENCLSIZE {
 		log.Fatalf("gosec: > binary outside of enclave region: %x\n", endAddr)
 	}
-
 	secs := &secs_t{}
 	secs.baseAddr = uint64(ENCLMASK)
 	secs.size = uint64(ENCLSIZE)
 	secs.xfrm = 0x7
 	secs.ssaFrameSize = 1
 	secs.attributes = 0x06
-
-	// Check the stack as well
-	//saddr := uintptr(palign(endAddr, false)) + 2*PSIZE
-	//ssize := uintptr(STACK_SIZE)
-	//if saddr+ssize > ENCLMASK+ENCLSIZE {
-	//	log.Fatalln("gosec: stack goes beyond enclave limits.")
-	//}
-
 	// Here we should setup stack | guard page | TCS | SSA | guard page | MSG | TLS
 	//Check the tcs, ssa, etc..
 	wrapper := &sgx_wrapper{}
@@ -190,16 +182,10 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 		ptcs.ssa = ptcs.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
 		ptcs.msgx = ptcs.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
 		ptcs.tls = ptcs.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
+		ptcs.entry = uintptr(file.Entry)
+		ptcs.used = false
 		endAddr = uint64(ptcs.tls + TLS_SIZE)
 	}
-
-	//wrapper.stack = saddr
-	//wrapper.ssiz = uintptr(STACK_SIZE)
-	//wrapper.tcs = wrapper.stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
-	//wrapper.ssa = wrapper.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
-	//wrapper.msgx = wrapper.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
-	//wrapper.tls = wrapper.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
-	//wrapper.mhstart = wrapper.tls + TLS_SIZE + TLS_MHSTART_OFF
 	wrapper.mhstart = uintptr(endAddr) + TLS_MHSTART_OFF
 	wrapper.mhsize = runtime.EnclHeapSizeToAllocate()
 	wrapper.membuf = ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE
@@ -207,22 +193,34 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 		panic("gosec: reduce the amount of pages in membuf.")
 	}
 	wrapper.alloc = nil
-
 	if wrapper.mhstart+wrapper.mhsize > ENCLMASK+ENCLSIZE {
 		log.Printf("enclave limit: %x - end: %x\n", ENCLMASK+ENCLSIZE, wrapper.mhstart+wrapper.mhsize)
 		panic("gosec: Required size is out of enclave limits.")
 	}
-
+	wrapper.secs = secs
 	return secs, wrapper
 }
 
-func sgxStackPreallocEadd(secs *secs_t, wrap, srcRegion *sgx_wrapper) {
+//sgxTCSPrealloc eadds all preallocated memory (stacks, heap and membuf)
+func sgxEaddPrealloc(secs *secs_t, dest, src *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
-	sgxAddRegion(secs, wrap.defaultTcs().stack, srcRegion.defaultTcs().stack, wrap.defaultTcs().ssiz, prot, SGX_SECINFO_REG)
+	for i, dtcs := range dest.tcss {
+		stcs := &src.tcss[i]
+		sgxAddRegion(secs, dtcs.stack, stcs.stack, dtcs.ssiz, prot, SGX_SECINFO_REG)
+	}
+	//eadd heap and membuf
+	sgxAddRegion(secs, dest.mhstart, src.mhstart, dest.mhsize, prot, SGX_SECINFO_REG)
+	sgxAddRegion(secs, dest.membuf, src.membuf, MEMBUF_SIZE, prot, SGX_SECINFO_REG)
+}
 
-	// Preallocate the heap and membuf
-	sgxAddRegion(secs, wrap.mhstart, srcRegion.mhstart, wrap.mhsize, prot, SGX_SECINFO_REG)
-	sgxAddRegion(secs, wrap.membuf, srcRegion.membuf, MEMBUF_SIZE, prot, SGX_SECINFO_REG)
+func sgxRegisterTCSs(dest, src *sgx_wrapper) {
+	if dest.secs == nil || dest.tcss == nil || len(dest.tcss) != len(src.tcss) {
+		panic("Uninitialized parameters.")
+	}
+
+	for i := range dest.tcss {
+		sgxInitEaddTCS(uint64(dest.tcss[i].entry), dest.secs, &dest.tcss[i], &src.tcss[i])
+	}
 }
 
 // TODO should maybe change the layout.
@@ -415,6 +413,8 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 	}
 }
 
+//TODO @aghosn, this is bad, we should use the address from source,
+// we should also change the way the assembly works (maybe later).
 func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 	//TODO SETUP a new fucking stack here.
 	rdi, rsi := uint64(0), uint64(0)
@@ -449,7 +449,7 @@ func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 	ptr = (*uint64)(unsafe.Pointer(addrxcpt))
 	*ptr = xcpt
 
-	// RPS 0
+	// RSP 0
 	addrtcs := addrxcpt - unsafe.Sizeof(tcs)
 	ptr = (*uint64)(unsafe.Pointer(addrtcs))
 	*ptr = tcs

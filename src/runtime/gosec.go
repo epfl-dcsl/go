@@ -46,6 +46,11 @@ type poolSysChan struct {
 	c         chan OcallRes
 }
 
+type ThreadReq struct {
+	Gp uintptr //g arg from the newproc
+	Mp uintptr //m arg from the newproc
+}
+
 type poolSudog struct {
 	wg        *sudog
 	isencl    bool
@@ -59,7 +64,7 @@ type poolSudog struct {
 type CooperativeRuntime struct {
 	EcallSrv   chan EcallServerReq
 	Ocall      chan OcallReq
-	ThreadChan chan uintptr
+	ThreadChan chan ThreadReq
 
 	argc int32
 	argv **byte
@@ -117,7 +122,7 @@ func InitCooperativeRuntime() {
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.ThreadChan = make(chan uintptr)
+	Cooprt.ThreadChan = make(chan ThreadReq)
 
 	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
 	for i := range Cooprt.pool {

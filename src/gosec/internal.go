@@ -5,6 +5,7 @@ import (
 	"debug/elf"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	"sync"
 	"syscall"
@@ -116,4 +117,77 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		attrib.Argp = (*uint8)(unsafe.Pointer(&(attrib.Buf[0])))
 	}
 	runtime.GosecureSend(attrib)
+}
+
+func ThreadServer() {
+	prot := int(_PROT_READ | _PROT_WRITE)
+	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+	for i := 1; i < NBTCS; i++ {
+		addresses := <-runtime.Cooprt.ThreadChan
+		//[X]create the stack.
+		//[X]put arguments on it.
+		//[]call start
+		if srcWrap == nil || enclWrap == nil || enclWrap.tcss[i].used {
+			panic("Trying to spawn a thread without metadata.")
+		}
+		src := &srcWrap.tcss[i]
+		dest := &srcWrap.tcss[i]
+
+		//Mark them as used
+		src.used = true
+		dest.used = true
+
+		//Mmap the source switch stack, i.e., non protected memory.
+		_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
+		check(ret)
+		swsptr := src.stack + src.ssiz
+
+		// Address for g - 56 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs := (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(addresses.Gp)
+
+		// Address for m - 48 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(addresses.Mp)
+
+		//Setup the argument on the stack for early setup.
+		// protected stack address - 40 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(dest.stack + dest.ssiz - unsafe.Sizeof(dest.stack))
+
+		// msgx address - 32 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(dest.msgx - TLS_MSGX_OFF)
+
+		//Put the arguments for the sgxEEnter
+		rdi, rsi := uint64(0), uint64(0)
+
+		// RSI - 24 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(uintptr(unsafe.Pointer(&rsi)))
+
+		// RDI - 16 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(uintptr(unsafe.Pointer(&rdi)))
+
+		// Xception - 8 RSP
+		xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = xcpt
+
+		// tcs - 0 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(dest.tcs)
+
+		fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
+		runtime.StartEnclaveOSThread(swsptr, fn)
+	}
 }

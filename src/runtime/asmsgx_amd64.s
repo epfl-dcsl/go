@@ -7,6 +7,39 @@
 #define SIM_FLAG 0x050000000008
 #define MSGX_ADDR 0x050000000020
 
+// TODO define interface. This is going to be entry point
+// for the enclave extra threads.
+TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
+	// set up the mglobal pointer.
+	MOVQ msgx+32(FP), R9
+	MOVQ R9, runtime·mglobal(SB)
+
+	// if we are in simulation, we need to set tls
+	MOVB runtime·isSimulation(SB), R8
+	CMPB R8, $1
+	JNE nonsim
+
+	// set the tls for the simulation TODO check that.
+	MOVQ runtime·mglobal(SB), R9
+	LEAQ m_tls(R9), DI
+	CALL runtime·sgxsettls(SB)	
+
+nonsim:
+	// set the m and g
+	MOVQ mp+48(FP), R8
+	MOVQ gp+56(FP), R9
+
+	get_tls(CX)
+	MOVQ R8, g_m(R9)
+	MOVQ R9, g(CX)
+
+ //TODO @aghosn not sure yet.
+	CALL runtime·mstart(SB)
+	
+	// It should never return. If it does, segfault that thread
+	MOVL $0xdead, 0xdead
+	JMP -1(PC) // keep exiting
+
 TEXT runtime·sgx_rt0_go(SB),NOSPLIT,$0
 	// copy arguments forward on an even stack
 	MOVQ	DI, AX		// argc
@@ -250,3 +283,5 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 	get_tls(AX)
 	MOVQ	DI, g(AX)
 	RET
+
+

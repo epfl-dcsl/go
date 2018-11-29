@@ -87,6 +87,7 @@ type sgx_wrapper struct {
 	mhsize  uintptr // 0x108000
 	membuf  uintptr // To satisfy map(nil) requests
 	alloc   []byte
+	secs    *secs_t
 }
 
 type sgx_tcs_info struct {
@@ -96,6 +97,8 @@ type sgx_tcs_info struct {
 	ssa   uintptr
 	msgx  uintptr // size 0x1000, for the mglobal otherwise doesn't work
 	tls   uintptr // size 0x1000
+	entry uintptr // entry point for this tcs.
+	used  bool
 }
 
 func (s *sgx_wrapper) DumpDebugInfo() {
@@ -118,7 +121,7 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 	trans := &sgx_wrapper{
 		transposeOut(wrap.base), wrap.siz, nil,
 		transposeOut(wrap.mhstart), wrap.mhsize,
-		transposeOut(wrap.membuf), nil}
+		transposeOut(wrap.membuf), nil, wrap.secs}
 
 	trans.tcss = make([]sgx_tcs_info, len(wrap.tcss))
 	for i := 0; i < len(wrap.tcss); i++ {
@@ -130,5 +133,6 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 func transposeOutTCS(orig sgx_tcs_info) sgx_tcs_info {
 	return sgx_tcs_info{
 		transposeOut(orig.stack), orig.ssiz, transposeOut(orig.tcs),
-		transposeOut(orig.ssa), transposeOut(orig.msgx), transposeOut(orig.tls)}
+		transposeOut(orig.ssa), transposeOut(orig.msgx), transposeOut(orig.tls),
+		transposeOut(orig.entry), orig.used}
 }
