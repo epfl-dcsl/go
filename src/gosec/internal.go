@@ -60,8 +60,8 @@ func LoadEnclave() {
 	check(err)
 
 	//Start loading the program within the correct address space.
-	//simLoadProgram(name)
-	sgxLoadProgram(name)
+	simLoadProgram(name)
+	//sgxLoadProgram(name)
 }
 
 func oCallServer() {
@@ -79,19 +79,6 @@ func oCallServer() {
 		}
 		res := runtime.OcallRes{r1, r2, uintptr(err)}
 		go runtime.Cooprt.SysSend(sys.Id, res)
-	}
-}
-
-func allocServer() {
-	for {
-		allocBytes := <-runtime.Cooprt.OAlloc
-		if allocBytes.Siz > 0 {
-			//TODO @aghosn check if this correct (garbage collected?)
-			copy := &runtime.AllocReq{allocBytes.Siz, make([]byte, allocBytes.Siz), allocBytes.Id}
-			go runtime.Cooprt.AllocSend(allocBytes.Id, copy)
-		} else {
-			panic("Request for a non positive size allocation.")
-		}
 	}
 }
 

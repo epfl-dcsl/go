@@ -40,22 +40,10 @@ type OcallRes struct {
 	Err uintptr
 }
 
-type AllocReq struct {
-	Siz int
-	Buf []byte
-	Id  int
-}
-
 type poolSysChan struct {
 	id        int
 	available int
 	c         chan OcallRes
-}
-
-type poolAllocChan struct {
-	id        int
-	available int
-	c         chan *AllocReq
 }
 
 type poolSudog struct {
@@ -69,9 +57,9 @@ type poolSudog struct {
 
 //CooperativeRuntime structure contains information and channels for runtime cooperation.
 type CooperativeRuntime struct {
-	EcallSrv chan EcallServerReq
-	Ocall    chan OcallReq
-	OAlloc   chan AllocReq
+	EcallSrv   chan EcallServerReq
+	Ocall      chan OcallReq
+	ThreadChan chan uintptr
 
 	argc int32
 	argv **byte
@@ -83,8 +71,7 @@ type CooperativeRuntime struct {
 	pool []*poolSudog
 
 	//pool of answer channels.
-	sysPool   []*poolSysChan
-	allocPool []*poolAllocChan
+	sysPool []*poolSysChan
 
 	membuf_head uintptr
 
@@ -130,7 +117,7 @@ func InitCooperativeRuntime() {
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.OAlloc = make(chan AllocReq)
+	Cooprt.ThreadChan = make(chan uintptr)
 
 	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
 	for i := range Cooprt.pool {
@@ -142,14 +129,7 @@ func InitCooperativeRuntime() {
 	for i := range Cooprt.sysPool {
 		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
 	}
-
-	Cooprt.allocPool = make([]*poolAllocChan, POOL_INIT_SIZE)
-	for i := range Cooprt.allocPool {
-		Cooprt.allocPool[i] = &poolAllocChan{i, 1, make(chan *AllocReq)}
-	}
-
 	Cooprt.membuf_head = uintptr(MEMBUF_START)
-
 	Cooprt.eHeap = 0
 	cprtQ = &(Cooprt.readyO)
 
@@ -387,32 +367,6 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 
 func (c *CooperativeRuntime) SysSend(id int, r OcallRes) {
 	c.sysPool[id].c <- r
-}
-
-func (c *CooperativeRuntime) AcquireAllocPool() (int, chan *AllocReq) {
-	for i, s := range c.allocPool {
-		if s.available == 1 {
-			c.allocPool[i].available = 0
-			c.allocPool[i].id = i
-			return i, c.allocPool[i].c
-		}
-	}
-	panicGosec("Ran out of allocpool channels.")
-	return -1, nil
-}
-
-func (c *CooperativeRuntime) ReleaseAllocPool(id int) {
-	if id < 0 || id >= len(c.allocPool) {
-		panicGosec("Trying to release out of range syspool")
-	}
-	if c.allocPool[id].available != 0 {
-		panicGosec("Trying to release an available channel")
-	}
-	c.allocPool[id].available = 1
-}
-
-func (c *CooperativeRuntime) AllocSend(id int, r *AllocReq) {
-	c.allocPool[id].c <- r
 }
 
 // Sets up the stack arguments and returns the beginning of the stack address.

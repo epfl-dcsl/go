@@ -94,7 +94,7 @@ type sgx_tcs_info struct {
 	ssiz  uintptr
 	tcs   uintptr // tcs size 0x1000.
 	ssa   uintptr
-	msgx  uintptr // size 0x1000
+	msgx  uintptr // size 0x1000, for the mglobal otherwise doesn't work
 	tls   uintptr // size 0x1000
 }
 

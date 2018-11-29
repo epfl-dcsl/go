@@ -24,7 +24,7 @@ const (
 	SIM_FLAG     = 0x050000000008
 	MSGX_ADDR    = 0x050000000020
 	TLS_MSGX_OFF = (0x60 + 8)
-	NBTCS        = 1 // how many extra tcs do we provide.
+	NBTCS        = 2 // how many tcs do we provide.
 )
 
 type SortedElfSections []*elf.Section
