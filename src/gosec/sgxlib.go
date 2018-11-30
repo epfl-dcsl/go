@@ -433,6 +433,7 @@ func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
 	ptr := (*uint64)(unsafe.Pointer(addrpstack))
 	*ptr = pstack
 
+	//Below are arguments for the call to eenter
 	// RSP 24
 	addrsi := addrpstack - unsafe.Sizeof(tcs)
 	ptr = (*uint64)(unsafe.Pointer(addrsi))
