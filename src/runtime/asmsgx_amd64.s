@@ -284,4 +284,32 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 	MOVQ	DI, g(AX)
 	RET
 
+// Allows to do an ocall:
+// 1. []set RBX to the target RIP (trgt)
+// 2. [](opt) rdi holds ocall index (idx)
+// 3. [] rsi pointer to marshalling arguments to call (args)
+// 4. []switch to unprotected stack (nstak)
+// 5. []set rbp too (rbp)
+// void sgx_ocall(void* trgt, int64? idx, void* args, void* nstk, void* rbp)
+TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
+	//TODO maybe save the current stack somehow?
+	//Arguments for the ocall
+	MOVQ target+0(FP), BX
+	MOVQ idx+8(FP), DI
+	MOVQ args+16(FP), SI
+
+	//restore the rbp and rsp
+	MOVQ nstk+24(FP), R8
+	MOVQ rbp+32(FP), R9 
+	MOVQ R9, BP
+	MOVQ R8, SP
+
+	//Do the ocall
+	MOVQ $4, AX
+	BYTE $0x0f; BYTE $0x01; BYTE $0xd7 //ENCLU EEXIT
+
+	//TODO figure out what to do here.
+	RET
+	
+
 

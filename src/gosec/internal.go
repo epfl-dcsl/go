@@ -124,9 +124,6 @@ func ThreadServer() {
 	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 	for i := 1; i < NBTCS; i++ {
 		addresses := <-runtime.Cooprt.ThreadChan
-		//[X]create the stack.
-		//[X]put arguments on it.
-		//[]call start
 		if srcWrap == nil || enclWrap == nil || enclWrap.tcss[i].used {
 			panic("Trying to spawn a thread without metadata.")
 		}

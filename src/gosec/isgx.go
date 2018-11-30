@@ -5,6 +5,13 @@ import (
 	"runtime"
 )
 
+//Not really used, just here for documentation.
+const (
+	SGX_ENCLU_EENTER  = 0x02
+	SGX_ENCLU_ERESUME = 0x03
+	SGX_ENCLU_EXIT    = 0x04
+)
+
 const (
 	PAGE_READ     = 0x1
 	PAGE_WRITE    = 0x2
