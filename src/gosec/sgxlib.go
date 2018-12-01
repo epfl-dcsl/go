@@ -93,8 +93,9 @@ func sgxLoadProgram(path string) {
 	}
 	sgxMapSections(secs, aggreg, enclWrap, srcWrap)
 
-	//Setup the stack arguments and Cooprt.
-	pstack := runtime.SetupEnclSysStack(srcWrap.defaultTcs().stack+srcWrap.defaultTcs().ssiz, enclWrap.mhstart)
+	//Setup the stack arguments and Cooprt heap.
+	//This allows to make the argv part of the measurement.
+	_ = runtime.SetupEnclSysStack(srcWrap.defaultTcs().stack+srcWrap.defaultTcs().ssiz, enclWrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
 	sgxEaddPrealloc(secs, enclWrap, srcWrap)
@@ -111,9 +112,9 @@ func sgxLoadProgram(path string) {
 	err = syscall.Munmap(srcptr)
 	check(err)
 
-	transpstack := transposeIn(pstack)
+	//transpstack := transposeIn(pstack)
 
-	sgxEEnter(enclWrap, uint64(enclWrap.defaultTcs().tcs), uint64(transpstack))
+	sgxEEnter(enclWrap, srcWrap)
 }
 
 // palign does a page align.
@@ -415,49 +416,56 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
-	//TODO SETUP a new fucking stack here. BAD should use the src-region.
+func sgxEEnter(enclW, srcW *sgx_wrapper) {
+	prot := int(_PROT_READ | _PROT_WRITE)
+	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+
+	src := srcW.defaultTcs()
+	dest := enclW.defaultTcs()
+	src.used, dest.used = true, true
+
+	//mmap the unprotected stack
+	_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
+	check(ret)
+	swsptr := src.stack + src.ssiz
+
+	// protected stack address - 40 RSP
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs := (*uint64)(unsafe.Pointer(swsptr))
+	// room for the argc argv TODO @aghosn check this is the correct size.
+	*ptrs = uint64(dest.stack + dest.ssiz - 2*unsafe.Sizeof(uint64(0)))
+
+	// msgx address - 32 RSP
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = uint64(dest.tls - TLS_MSGX_OFF)
+
+	// Put the arguments for sgxEEnter
 	rdi, rsi := uint64(0), uint64(0)
-	prot := _PROT_READ | _PROT_WRITE
-	ssiz := int(0x8000)
-	_, err := syscall.RMmap(MMMASK, ssiz, prot, _MAP_PRIVATE|_MAP_ANON|_MAP_FIXED, -1, 0)
-	check(err)
 
-	// Write the tcs address on it.
-	msgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-	*msgx = uint64(wrapper.defaultTcs().tls) - uint64(TLS_MSGX_OFF)
+	// RSI - 24 RSP
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&rsi)))
 
-	// Set up the stack arguments.
-	// RSP 32
-	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(tcs)
-	ptr := (*uint64)(unsafe.Pointer(addrpstack))
-	*ptr = pstack
+	// RDI - 16 RSP
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&rdi)))
 
-	//Below are arguments for the call to eenter
-	// RSP 24
-	addrsi := addrpstack - unsafe.Sizeof(tcs)
-	ptr = (*uint64)(unsafe.Pointer(addrsi))
-	*ptr = uint64(uintptr(unsafe.Pointer(&rsi)))
-
-	// RSP 16
-	addrdi := addrsi - unsafe.Sizeof(tcs)
-	ptr = (*uint64)(unsafe.Pointer(addrdi))
-	*ptr = uint64(uintptr(unsafe.Pointer(&rdi)))
-
-	// RSP 8
+	// Xception - 8 RSP
 	xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
-	addrxcpt := addrdi - unsafe.Sizeof(tcs)
-	ptr = (*uint64)(unsafe.Pointer(addrxcpt))
-	*ptr = xcpt
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = xcpt
 
-	// RSP 0
-	addrtcs := addrxcpt - unsafe.Sizeof(tcs)
-	ptr = (*uint64)(unsafe.Pointer(addrtcs))
-	*ptr = tcs
+	// tcs - 0 RSP
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = uint64(dest.tcs)
 
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
-
-	runtime.StartEnclaveOSThread(addrtcs, fn)
+	runtime.StartEnclaveOSThread(swsptr, fn)
 }
 
 func testEntry() {

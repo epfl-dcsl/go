@@ -139,9 +139,14 @@ func ThreadServer() {
 		check(ret)
 		swsptr := src.stack + src.ssiz
 
-		// Address for g - 56 RSP
+		// Fake tid - 64 FP
 		swsptr -= unsafe.Sizeof(uint64(0))
 		ptrs := (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(i)
+
+		// Address for g - 56 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
 		*ptrs = uint64(addresses.Gp)
 
 		// Address for m - 48 RSP

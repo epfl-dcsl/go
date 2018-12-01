@@ -7,23 +7,8 @@
 //#define MSGX_ADDR 0x050000000020
 
 // This is the entry point for enclave threads.
-// sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, pstack, m, g)
+// sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, pstack, m, g, id)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
-	// set up the mglobal pointer.
-	MOVQ msgx+32(FP), R9
-	MOVQ R9, runtime·mglobal(SB)
-
-	// if we are in simulation, we need to set tls
-	MOVB runtime·isSimulation(SB), R8
-	CMPB R8, $1
-	JNE nonsim
-
-	// set the tls for the simulation TODO check that.
-	MOVQ runtime·mglobal(SB), R9
-	LEAQ m_tls(R9), DI
-	CALL runtime·sgxsettls(SB)	
-
-nonsim:
 	// set the m and g
 	MOVQ mp+48(FP), R8
 	MOVQ gp+56(FP), R9
@@ -32,7 +17,14 @@ nonsim:
 	MOVQ R8, g_m(R9)
 	MOVQ R9, g(CX)
 
- //TODO @aghosn not sure yet.
+	MOVQ id+64(FP), R9
+	MOVQ R9, m_procid(R8)
+
+	// Switch stacks now that we used all the values
+	// and set it up.
+	MOVQ pstack+48(FP), SP
+	CALL runtime·stackcheck(SB)	
+
 	CALL runtime·mstart(SB)
 	
 	// It should never return. If it does, segfault that thread
