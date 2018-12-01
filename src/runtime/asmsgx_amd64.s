@@ -3,9 +3,6 @@
 #include "funcdata.h"
 #include "textflag.h"
 
-//#define SIM_FLAG 0x050000000008
-//#define MSGX_ADDR 0x050000000020
-
 // This is the entry point for enclave threads.
 // sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, pstack, m, g, id)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
@@ -191,27 +188,7 @@ needtls:
 	//Set up the isEnclave variable.
 	MOVB $1, runtime·isEnclave(SB)
 
-	//Set up the mglobal pointer.
-//	MOVQ $MSGX_ADDR, R9
-//	MOVQ (R9), R8
-//	MOVQ R8, runtime·mglobal(SB)
-//
-//	//Check if we are in simulation mode.
-//	MOVQ $SIM_FLAG, R9
-//	MOVQ (R9), R8
-//	CMPB R8, $1
-//	JNE nonsim
-//
-//	// Set the isSimulation
-//	//Set the runtime.isSim
-//	MOVB $1, runtime·isSimulation(SB)
-//
-//	//Set the TLS from the simulation mode.
-//	MOVQ 	runtime·mglobal(SB), R9
-//	LEAQ	m_tls(R9), DI
-//	CALL	runtime·sgxsettls(SB)
-//
-//// SGX already has the TCS set.
+// SGX already has the TCS set.
 nonsim:
 	// store through it, to make sure it works
 	get_tls(BX)
@@ -280,11 +257,15 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 // 5. []set rbp too (rbp)
 // void sgx_ocall(void* trgt, int64? idx, void* args, void* nstk, void* rbp)
 TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
-	//TODO maybe save the current stack somehow?
 	//Arguments for the ocall
-	MOVQ target+0(FP), BX
+	MOVQ trgt+0(FP), BX
 	MOVQ idx+8(FP), DI
 	MOVQ args+16(FP), SI
+
+	//save current stack and bp in unprotected TODO not sure correct.
+	MOVQ $runtime·g0(SB), R8
+	MOVQ SP, g_sched+gobuf_bp+8(R8)
+	MOVQ BP, g_sched+gobuf_bp+16(R8)
 
 	//restore the rbp and rsp
 	MOVQ nstk+24(FP), R8
@@ -292,11 +273,30 @@ TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 	MOVQ R9, BP
 	MOVQ R8, SP
 
+	// we're not gonna do sgx stuff if we are in simulation
+	MOVB runtime·isSimulation(SB), R8
+	CMPB R8, $1
+	JNE sgxcall
+	CALL BX
+	JMP cleanup
+
+sgxcall:
 	//Do the ocall
 	MOVQ $4, AX
 	BYTE $0x0f; BYTE $0x01; BYTE $0xd7 //ENCLU EEXIT
 
-	//TODO figure out what to do here.
+cleanup:
+	//switch the stack and bp back, save unprotected.
+	MOVQ $runtime·g0(SB), R8
+	LEAQ g_sched+gobuf_bp+8(R8), DI
+	LEAQ g_sched+gobuf_bp+16(R8), SI
+
+	MOVQ SP, g_sched+gobuf_bp+8(R8)
+	MOVQ BP, g_sched+gobuf_bp+16(R8)
+
+	MOVQ DI, SP
+	MOVQ SI, BP
+
 	RET
 	
 

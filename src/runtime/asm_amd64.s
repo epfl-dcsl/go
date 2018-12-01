@@ -25,7 +25,6 @@ TEXT _encl0_amd64(SB),NOSPLIT,$-72
 	MOVB $1, runtime·isSimulation(SB)
 	
 	//set the tls for the simulation
-	//TODO this seems wrong
 	MOVQ runtime·mglobal(SB), R9
 	LEAQ m_tls(R9), DI
 	CALL runtime·sgxsettls(SB)
@@ -38,7 +37,7 @@ nonsim:
 
 	//See if we need trampoline or not
 	//if we do, we switch stacks overthere.
-	//TODO this is wrong.
+	//TODO this is wrong??/.
 	MOVB runtime·isEnclave(SB), R8
 	CMPB R8, $1
 	JNE needinit

@@ -2,7 +2,6 @@ package gosec
 
 import (
 	"debug/elf"
-	"fmt"
 	"log"
 	"os"
 	"reflect"
@@ -434,8 +433,6 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	check(ret)
 	swsptr := src.stack + src.ssiz
 
-	fmt.Printf("addr stack: %x ---> ", swsptr)
-
 	// protected stack address - 48 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs := (*uint64)(unsafe.Pointer(swsptr))
@@ -481,7 +478,6 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.tcs)
 
-	fmt.Printf(" %x\n", swsptr)
 	runtime.StartEnclaveOSThread(swsptr, fn)
 }
 
