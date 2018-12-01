@@ -19,6 +19,7 @@ func simLoadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
 	_, enclWrap = sgxCreateSecs(file)
+	srcWrap = transposeOutWrapper(enclWrap)
 	defer func() { check(file.Close()) }()
 
 	// Check that the sections are sorted now.
@@ -45,7 +46,7 @@ func simLoadProgram(path string) {
 	simPreallocate(enclWrap)
 
 	//TODO aghosn now we must try to do the clone with the fn pointer.
-	for i, tcs := range enclWrap.tcss {
+	for _, tcs := range enclWrap.tcss {
 		prot := _PROT_READ | _PROT_WRITE
 		manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
 		// mmap the stack
@@ -56,22 +57,15 @@ func simLoadProgram(path string) {
 		size := int(MSGX_SIZE + MSGX_TLS_OFF + TLS_SIZE)
 		_, err = syscall.RMmap(tcs.msgx, size, prot, manon, -1, 0)
 		check(err)
-
-		//For the moment to handle the second stack, TODO @aghosn cleaner later
-		if i == 0 {
-			_, err = syscall.RMmap(MMMASK, int(0x8000), prot, manon, -1, 0)
-			check(err)
-			// write the value checked for TLS-setup to differentiate between SIM and non SIM
-			ptrFlag := (*uint64)(unsafe.Pointer(uintptr(SIM_FLAG)))
-			*ptrFlag = uint64(1)
-			//write the msgx value
-			ptrMsgx := (*uint64)(unsafe.Pointer(uintptr(MSGX_ADDR)))
-			*ptrMsgx = uint64(tcs.tls - uintptr(TLS_MSGX_OFF))
-		}
+		// unprotected stack is mmap lazily
 	}
+
+	// register the heap
+	runtime.Cooprt.SetHeapValue(enclWrap.mhstart)
+
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	runtime.StartSimOSThread(enclWrap.defaultTcs().stack+enclWrap.defaultTcs().ssiz, fn, enclWrap.mhstart)
+	sgxEEnter(enclWrap, srcWrap, fn, true)
 }
 
 func simPreallocate(wrap *sgx_wrapper) {

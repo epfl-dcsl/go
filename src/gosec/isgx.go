@@ -117,6 +117,12 @@ func (s *sgx_wrapper) DumpDebugInfo() {
 	fmt.Printf("{base: %x, siz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.mhstart, s.mhsize)
 }
 
+func (s *sgx_wrapper) DumpTcs() {
+	tcs := s.defaultTcs()
+	fmt.Printf("stack: %x, ssiz: %x, tcs: %x, msgx: %x, tls: %x\n", tcs.stack,
+		tcs.ssiz, tcs.tcs, tcs.msgx, tcs.tls)
+}
+
 func (s *sgx_wrapper) defaultTcs() *sgx_tcs_info {
 	if s.tcss == nil || len(s.tcss) == 0 {
 		panic("Early call to get defaulttcs")

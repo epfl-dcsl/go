@@ -90,7 +90,6 @@ type CooperativeRuntime struct {
 }
 
 const (
-	IsSim = true
 	//TODO @aghosn this must be exactly the same as in amd64/obj.go
 	PSIZE       = 0x1000
 	ENCLMASK    = 0x040000000000

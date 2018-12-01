@@ -2,6 +2,7 @@ package gosec
 
 import (
 	"debug/elf"
+	"fmt"
 	"log"
 	"os"
 	"reflect"
@@ -113,8 +114,8 @@ func sgxLoadProgram(path string) {
 	check(err)
 
 	//transpstack := transposeIn(pstack)
-
-	sgxEEnter(enclWrap, srcWrap)
+	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
+	sgxEEnter(enclWrap, srcWrap, fn, false)
 }
 
 // palign does a page align.
@@ -416,9 +417,11 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(enclW, srcW *sgx_wrapper) {
+func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	prot := int(_PROT_READ | _PROT_WRITE)
 	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
+
+	enclW.DumpTcs()
 
 	src := srcW.defaultTcs()
 	dest := enclW.defaultTcs()
@@ -429,11 +432,22 @@ func sgxEEnter(enclW, srcW *sgx_wrapper) {
 	check(ret)
 	swsptr := src.stack + src.ssiz
 
-	// protected stack address - 40 RSP
+	fmt.Printf("addr stack: %x ---> ", swsptr)
+
+	// protected stack address - 48 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs := (*uint64)(unsafe.Pointer(swsptr))
 	// room for the argc argv TODO @aghosn check this is the correct size.
 	*ptrs = uint64(dest.stack + dest.ssiz - 2*unsafe.Sizeof(uint64(0)))
+
+	// isSim flag - 40 RSP
+	simFlag := uint64(0)
+	if sim {
+		simFlag = uint64(1)
+	}
+	swsptr -= unsafe.Sizeof(uint64(0))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
+	*ptrs = uint64(simFlag)
 
 	// msgx address - 32 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
@@ -464,7 +478,7 @@ func sgxEEnter(enclW, srcW *sgx_wrapper) {
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.tcs)
 
-	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
+	fmt.Printf(" %x\n", swsptr)
 	runtime.StartEnclaveOSThread(swsptr, fn)
 }
 
