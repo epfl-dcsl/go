@@ -60,8 +60,9 @@ func simLoadProgram(path string) {
 		// unprotected stack is mmap lazily
 	}
 
-	// register the heap
-	runtime.Cooprt.SetHeapValue(enclWrap.mhstart)
+	// register the heap, setup the enclave stack
+	etcs := enclWrap.defaultTcs()
+	runtime.SetupEnclSysStack(etcs.stack+etcs.ssiz, enclWrap.mhstart)
 
 	// Create the thread for enclave.
 	fn := unsafe.Pointer(uintptr(file.Entry))

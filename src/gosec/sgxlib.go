@@ -22,10 +22,11 @@ const (
 	MMMASK  = 0x050000000000
 	SIM_OFF = 0x08
 
-	SIM_FLAG     = 0x050000000008
-	MSGX_ADDR    = 0x050000000020
-	TLS_MSGX_OFF = (0x60 + 8)
-	NBTCS        = 2 // how many tcs do we provide.
+	SIM_FLAG  = 0x050000000008
+	MSGX_ADDR = 0x050000000020
+	//TLS is m0+m_tls+8
+	TLS_MSGX_OFF = (0x70 + 8) // TODO this depends on m_tls which is bad.
+	NBTCS        = 2          // how many tcs do we provide.
 )
 
 type SortedElfSections []*elf.Section
