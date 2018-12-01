@@ -402,37 +402,6 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
-func StartSimOSThread(stack uintptr, fn unsafe.Pointer, eS uintptr) {
-	if isEnclave {
-		panicGosec("Should not allocate enclave from the enclave.")
-	}
-	addrArgc := stack - unsafe.Sizeof(argc)
-	addrArgv := addrArgc - unsafe.Sizeof(argv)
-
-	ptrArgc := (*int32)(unsafe.Pointer(addrArgc))
-	*ptrArgc = argc
-
-	// Set heap in Cooprt
-	Cooprt.SetHeapValue(eS)
-
-	ptrArgv := (***byte)(unsafe.Pointer(addrArgv))
-	*ptrArgv = (**byte)(unsafe.Pointer(Cooprt))
-
-	// RSP 32
-	ssiz := uintptr(0x8000)
-	addrpstack := uintptr(MMMASK) + uintptr(ssiz) - unsafe.Sizeof(uint64(0))
-	ptr := (*uint64)(unsafe.Pointer(addrpstack))
-	*ptr = uint64(addrArgv)
-
-	stk := addrpstack - 4*unsafe.Sizeof(uint64(0))
-
-	ret := clone(cloneFlags, unsafe.Pointer(stk), nil, nil, fn)
-	if ret < 0 {
-		write(2, unsafe.Pointer(&failthreadcreate[0]), int32(len(failthreadcreate)))
-		exit(1)
-	}
-}
-
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	if Cooprt == nil {
 		panic("Cooprt must be init before calling gosec.go:Newproc")

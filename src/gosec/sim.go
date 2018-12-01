@@ -62,9 +62,9 @@ func simLoadProgram(path string) {
 
 	// register the heap, setup the enclave stack
 	etcs := enclWrap.defaultTcs()
-	runtime.SetupEnclSysStack(etcs.stack+etcs.ssiz, enclWrap.mhstart)
+	_ = runtime.SetupEnclSysStack(etcs.stack+etcs.ssiz, enclWrap.mhstart)
 
-	// Create the thread for enclave.
+	// Create the thread for enclave, setups the stacks.
 	fn := unsafe.Pointer(uintptr(file.Entry))
 	sgxEEnter(enclWrap, srcWrap, fn, true)
 }

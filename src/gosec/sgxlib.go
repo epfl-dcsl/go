@@ -97,7 +97,8 @@ func sgxLoadProgram(path string) {
 
 	//Setup the stack arguments and Cooprt heap.
 	//This allows to make the argv part of the measurement.
-	_ = runtime.SetupEnclSysStack(srcWrap.defaultTcs().stack+srcWrap.defaultTcs().ssiz, enclWrap.mhstart)
+	stcs := srcWrap.defaultTcs()
+	_ = runtime.SetupEnclSysStack(stcs.stack+stcs.ssiz, enclWrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
 	sgxEaddPrealloc(secs, enclWrap, srcWrap)
@@ -438,8 +439,9 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	// protected stack address - 48 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs := (*uint64)(unsafe.Pointer(swsptr))
-	// room for the argc argv TODO @aghosn check this is the correct size.
-	*ptrs = uint64(dest.stack + dest.ssiz - 2*unsafe.Sizeof(uint64(0)))
+	// room for the argc argv, so sizeof(int32) + sizeof(ptr -- 64bits)
+	argssiz := unsafe.Sizeof(int32(0)) + unsafe.Sizeof(uint64(0))
+	*ptrs = uint64(dest.stack + dest.ssiz - argssiz)
 
 	// isSim flag - 40 RSP
 	simFlag := uint64(0)
