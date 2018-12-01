@@ -268,6 +268,8 @@ type gobuf struct {
 	ret  sys.Uintreg
 	lr   uintptr
 	bp   uintptr // for GOEXPERIMENT=framepointer
+	usp  uintptr // unsafe stack pointer
+	ubp  uintptr //unsafe base pointer
 }
 
 // sudog represents a g in a wait list, such as for sending/receiving
@@ -400,7 +402,7 @@ type g struct {
 
 	isencl        bool
 	markednofutex bool
-	ecallchan chan EcallReq
+	ecallchan     chan EcallReq
 }
 
 type m struct {

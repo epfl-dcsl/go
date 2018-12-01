@@ -10,14 +10,39 @@
 // _encl0_amd64 is a startup code for amd64 enclave code.
 // The goal here is to put a -1 inside the argc to let the runtime know we are
 // in an enclave.
-TEXT _encl0_amd64(SB),NOSPLIT,$-40
+// We also have to setup the tls if in sim and the appropriate stack.
+// _encl0_amd64(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g)
+TEXT _encl0_amd64(SB),NOSPLIT,$-72
+	//setup msgx
+	MOVQ msgx+32(FP), R9
+	MOVQ R9, runtime·mglobal(SB)
+
+	//isSim, then need to set up tls.
+	MOVQ isSim+40(FP), R9
+	CMPB R9, $1
+	JNE nonsim
+
+	MOVB $1, runtime·isSimulation(SB)
+	
+	//set the tls for the simulation
+	MOVB runtime·mglobal(SB), R9
+	LEAQ m_tls(R9), DI
+	CALL runtime·sgxsettls(SB)
+
+nonsim:
+	//Save unsafe stack inside g0.sched.usp
+	MOVQ $runtime·g0(SB), R8
+	MOVQ SP, g_sched+gobuf_bp+8(R8) // save usp 
+	MOVQ BP, g_sched+gobuf_bp+16(R8) // save ubp
+
 	//See if we need trampoline or not
+	//if we do, we switch stacks overthere.
 	MOVB runtime·isEnclave(SB), R8
 	CMPB R8, $1
 	JNE needinit
 	JMP runtime·sgxtramp_encl(SB)
 needinit:
-	MOVQ	nst+32(FP), SP
+	MOVQ	pstack+48(FP), SP
 	MOVQ	$-1, DI		//argc for enclave
 	LEAQ	0(SP), SI 	// argv
 	JMP runtime·sgx_rt0_go(SB)

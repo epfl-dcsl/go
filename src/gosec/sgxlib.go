@@ -416,7 +416,7 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
 func sgxEEnter(wrapper *sgx_wrapper, tcs uint64, pstack uint64) {
-	//TODO SETUP a new fucking stack here.
+	//TODO SETUP a new fucking stack here. BAD should use the src-region.
 	rdi, rsi := uint64(0), uint64(0)
 	prot := _PROT_READ | _PROT_WRITE
 	ssiz := int(0x8000)

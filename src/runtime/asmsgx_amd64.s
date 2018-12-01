@@ -3,12 +3,11 @@
 #include "funcdata.h"
 #include "textflag.h"
 
-#define DBG_ADDR 0x050000000000
-#define SIM_FLAG 0x050000000008
-#define MSGX_ADDR 0x050000000020
+//#define SIM_FLAG 0x050000000008
+//#define MSGX_ADDR 0x050000000020
 
-// TODO define interface. This is going to be entry point
-// for the enclave extra threads.
+// This is the entry point for enclave threads.
+// sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, pstack, m, g)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
 	// set up the mglobal pointer.
 	MOVQ msgx+32(FP), R9
@@ -40,6 +39,7 @@ nonsim:
 	MOVL $0xdead, 0xdead
 	JMP -1(PC) // keep exiting
 
+// Implements the logic for the enclave runtime init.
 TEXT runtime·sgx_rt0_go(SB),NOSPLIT,$0
 	// copy arguments forward on an even stack
 	MOVQ	DI, AX		// argc
@@ -200,26 +200,26 @@ needtls:
 	MOVB $1, runtime·isEnclave(SB)
 
 	//Set up the mglobal pointer.
-	MOVQ $MSGX_ADDR, R9
-	MOVQ (R9), R8
-	MOVQ R8, runtime·mglobal(SB)
-
-	//Check if we are in simulation mode.
-	MOVQ $SIM_FLAG, R9
-	MOVQ (R9), R8
-	CMPB R8, $1
-	JNE nonsim
-
-	// Set the isSimulation
-	//Set the runtime.isSim
-	MOVB $1, runtime·isSimulation(SB)
-
-	//Set the TLS from the simulation mode.
-	MOVQ 	runtime·mglobal(SB), R9
-	LEAQ	m_tls(R9), DI
-	CALL	runtime·sgxsettls(SB)
-
-// SGX already has the TCS set.
+//	MOVQ $MSGX_ADDR, R9
+//	MOVQ (R9), R8
+//	MOVQ R8, runtime·mglobal(SB)
+//
+//	//Check if we are in simulation mode.
+//	MOVQ $SIM_FLAG, R9
+//	MOVQ (R9), R8
+//	CMPB R8, $1
+//	JNE nonsim
+//
+//	// Set the isSimulation
+//	//Set the runtime.isSim
+//	MOVB $1, runtime·isSimulation(SB)
+//
+//	//Set the TLS from the simulation mode.
+//	MOVQ 	runtime·mglobal(SB), R9
+//	LEAQ	m_tls(R9), DI
+//	CALL	runtime·sgxsettls(SB)
+//
+//// SGX already has the TCS set.
 nonsim:
 	// store through it, to make sure it works
 	get_tls(BX)
@@ -255,10 +255,6 @@ nonsim:
 	CALL	runtime·osinit(SB)
 
 	CALL	runtime·schedinit(SB)
-
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $DBG_ADDR, R8
-	MOVQ $0x110, (R8)
 
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry
