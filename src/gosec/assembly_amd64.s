@@ -13,3 +13,8 @@ TEXT gosec·asm_eenter(SB),$0-40
 // func asm_exception()
 TEXT gosec·asm_exception(SB),$0
     BYTE $0x0f; BYTE $0x01; BYTE $0xd7
+
+// func asm_oentry(req *runtime.SpawnRequest) 
+TEXT gosec·asm_oentry(SB),$0
+	CALL gosec·spawnEnclaveThread(SB)
+	RET

@@ -420,7 +420,7 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(enclW, srcW *sgx_wrapper, req *spawnRequest) {
+func sgxEEnter(enclW, srcW *sgx_wrapper, req *runtime.SpawnRequest) {
 	prot := int(_PROT_READ | _PROT_WRITE)
 	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 
@@ -441,12 +441,12 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, req *spawnRequest) {
 		// the target g - 64 RSP
 		swsptr -= unsafe.Sizeof(uint64(0))
 		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-		*ptrs = uint64(req.gp)
+		*ptrs = uint64(req.Gp)
 
 		// the target m - 56 RSP
 		swsptr -= unsafe.Sizeof(uint64(0))
 		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-		*ptrs = uint64(req.mp)
+		*ptrs = uint64(req.Mp)
 	}
 
 	// protected stack address - 48 RSP

@@ -143,9 +143,33 @@ const (
 //go:noescape
 func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) int32
 
+func newosproc(mp *m, stk unsafe.Pointer) {
+	if !isEnclave {
+		newosproc1(mp, stk)
+		return
+	}
+
+	if Cooprt == nil {
+		throw("Cooprt is nil.")
+	}
+
+	if !isSimulation {
+		throw("Pure sgx not yet supported")
+	}
+	gp := getg()
+	ustk := gp.m.g0.sched.usp
+	ubp := gp.m.g0.sched.ubp
+	aptr := uintptr(0) //gosecmalloc(&UnsafeAllocator, unsafe.Sizeof(SpawnRequest{}))
+	args := (*SpawnRequest)(unsafe.Pointer(aptr))
+	args.Sid = gp.m.procid
+	args.Gp = uintptr(unsafe.Pointer(mp.g0))
+	args.Mp = uintptr(unsafe.Pointer(mp))
+	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
+}
+
 // May run with m.p==nil, so write barriers are not allowed.
 //go:nowritebarrier
-func newosproc(mp *m, stk unsafe.Pointer) {
+func newosproc1(mp *m, stk unsafe.Pointer) {
 	/*
 	 * note: strace gets confused if we use CLONE_PTRACE here.
 	 */
@@ -153,9 +177,6 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " clone=", funcPC(clone), " id=", mp.id, " ostk=", &mp, "\n")
 	}
 
-	if isEnclave {
-		throw("Enclave is not supposed to call newosproc... for the moment.")
-	}
 	// Disable signals during clone, so that the new thread starts
 	// with signals disabled. It will enable them in minit.
 	var oset sigset

@@ -255,12 +255,11 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 // 3. [] rsi pointer to marshalling arguments to call (args)
 // 4. []switch to unprotected stack (nstak)
 // 5. []set rbp too (rbp)
-// void sgx_ocall(void* trgt, int64? idx, void* args, void* nstk, void* rbp)
+// void sgx_ocall(void* trgt, void* args, void* nstk, void* rbp)
 TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 	//Arguments for the ocall
 	MOVQ trgt+0(FP), BX
-	MOVQ idx+8(FP), DI
-	MOVQ args+16(FP), SI
+	MOVQ args+8(FP), SI
 
 	//save current stack and bp in unprotected TODO not sure correct.
 	MOVQ $runtime·g0(SB), R8
@@ -268,8 +267,8 @@ TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 	MOVQ BP, g_sched+gobuf_bp+16(R8)
 
 	//restore the rbp and rsp
-	MOVQ nstk+24(FP), R8
-	MOVQ rbp+32(FP), R9 
+	MOVQ nstk+16(FP), R8
+	MOVQ rbp+24(FP), R9 
 	MOVQ R9, BP
 	MOVQ R8, SP
 

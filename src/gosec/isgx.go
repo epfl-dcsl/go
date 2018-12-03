@@ -110,12 +110,6 @@ type sgx_tcs_info struct {
 	used  bool
 }
 
-type spawnRequest struct {
-	sid int     //tcs source id of requester
-	gp  uintptr // the g that will be used for the new thread
-	mp  uintptr // the m that will be used for the new thread
-}
-
 func (s *sgx_wrapper) DumpDebugInfo() {
 	if runtime.Cooprt != nil {
 		fmt.Printf("Cooprt at %p\n", runtime.Cooprt)

@@ -5,6 +5,7 @@ import (
 	"debug/elf"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	"sync"
 	"syscall"
@@ -23,6 +24,8 @@ type funcval struct {
 }
 
 var initOnce sync.Once
+
+func asm_oentry(req *runtime.SpawnRequest)
 
 func LoadEnclave() {
 	p, err := elf.Open(os.Args[0])
@@ -59,6 +62,8 @@ func LoadEnclave() {
 	_, err = encl.Write(bts)
 	check(err)
 
+	//Setup the OEntry in Cooprt for extra threads
+	runtime.Cooprt.OEntry = reflect.ValueOf(asm_oentry).Pointer()
 	//Start loading the program within the correct address space.
 	simLoadProgram(name)
 	//sgxLoadProgram(name)
@@ -118,84 +123,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	runtime.GosecureSend(attrib)
 }
 
-// ThreadServer first approach, but we gonna change that.
-// We will try with an exit first.
-//func ThreadServer() {
-//	prot := int(_PROT_READ | _PROT_WRITE)
-//	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
-//	for i := 1; i < NBTCS; i++ {
-//		addresses := <-runtime.Cooprt.ThreadChan
-//		if srcWrap == nil || enclWrap == nil || enclWrap.tcss[i].used {
-//			panic("Trying to spawn a thread without metadata.")
-//		}
-//		src := &srcWrap.tcss[i]
-//		dest := &enclWrap.tcss[i]
-//
-//		//Mark them as used
-//		src.used = true
-//		dest.used = true
-//
-//		//Mmap the source switch stack, i.e., non protected memory.
-//		_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
-//		check(ret)
-//		swsptr := src.stack + src.ssiz
-//
-//		// Fake tid - 64 FP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs := (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(i)
-//
-//		// Address for g - 56 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(addresses.Gp)
-//
-//		// Address for m - 48 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(addresses.Mp)
-//
-//		//Setup the argument on the stack for early setup.
-//		// protected stack address - 40 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(dest.stack + dest.ssiz - unsafe.Sizeof(dest.stack))
-//
-//		// msgx address - 32 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(dest.tls - TLS_MSGX_OFF)
-//
-//		//Put the arguments for the sgxEEnter
-//		rdi, rsi := uint64(0), uint64(0)
-//
-//		// RSI - 24 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(uintptr(unsafe.Pointer(&rsi)))
-//
-//		// RDI - 16 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(uintptr(unsafe.Pointer(&rdi)))
-//
-//		// Xception - 8 RSP
-//		xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = xcpt
-//
-//		// tcs - 0 RSP
-//		swsptr -= unsafe.Sizeof(uint64(0))
-//		ptrs = (*uint64)(unsafe.Pointer(swsptr))
-//		*ptrs = uint64(dest.tcs)
-//
-//		fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
-//		runtime.StartEnclaveOSThread(swsptr, fn)
-//	}
-//}
-
-func spawnEnclaveThread(req *spawnRequest) {
+func spawnEnclaveThread(req *runtime.SpawnRequest) {
 	// TODO @aghosn will need a lock here.
 	for i, tcs := range enclWrap.tcss {
 		if tcs.used {
@@ -207,6 +135,16 @@ func spawnEnclaveThread(req *spawnRequest) {
 		//TODO unlock now.
 
 		sgxEEnter(enclWrap, srcWrap, req)
+		// In the simulation we just return.
+		if enclWrap.isSim {
+			return
+		}
+		// For sgx, we call eresume
+		sgxEResume(req.Sid)
 	}
 	panic("gosec: unable to find an available tcs")
+}
+
+//TODO place holder for the moment
+func sgxEResume(id uint64) {
 }

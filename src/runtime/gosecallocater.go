@@ -4,6 +4,7 @@ import (
 	"unsafe"
 )
 
+//TODO rewrite to be write barrier compatible.
 const (
 	_psize          = 0x1000
 	_uspgranularity = 64 //allocate by chunks of 64 bytes.

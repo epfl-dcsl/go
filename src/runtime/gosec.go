@@ -46,11 +46,6 @@ type poolSysChan struct {
 	c         chan OcallRes
 }
 
-type ThreadReq struct {
-	Gp uintptr //g arg from the newproc
-	Mp uintptr //m arg from the newproc
-}
-
 type poolSudog struct {
 	wg        *sudog
 	isencl    bool
@@ -60,11 +55,16 @@ type poolSudog struct {
 	isRcv     bool
 }
 
+type SpawnRequest struct {
+	Sid uint64  //tcs source id of requester
+	Gp  uintptr // the g that will be used for the new thread
+	Mp  uintptr // the m that will be used for the new thread
+}
+
 //CooperativeRuntime structure contains information and channels for runtime cooperation.
 type CooperativeRuntime struct {
-	EcallSrv   chan EcallServerReq
-	Ocall      chan OcallReq
-	ThreadChan chan ThreadReq
+	EcallSrv chan EcallServerReq
+	Ocall    chan OcallReq
 
 	argc int32
 	argv **byte
@@ -87,6 +87,8 @@ type CooperativeRuntime struct {
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
 	eHeap uintptr
+
+	OEntry uintptr
 }
 
 const (
@@ -112,6 +114,9 @@ var (
 	UnsafeAllocator uledger
 )
 
+// entry point for an ocall, defined in asm in runtime/asmsgx_amd64.s
+func sgx_ocall(trgt, args, nstk, rbp uintptr)
+
 //InitCooperativeRuntime initializes the global variable Cooprt.
 func InitCooperativeRuntime() {
 	if Cooprt != nil {
@@ -121,7 +126,6 @@ func InitCooperativeRuntime() {
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
-	Cooprt.ThreadChan = make(chan ThreadReq)
 
 	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
 	for i := range Cooprt.pool {
