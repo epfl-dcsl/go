@@ -60,6 +60,7 @@ func sgxLoadProgram(path string) {
 	check(err)
 	var secs *secs_t
 	secs, enclWrap = sgxCreateSecs(file)
+	enclWrap.isSim = false
 
 	// ECREATE & mmap enclave
 	sgxEcreate(secs)
@@ -101,7 +102,7 @@ func sgxLoadProgram(path string) {
 
 	// Mprotect and EADD stack and preallocated.
 	sgxEaddPrealloc(secs, enclWrap, srcWrap)
-	// initialize the TCS and Eadd their elements.
+	// initialize the TCSs and Eadd their elements.
 	sgxRegisterTCSs(enclWrap, srcWrap)
 	//	sgxInitEaddTCS(file.Entry, secs, enclWrap.defaultTcs(), srcWrap.defaultTcs())
 
@@ -116,7 +117,8 @@ func sgxLoadProgram(path string) {
 
 	//transpstack := transposeIn(pstack)
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
-	sgxEEnter(enclWrap, srcWrap, fn, false)
+	enclWrap.entry = uintptr(fn)
+	sgxEEnter(enclWrap, srcWrap, nil)
 }
 
 // palign does a page align.
@@ -418,7 +420,7 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
+func sgxEEnter(enclW, srcW *sgx_wrapper, req *spawnRequest) {
 	prot := int(_PROT_READ | _PROT_WRITE)
 	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
 
@@ -432,17 +434,35 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
 	check(ret)
 	swsptr := src.stack + src.ssiz
+	ptrs := (*uint64)(unsafe.Pointer(swsptr))
+
+	// Spawning a new thread for the enclave
+	if req != nil {
+		// the target g - 64 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(req.gp)
+
+		// the target m - 56 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = uint64(req.mp)
+	}
 
 	// protected stack address - 48 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
-	ptrs := (*uint64)(unsafe.Pointer(swsptr))
+	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	// room for the argc argv, so sizeof(int32) + sizeof(ptr -- 64bits)
-	argssiz := unsafe.Sizeof(int32(0)) + unsafe.Sizeof(uint64(0))
-	*ptrs = uint64(dest.stack + dest.ssiz - argssiz)
+	if req == nil {
+		argssiz := unsafe.Sizeof(int32(0)) + unsafe.Sizeof(uint64(0))
+		*ptrs = uint64(dest.stack + dest.ssiz - argssiz)
+	} else {
+		*ptrs = uint64(dest.stack + dest.ssiz)
+	}
 
 	// isSim flag - 40 RSP
 	simFlag := uint64(0)
-	if sim {
+	if enclW.isSim {
 		simFlag = uint64(1)
 	}
 	swsptr -= unsafe.Sizeof(uint64(0))
@@ -478,7 +498,7 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, fn unsafe.Pointer, sim bool) {
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.tcs)
 
-	runtime.StartEnclaveOSThread(swsptr, fn)
+	runtime.StartEnclaveOSThread(swsptr, unsafe.Pointer(enclW.entry))
 }
 
 func testEntry() {

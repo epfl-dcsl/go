@@ -95,6 +95,8 @@ type sgx_wrapper struct {
 	membuf  uintptr // To satisfy map(nil) requests
 	alloc   []byte
 	secs    *secs_t
+	isSim   bool
+	entry   uintptr // where to jump (asm_eenter or file.Entry)
 }
 
 type sgx_tcs_info struct {
@@ -106,6 +108,12 @@ type sgx_tcs_info struct {
 	tls   uintptr // size 0x1000
 	entry uintptr // entry point for this tcs.
 	used  bool
+}
+
+type spawnRequest struct {
+	sid int     //tcs source id of requester
+	gp  uintptr // the g that will be used for the new thread
+	mp  uintptr // the m that will be used for the new thread
 }
 
 func (s *sgx_wrapper) DumpDebugInfo() {
@@ -134,7 +142,8 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 	trans := &sgx_wrapper{
 		transposeOut(wrap.base), wrap.siz, nil,
 		transposeOut(wrap.mhstart), wrap.mhsize,
-		transposeOut(wrap.membuf), nil, wrap.secs}
+		transposeOut(wrap.membuf), nil, wrap.secs, wrap.isSim,
+		wrap.entry}
 
 	trans.tcss = make([]sgx_tcs_info, len(wrap.tcss))
 	for i := 0; i < len(wrap.tcss); i++ {

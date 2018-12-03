@@ -19,6 +19,7 @@ func simLoadProgram(path string) {
 	file, err := elf.Open(path)
 	check(err)
 	_, enclWrap = sgxCreateSecs(file)
+	enclWrap.isSim = true
 	srcWrap = transposeOutWrapper(enclWrap)
 	defer func() { check(file.Close()) }()
 
@@ -66,7 +67,8 @@ func simLoadProgram(path string) {
 
 	// Create the thread for enclave, setups the stacks.
 	fn := unsafe.Pointer(uintptr(file.Entry))
-	sgxEEnter(enclWrap, srcWrap, fn, true)
+	enclWrap.entry = uintptr(fn)
+	sgxEEnter(enclWrap, srcWrap, nil)
 }
 
 func simPreallocate(wrap *sgx_wrapper) {
