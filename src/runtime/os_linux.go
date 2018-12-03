@@ -159,12 +159,13 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	gp := getg()
 	ustk := gp.m.g0.sched.usp
 	ubp := gp.m.g0.sched.ubp
-	aptr := uintptr(0) //gosecmalloc(&UnsafeAllocator, unsafe.Sizeof(SpawnRequest{}))
+	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(SpawnRequest{}))
 	args := (*SpawnRequest)(unsafe.Pointer(aptr))
 	args.Sid = gp.m.procid
 	args.Gp = uintptr(unsafe.Pointer(mp.g0))
 	args.Mp = uintptr(unsafe.Pointer(mp))
 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
+	UnsafeAllocator.Free(aptr)
 }
 
 // May run with m.p==nil, so write barriers are not allowed.

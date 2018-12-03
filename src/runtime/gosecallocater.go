@@ -20,6 +20,20 @@ type uspan struct {
 	start    uintptr             //address of the beginning.
 	freesize uintptr             //in bytes
 	malloced map[uintptr]umentry //map from pointer to size.
+	prev     uspanptr
+	next     uspanptr
+}
+
+type uspanptr uintptr
+
+//go:nosplit
+func (u uspanptr) ptr() *uspan {
+	return (*uspan)(unsafe.Pointer(u))
+}
+
+//go:nosplit
+func (u *uspanptr) set(us *uspan) {
+	*u = uspanptr(unsafe.Pointer(us))
 }
 
 type umentry struct {
@@ -34,16 +48,58 @@ type sgentry struct {
 	buff  unsafe.Pointer
 }
 
+type spanlist struct {
+	head uspanptr
+	tail uspanptr
+}
+
 type uledger struct {
 	start     uintptr
 	size      uintptr
 	allspans  []uspan
-	freespans []*uspan
-	fullspans []*uspan
+	freespans spanlist
+	fullspans spanlist
 
 	inusesg map[uintptr]sgentry //map that keeps track of untrusted sudog
 	poolsg  []*sudog            //keep a pool of allocated sgs
 	inited  bool
+}
+
+//go:nowritebarrier
+func (sl *spanlist) add(u *uspan) {
+	if sl.tail == 0 {
+		if sl.head != 0 {
+			throw("empty head, non-empty tail")
+		}
+		sl.head.set(u)
+		sl.tail.set(u)
+		u.prev = 0
+		u.next = 0
+	}
+	sl.tail.ptr().next.set(u)
+	u.prev.set(sl.tail.ptr())
+	u.next = 0
+	sl.tail.set(u)
+}
+
+//go:nowritebarrier
+func (sl *spanlist) remove(u *uspan) {
+	if u.prev != 0 {
+		u.prev.ptr().next = u.next
+	}
+	if sl.tail.ptr() == u {
+		sl.tail = u.prev
+	}
+	if sl.head.ptr() == u {
+		sl.head = u.next
+	}
+	u.next = 0
+	u.prev = 0
+}
+
+//go:nowritebarrier
+func (sl *spanlist) isEmpty() bool {
+	return sl.head == 0
 }
 
 //initialize takes the start and size (in bytes) of the unsafe memory pool.
@@ -63,25 +119,26 @@ func (u *uledger) Initialize(start, size uintptr) {
 		sp.start = start + uintptr(i)*_psize
 		sp.freesize = _psize
 		sp.malloced = make(map[uintptr]umentry)
-		u.freespans = append(u.freespans, sp)
+		u.freespans.add(sp)
 	}
 }
 
+//go:nowritebarrier
 func (u *uledger) Malloc(size uintptr) uintptr {
-	if len(u.freespans) == 0 {
-		println("Size of allspans ", len(u.allspans), ", full ", len(u.fullspans))
+	if u.freespans.isEmpty() {
+		println("Size of allspans ", len(u.allspans))
 		println("Size of a sudog ", unsafe.Sizeof(sudog{}), " - ", u.inited)
 		throw("uledger: ran out of memory")
 	}
-	for i := 0; i < len(u.freespans); i++ {
-		if u.freespans[i].freesize >= size {
+	for sptr := u.freespans.head; sptr != 0; sptr = sptr.ptr().next {
+		span := sptr.ptr()
+		if span.freesize >= size {
 			//We are looking for contiguous space so it might fail
-			if ptr, ok := u.freespans[i].allocate(size); ok {
+			if ptr, ok := span.allocate(size); ok {
 				//If now the span is full, move it
-				if u.freespans[i].freesize == 0 {
-					span := u.freespans[i]
-					u.freespans = append(u.freespans[:i], u.freespans[i+1:]...)
-					u.fullspans = append(u.fullspans, span)
+				if span.freesize == 0 {
+					u.freespans.remove(span)
+					u.fullspans.add(span)
 				}
 				return ptr
 			}
@@ -91,6 +148,7 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 	return uintptr(0)
 }
 
+//go:nowritebarrier
 func (u *uledger) Free(ptr uintptr) {
 	index := (ptr - u.start) / _psize //find the pod
 	move, ok := u.allspans[index].deallocate(ptr)
@@ -98,13 +156,8 @@ func (u *uledger) Free(ptr uintptr) {
 		throw("uledger: error deallocating object!")
 	}
 	if move { //The span was full
-		for i := 0; i < len(u.fullspans); i++ {
-			if u.fullspans[i] == &u.allspans[index] {
-				u.fullspans = append(u.fullspans[:i], u.fullspans[i+1:]...)
-				u.freespans = append(u.freespans, &u.allspans[index])
-				break
-			}
-		}
+		u.fullspans.remove(&u.allspans[index])
+		u.freespans.add(&u.allspans[index])
 	}
 }
 
@@ -151,6 +204,7 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	u.Free(uintptr(unsafe.Pointer(sg)))
 }
 
+//go:nowritebarrier
 func (u *uspan) allocate(size uintptr) (uintptr, bool) {
 	cbits := size / _uspgranularity
 	if size%_uspgranularity != 0 {
