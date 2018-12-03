@@ -49,7 +49,7 @@ func EcallServer() {
 func RegisterSecureFunction(f interface{}) {
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
-		runtime.UnsafeAllocator.Initialize(runtime.Cooprt.StartUnsafe, runtime.Cooprt.SizeUnsafe)
+		//runtime.UnsafeAllocator.Initialize(runtime.Cooprt.StartUnsafe, runtime.Cooprt.SizeUnsafe)
 	}
 
 	ptr := reflect.ValueOf(f).Pointer()

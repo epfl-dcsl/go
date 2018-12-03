@@ -423,9 +423,6 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 func sgxEEnter(enclW, srcW *sgx_wrapper, req *runtime.SpawnRequest) {
 	prot := int(_PROT_READ | _PROT_WRITE)
 	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
-
-	enclW.DumpTcs()
-
 	src := srcW.defaultTcs()
 	dest := enclW.defaultTcs()
 	src.used, dest.used = true, true

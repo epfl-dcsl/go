@@ -204,6 +204,14 @@ skipgcenable:
 		return
 	}
 
+	if isEnclave {
+		if Cooprt == nil {
+			throw("Cooprt is nil here...")
+		}
+		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
+		//gcenable()
+	}
+
 	fn = main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
