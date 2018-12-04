@@ -16,10 +16,9 @@ const (
 //it corresponds to a page size.
 type uspan struct {
 	id       uint32
-	bitmask  uint64              //quick check for available 64 bytes slots, bit 0 is [start;start+64[
-	start    uintptr             //address of the beginning.
-	freesize uintptr             //in bytes
-	malloced map[uintptr]umentry //map from pointer to size.
+	bitmask  uint64  //quick check for available 64 bytes slots, bit 0 is [start;start+64[
+	start    uintptr //address of the beginning.
+	freesize uintptr //in bytes
 	prev     uspanptr
 	next     uspanptr
 }
@@ -46,6 +45,7 @@ type sgentry struct {
 	isrcv bool
 	orig  unsafe.Pointer
 	buff  unsafe.Pointer
+	sbuff uintptr
 }
 
 type spanlist struct {
@@ -118,7 +118,6 @@ func (u *uledger) Initialize(start, size uintptr) {
 		sp.bitmask = _uspfree
 		sp.start = start + uintptr(i)*_psize
 		sp.freesize = _psize
-		sp.malloced = make(map[uintptr]umentry)
 		u.freespans.add(sp)
 	}
 }
@@ -149,9 +148,9 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 }
 
 //go:nowritebarrier
-func (u *uledger) Free(ptr uintptr) {
+func (u *uledger) Free(ptr, size uintptr) {
 	index := (ptr - u.start) / _psize //find the pod
-	move, ok := u.allspans[index].deallocate(ptr)
+	move, ok := u.allspans[index].deallocate(ptr, size)
 	if !ok { //Failed de-allocating
 		throw("uledger: error deallocating object!")
 	}
@@ -178,7 +177,7 @@ func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint1
 	if elem != nil {
 		memmove(buff, elem, uintptr(size))
 	}
-	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff}
+	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff, uintptr(size)}
 	return sg, buff
 }
 
@@ -196,12 +195,12 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 		memmove(e.orig, e.buff, uintptr(size))
 	}
 	//Free the buffer
-	u.Free(uintptr(e.buff))
+	u.Free(uintptr(e.buff), e.sbuff)
 	if len(u.poolsg) < 500 {
 		u.poolsg = append(u.poolsg, sg)
 		return
 	}
-	u.Free(uintptr(unsafe.Pointer(sg)))
+	u.Free(uintptr(unsafe.Pointer(sg)), unsafe.Sizeof(sudog{}))
 }
 
 //go:nowritebarrier
@@ -232,22 +231,31 @@ func (u *uspan) allocate(size uintptr) (uintptr, bool) {
 	}
 	u.bitmask |= occupied
 	ptr := u.start + uintptr(idx)*_uspgranularity
-	u.malloced[ptr] = umentry{uint32(cbits * _uspgranularity), occupied}
 	u.freesize -= cbits * _uspgranularity
 	return ptr, true
 }
 
-func (u *uspan) deallocate(ptr uintptr) (bool, bool) {
-	e, ok := u.malloced[ptr]
-	if !ok {
-		return false, false
+func (u *uspan) deallocate(ptr, size uintptr) (bool, bool) {
+	cbits := size / _uspgranularity
+	if size%_uspgranularity != 0 {
+		cbits++
 	}
-	delete(u.malloced, ptr)
+	idx := (ptr - u.start) / _uspgranularity
+	if (ptr-u.start)%_uspgranularity != 0 {
+		throw("gosecallocator: assumption was wrong")
+	}
+	occupied := uint64(0)
+	for i := 0; i < int(cbits); i++ {
+		occupied |= 1 << (idx + uintptr(i))
+	}
 	move := false
 	if u.bitmask == _uspfull {
 		move = true
 	}
-	u.bitmask ^= e.mask
-	u.freesize += uintptr(e.size)
+	if (u.bitmask & occupied) != occupied {
+		throw("gosecallocator: mistake computing bitmask or freeing.")
+	}
+	u.bitmask ^= occupied
+	u.freesize += uintptr(cbits * _uspgranularity)
 	return move, true
 }

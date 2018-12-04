@@ -24,7 +24,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			runtime.Cooprt.Ocall <- req
 			res := <-csys
 			runtime.Cooprt.ReleaseSysPool(syscid)
-			runtime.UnsafeAllocator.Free(destptr)
+			runtime.UnsafeAllocator.Free(destptr, a3)
 			return res.R1, res.R2, Errno(res.Err)
 		case uintptr(318):
 			syscid, csys := runtime.Cooprt.AcquireSysPool()
@@ -34,7 +34,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			res := <-csys
 			runtime.Cooprt.ReleaseSysPool(syscid)
 			memcpy(destptr, a1, a2)
-			runtime.UnsafeAllocator.Free(destptr)
+			runtime.UnsafeAllocator.Free(destptr, a2)
 			return res.R1, res.R2, Errno(res.Err)
 		case SYS_GETUID:
 			syscid, csys := runtime.Cooprt.AcquireSysPool()

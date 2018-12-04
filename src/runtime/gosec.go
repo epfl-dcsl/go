@@ -453,3 +453,10 @@ func enclaveIsMapped(ptr uintptr, n uintptr) bool {
 func EnclHeapSizeToAllocate() uintptr {
 	return _MaxMemEncl
 }
+
+// For debugging
+func DebuggingShit() {
+	//lockOSThread()
+	//gcenable()
+	//UnlockOSThread()
+}

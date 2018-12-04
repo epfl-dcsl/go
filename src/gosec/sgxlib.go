@@ -118,7 +118,10 @@ func sgxLoadProgram(path string) {
 	//transpstack := transposeIn(pstack)
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
 	enclWrap.entry = uintptr(fn)
-	sgxEEnter(enclWrap, srcWrap, nil)
+	stcs = srcWrap.defaultTcs()
+	dtcs := enclWrap.defaultTcs()
+	stcs.used, dtcs.used = true, true
+	sgxEEnter(dtcs, stcs, nil)
 }
 
 // palign does a page align.
@@ -420,16 +423,17 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(enclW, srcW *sgx_wrapper, req *runtime.SpawnRequest) {
-	prot := int(_PROT_READ | _PROT_WRITE)
-	manon := _MAP_ANON | _MAP_FIXED | _MAP_PRIVATE
-	src := srcW.defaultTcs()
-	dest := enclW.defaultTcs()
-	src.used, dest.used = true, true
+func sgxEEnter(dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
+	prot := int32(_PROT_READ | _PROT_WRITE)
+	manon := int32(_MAP_ANON | _MAP_FIXED | _MAP_PRIVATE)
 
 	//mmap the unprotected stack
-	_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
-	check(ret)
+	//_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
+	//check(ret)
+	_, ret := runtime.RMmap(unsafe.Pointer(src.stack), src.ssiz, prot, manon, -1, 0)
+	if ret != 0 {
+		panic("Unable to map tcs stack.")
+	}
 	swsptr := src.stack + src.ssiz
 	ptrs := (*uint64)(unsafe.Pointer(swsptr))
 
@@ -459,7 +463,7 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, req *runtime.SpawnRequest) {
 
 	// isSim flag - 40 RSP
 	simFlag := uint64(0)
-	if enclW.isSim {
+	if enclWrap.isSim {
 		simFlag = uint64(1)
 	}
 	swsptr -= unsafe.Sizeof(uint64(0))
@@ -495,7 +499,7 @@ func sgxEEnter(enclW, srcW *sgx_wrapper, req *runtime.SpawnRequest) {
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.tcs)
 
-	runtime.StartEnclaveOSThread(swsptr, unsafe.Pointer(enclW.entry))
+	runtime.StartEnclaveOSThread(swsptr, unsafe.Pointer(enclWrap.entry))
 }
 
 func testEntry() {

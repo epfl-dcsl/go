@@ -123,6 +123,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 	runtime.GosecureSend(attrib)
 }
 
+// executes without g, m, or p, so might need to do better.
 func spawnEnclaveThread(req *runtime.SpawnRequest) {
 	// TODO @aghosn will need a lock here.
 	for i, tcs := range enclWrap.tcss {
@@ -134,7 +135,7 @@ func spawnEnclaveThread(req *runtime.SpawnRequest) {
 		src.used, dest.used = true, true
 		//TODO unlock now.
 
-		sgxEEnter(enclWrap, srcWrap, req)
+		sgxEEnter(dest, src, req)
 		// In the simulation we just return.
 		if enclWrap.isSim {
 			return

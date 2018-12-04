@@ -666,6 +666,14 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	shouldhelpgc := false
 	dataSize := size
 	c := gomcache()
+	if c == nil {
+		gp := getg()
+		println("The g we got ", gp, " with its m ", gp.m, "and mcache ", gp.m.mcache, " gp.m.p", gp.m.p)
+		throw("malloc has no access to mcache")
+	} /*else if isEnclave {
+		gp := getg()
+		println("c ok, g ", gp, " with m ", gp.m, " mcache", gp.m.mcache)
+	}*/
 	var x unsafe.Pointer
 	noscan := typ == nil || typ.kind&kindNoPointers != 0
 	if size <= maxSmallSize {

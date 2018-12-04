@@ -250,11 +250,11 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 	RET
 
 // Allows to do an ocall:
-// 1. []set RBX to the target RIP (trgt)
-// 2. [](opt) rdi holds ocall index (idx)
-// 3. [] rsi pointer to marshalling arguments to call (args)
-// 4. []switch to unprotected stack (nstak)
-// 5. []set rbp too (rbp)
+// 1. [~]set RBX to the target RIP (trgt)
+// 2. [\](opt) rdi holds ocall index (idx) -> gave this one up
+// 3. [~] rsi pointer to marshalling arguments to call (args)
+// 4. [~]switch to unprotected stack (nstak)
+// 5. [~]set rbp too (rbp)
 // void sgx_ocall(void* trgt, void* args, void* nstk, void* rbp)
 TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 	//Arguments for the ocall

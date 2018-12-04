@@ -117,10 +117,12 @@ func (s *sgx_wrapper) DumpDebugInfo() {
 	}
 	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
 	fmt.Printf("{base: %x, siz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.mhstart, s.mhsize)
+	for _, tcs := range s.tcss {
+		tcs.DumpTcs()
+	}
 }
 
-func (s *sgx_wrapper) DumpTcs() {
-	tcs := s.defaultTcs()
+func (tcs *sgx_tcs_info) DumpTcs() {
 	fmt.Printf("stack: %x, ssiz: %x, tcs: %x, msgx: %x, tls: %x\n", tcs.stack,
 		tcs.ssiz, tcs.tcs, tcs.msgx, tcs.tls)
 }

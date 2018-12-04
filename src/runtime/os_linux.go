@@ -143,6 +143,7 @@ const (
 //go:noescape
 func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) int32
 
+//go:nowritebarrier
 func newosproc(mp *m, stk unsafe.Pointer) {
 	if !isEnclave {
 		newosproc1(mp, stk)
@@ -156,7 +157,11 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	if !isSimulation {
 		throw("Pure sgx not yet supported")
 	}
+
 	gp := getg()
+	if gp == nil || gp.m == nil || gp.m.g0 == nil {
+		throw("Something is not inited according to previsions.")
+	}
 	ustk := gp.m.g0.sched.usp
 	ubp := gp.m.g0.sched.ubp
 	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(SpawnRequest{}))
@@ -165,7 +170,7 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	args.Gp = uintptr(unsafe.Pointer(mp.g0))
 	args.Mp = uintptr(unsafe.Pointer(mp))
 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
-	UnsafeAllocator.Free(aptr)
+	UnsafeAllocator.Free(aptr, unsafe.Sizeof(SpawnRequest{}))
 }
 
 // May run with m.p==nil, so write barriers are not allowed.

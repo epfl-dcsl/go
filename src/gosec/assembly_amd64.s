@@ -14,7 +14,11 @@ TEXT gosec·asm_eenter(SB),$0-40
 TEXT gosec·asm_exception(SB),$0
     BYTE $0x0f; BYTE $0x01; BYTE $0xd7
 
-// func asm_oentry(req *runtime.SpawnRequest) 
-TEXT gosec·asm_oentry(SB),$0
+// The goals is to push req *runtime.SpawnRequest on the stack before the call
+// According to our current implementation, req is in SI 
+// func asm_oentry() 
+TEXT gosec·asm_oentry(SB),$8-8
+	PUSHQ SI
 	CALL gosec·spawnEnclaveThread(SB)
+	POPQ SI
 	RET
