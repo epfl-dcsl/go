@@ -125,28 +125,24 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 
 // executes without g, m, or p, so might need to do better.
 func spawnEnclaveThread(req *runtime.SpawnRequest) {
-	// TODO @aghosn will need a lock here.
-	for i := range enclWrap.tcss {
-		if enclWrap.tcss[i].Used {
-			continue
-		}
-		src := &srcWrap.tcss[i]
-		dest := &enclWrap.tcss[i]
-		src.Used, dest.Used = true, true
-		//TODO unlock now.
-
-		sgxEEnter(uint64(i), dest, src, req)
-		// In the simulation we just return.
-		if enclWrap.isSim {
-			//TODO this is buggy right now.
-			//just loop forever to debugg the other issue and come back to that.
-			for {
-			}
-			return
-		}
-		// For sgx, we call eresume
-		sgxEResume(req.Sid)
+	if !enclWrap.tcss[req.Did].Used {
+		panic("Error, tcs is not reserved.")
 	}
+	src := &srcWrap.tcss[req.Did]
+	dest := &enclWrap.tcss[req.Did]
+	src.Used, dest.Used = true, true
+
+	sgxEEnter(uint64(req.Did), dest, src, req)
+	// In the simulation we just return.
+	if enclWrap.isSim {
+		//TODO this is buggy right now.
+		//just loop forever to debugg the other issue and come back to that.
+		for {
+		}
+		return
+	}
+	// For sgx, we call eresume
+	sgxEResume(req.Sid)
 	panic("gosec: unable to find an available tcs")
 }
 

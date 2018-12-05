@@ -167,6 +167,7 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(SpawnRequest{}))
 	args := (*SpawnRequest)(unsafe.Pointer(aptr))
 	args.Sid = gp.m.procid
+	args.Did = mp.procid
 	if isSimulation {
 		println("g0: ", mp.g0, " m: ", mp)
 	}

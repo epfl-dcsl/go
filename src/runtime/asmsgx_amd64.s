@@ -3,11 +3,21 @@
 #include "funcdata.h"
 #include "textflag.h"
 
+//TODO @aghosn find what to do with pstack?
+//Maybe we don't even need to allocate it in the end.
 // This is the entry point for enclave threads.
 // sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g, id)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
-	//TODO set tls, this is complicated. 
-	
+	// set the tls if is simulation
+	MOVB runtime·isSimulation(SB), R8
+	CMPB R8, $1
+	JNE nonsim
+		
+	MOVQ msgx+32(FP), R9
+	LEAQ m_tls(R9), DI
+	CALL runtime·sgxsettls(SB)
+
+nonsim:
 	// set the m and g
 	MOVQ mp+56(FP), R8
 	MOVQ gp+64(FP), R9
@@ -20,9 +30,11 @@ TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
 	MOVQ R9, m_procid(R8)
 
 	// Switch stacks now that we used all the values
-	// and set it up.
 	// TODO save unsafe stack somewhere.
-	MOVQ pstack+48(FP), SP
+	// Protected stack is mp.g0.stack.hi
+	get_tls(CX)
+	MOVQ g(CX), AX
+	MOVQ (g_stack+stack_hi)(AX), SP
 	CALL runtime·stackcheck(SB)	
 
 	CALL runtime·mstart(SB)

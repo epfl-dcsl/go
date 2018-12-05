@@ -76,7 +76,7 @@ type SgxTCSInfo struct {
 	Used  bool
 }
 
-//CooperativeRuntime structure contains information and channels for runtime cooperation.
+//CooperativeRuntime information and channels for runtime cooperation.
 type CooperativeRuntime struct {
 	EcallSrv chan EcallServerReq
 	Ocall    chan OcallReq
@@ -471,7 +471,7 @@ func EnclHeapSizeToAllocate() uintptr {
 
 // For debugging
 func DebuggingShit() {
-	//lockOSThread()
-	//gcenable()
-	//UnlockOSThread()
+	lockOSThread()
+	gcenable()
+	UnlockOSThread()
 }
