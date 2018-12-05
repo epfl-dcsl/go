@@ -86,8 +86,7 @@ type CooperativeRuntime struct {
 	// The enclave heap region.
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
-	eHeap uintptr
-
+	eHeap  uintptr
 	OEntry uintptr
 }
 
@@ -456,7 +455,7 @@ func EnclHeapSizeToAllocate() uintptr {
 
 // For debugging
 func DebuggingShit() {
-	//lockOSThread()
-	//gcenable()
-	//UnlockOSThread()
+	lockOSThread()
+	gcenable()
+	UnlockOSThread()
 }

@@ -9,11 +9,11 @@
 // set tls base to DI
 TEXT runtime·sgxsettls(SB),NOSPLIT,$32
 
-    // See if we are in simulation mode or not.
-    MOVB runtime·isSimulation(SB), R8
-    CMPB R8, $1
-    JE 2(PC)
-    MOVL $0xf1, 0xf1  // crash
+  // See if we are in simulation mode or not.
+  MOVB runtime·isSimulation(SB), R8
+  CMPB R8, $1
+  JE 2(PC)
+  MOVL $0xf1, 0xf1  // crash
 
 	ADDQ	$8, DI	// ELF wants to use -8(FS)
 	MOVQ	DI, SI

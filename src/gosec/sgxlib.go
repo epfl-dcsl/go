@@ -121,7 +121,7 @@ func sgxLoadProgram(path string) {
 	stcs = srcWrap.defaultTcs()
 	dtcs := enclWrap.defaultTcs()
 	stcs.used, dtcs.used = true, true
-	sgxEEnter(dtcs, stcs, nil)
+	sgxEEnter(uint64(0), dtcs, stcs, nil)
 }
 
 // palign does a page align.
@@ -423,7 +423,7 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
-func sgxEEnter(dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
+func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	prot := int32(_PROT_READ | _PROT_WRITE)
 	manon := int32(_MAP_ANON | _MAP_FIXED | _MAP_PRIVATE)
 
@@ -439,6 +439,11 @@ func sgxEEnter(dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 
 	// Spawning a new thread for the enclave
 	if req != nil {
+		// the id for the procid - 72 RSP
+		swsptr -= unsafe.Sizeof(uint64(0))
+		ptrs = (*uint64)(unsafe.Pointer(swsptr))
+		*ptrs = id
+
 		// the target g - 64 RSP
 		swsptr -= unsafe.Sizeof(uint64(0))
 		ptrs = (*uint64)(unsafe.Pointer(swsptr))
@@ -475,18 +480,20 @@ func sgxEEnter(dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.tls - TLS_MSGX_OFF)
 
+	//TODO @aghosn this is the one that does not work.
+	//pre-allocate them in the dest tcs???
 	// Put the arguments for sgxEEnter
-	rdi, rsi := uint64(0), uint64(0)
+	//rdi, rsi := uint64(0), uint64(0)
 
 	// RSI - 24 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(uintptr(unsafe.Pointer(&rsi)))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.rsi)))
 
 	// RDI - 16 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(uintptr(unsafe.Pointer(&rdi)))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.rdi)))
 
 	// Xception - 8 RSP
 	xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())

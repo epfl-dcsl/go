@@ -126,8 +126,8 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 // executes without g, m, or p, so might need to do better.
 func spawnEnclaveThread(req *runtime.SpawnRequest) {
 	// TODO @aghosn will need a lock here.
-	for i, tcs := range enclWrap.tcss {
-		if tcs.used {
+	for i := range enclWrap.tcss {
+		if enclWrap.tcss[i].used {
 			continue
 		}
 		src := &srcWrap.tcss[i]
@@ -135,9 +135,13 @@ func spawnEnclaveThread(req *runtime.SpawnRequest) {
 		src.used, dest.used = true, true
 		//TODO unlock now.
 
-		sgxEEnter(dest, src, req)
+		sgxEEnter(uint64(i), dest, src, req)
 		// In the simulation we just return.
 		if enclWrap.isSim {
+			//TODO this is buggy right now.
+			//just loop forever to debugg the other issue and come back to that.
+			for {
+			}
 			return
 		}
 		// For sgx, we call eresume
@@ -148,4 +152,6 @@ func spawnEnclaveThread(req *runtime.SpawnRequest) {
 
 //TODO place holder for the moment
 func sgxEResume(id uint64) {
+	for {
+	}
 }

@@ -11,30 +11,8 @@
 // The goal here is to put a -1 inside the argc to let the runtime know we are
 // in an enclave.
 // We also have to setup the tls if in sim and the appropriate stack.
-// _encl0_amd64(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g)
-TEXT _encl0_amd64(SB),NOSPLIT,$-72
-	//setup msgx
-	MOVQ msgx+32(FP), R9
-	MOVQ R9, runtime·mglobal(SB)
-
-	//isSim, then need to set up tls.
-	MOVQ isSim+40(FP), R9
-	CMPB R9, $1
-	JNE nonsim
-
-	MOVB $1, runtime·isSimulation(SB)
-	
-	//set the tls for the simulation
-	MOVQ runtime·mglobal(SB), R9
-	LEAQ m_tls(R9), DI
-	CALL runtime·sgxsettls(SB)
-
-nonsim:
-	//Save unsafe stack inside g0.sched.usp
-	MOVQ $runtime·g0(SB), R8
-	MOVQ SP, g_sched+gobuf_bp+8(R8) // save usp 
-	MOVQ BP, g_sched+gobuf_bp+16(R8) // save ubp
-
+// _encl0_amd64(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g, id)
+TEXT _encl0_amd64(SB),NOSPLIT,$-80
 	//See if we need trampoline or not
 	//if we do, we switch stacks overthere.
 	//TODO this is wrong??/.
@@ -42,7 +20,29 @@ nonsim:
 	CMPB R8, $1
 	JNE needinit
 	JMP runtime·sgxtramp_encl(SB)
+
 needinit:
+	//setup msgx, for m0
+	MOVQ msgx+32(FP), R9
+	MOVQ R9, runtime·mglobal(SB)
+	//isSim, then need to set up tls.
+	MOVQ isSim+40(FP), R9
+	CMPB R9, $1
+	JNE nonsim
+	MOVB $1, runtime·isSimulation(SB)
+
+	//set the tls for the simulation
+	MOVQ runtime·mglobal(SB), R9
+	LEAQ m_tls(R9), DI
+	CALL runtime·sgxsettls(SB)
+
+nonsim:
+	//TODO this does not work actually
+	//Save unsafe stack inside g0.sched.usp
+	MOVQ $runtime·g0(SB), R8
+	MOVQ SP, g_sched+gobuf_bp+8(R8) // save usp 
+	MOVQ BP, g_sched+gobuf_bp+16(R8) // save ubp
+
 	MOVQ	pstack+48(FP), SP
 	MOVQ	$-1, DI		//argc for enclave
 	LEAQ	0(SP), SI 	// argv

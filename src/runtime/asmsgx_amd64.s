@@ -4,21 +4,24 @@
 #include "textflag.h"
 
 // This is the entry point for enclave threads.
-// sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, pstack, m, g, id)
+// sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g, id)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
+	//TODO set tls, this is complicated. 
+	
 	// set the m and g
-	MOVQ mp+48(FP), R8
-	MOVQ gp+56(FP), R9
+	MOVQ mp+56(FP), R8
+	MOVQ gp+64(FP), R9
 
 	get_tls(CX)
 	MOVQ R8, g_m(R9)
 	MOVQ R9, g(CX)
 
-	MOVQ id+64(FP), R9
+	MOVQ id+72(FP), R9
 	MOVQ R9, m_procid(R8)
 
 	// Switch stacks now that we used all the values
 	// and set it up.
+	// TODO save unsafe stack somewhere.
 	MOVQ pstack+48(FP), SP
 	CALL runtime·stackcheck(SB)	
 

@@ -106,6 +106,8 @@ type sgx_tcs_info struct {
 	ssa   uintptr
 	msgx  uintptr // size 0x1000, for the mglobal otherwise doesn't work
 	tls   uintptr // size 0x1000
+	rdi   uint64
+	rsi   uint64
 	entry uintptr // entry point for this tcs.
 	used  bool
 }
@@ -152,5 +154,6 @@ func transposeOutTCS(orig sgx_tcs_info) sgx_tcs_info {
 	return sgx_tcs_info{
 		transposeOut(orig.stack), orig.ssiz, transposeOut(orig.tcs),
 		transposeOut(orig.ssa), transposeOut(orig.msgx), transposeOut(orig.tls),
+		orig.rdi, orig.rsi,
 		transposeOut(orig.entry), orig.used}
 }

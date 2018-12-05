@@ -80,7 +80,7 @@ var (
 	g0           g
 	raceprocctx0 uintptr
 
-	//TODO aghosn for the enclave.
+	//@aghosn for the enclave.
 	mglobal *m = nil
 )
 

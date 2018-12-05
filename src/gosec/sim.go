@@ -72,7 +72,7 @@ func simLoadProgram(path string) {
 	enclWrap.entry = uintptr(fn)
 	dtcs, stcs := enclWrap.defaultTcs(), srcWrap.defaultTcs()
 	dtcs.used, stcs.used = true, true
-	sgxEEnter(dtcs, stcs, nil)
+	sgxEEnter(uint64(0), dtcs, stcs, nil)
 }
 
 func simPreallocate(wrap *sgx_wrapper) {
