@@ -98,7 +98,7 @@ func sgxLoadProgram(path string) {
 	//Setup the stack arguments and Cooprt heap.
 	//This allows to make the argv part of the measurement.
 	stcs := srcWrap.defaultTcs()
-	_ = runtime.SetupEnclSysStack(stcs.stack+stcs.ssiz, enclWrap.mhstart)
+	_ = runtime.SetupEnclSysStack(stcs.Stack+stcs.Ssiz, enclWrap.mhstart)
 
 	// Mprotect and EADD stack and preallocated.
 	sgxEaddPrealloc(secs, enclWrap, srcWrap)
@@ -120,7 +120,7 @@ func sgxLoadProgram(path string) {
 	enclWrap.entry = uintptr(fn)
 	stcs = srcWrap.defaultTcs()
 	dtcs := enclWrap.defaultTcs()
-	stcs.used, dtcs.used = true, true
+	stcs.Used, dtcs.Used = true, true
 	sgxEEnter(uint64(0), dtcs, stcs, nil)
 }
 
@@ -184,15 +184,15 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	wrapper.tcss = make([]sgx_tcs_info, NBTCS)
 	for i := 0; i < NBTCS; i++ {
 		ptcs := &wrapper.tcss[i]
-		ptcs.stack = uintptr(palign(endAddr, false)) + 2*PSIZE
-		ptcs.ssiz = uintptr(STACK_SIZE)
-		ptcs.tcs = ptcs.stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
-		ptcs.ssa = ptcs.tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
-		ptcs.msgx = ptcs.ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
-		ptcs.tls = ptcs.msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
-		ptcs.entry = uintptr(file.Entry)
-		ptcs.used = false
-		endAddr = uint64(ptcs.tls + TLS_SIZE)
+		ptcs.Stack = uintptr(palign(endAddr, false)) + 2*PSIZE
+		ptcs.Ssiz = uintptr(STACK_SIZE)
+		ptcs.Tcs = ptcs.Stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
+		ptcs.Ssa = ptcs.Tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
+		ptcs.Msgx = ptcs.Ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
+		ptcs.Tls = ptcs.Msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
+		ptcs.Entry = uintptr(file.Entry)
+		ptcs.Used = false
+		endAddr = uint64(ptcs.Tls + TLS_SIZE)
 	}
 	wrapper.mhstart = uintptr(endAddr) + TLS_MHSTART_OFF
 	wrapper.mhsize = runtime.EnclHeapSizeToAllocate()
@@ -214,7 +214,7 @@ func sgxEaddPrealloc(secs *secs_t, dest, src *sgx_wrapper) {
 	prot := uintptr(_PROT_READ | _PROT_WRITE)
 	for i, dtcs := range dest.tcss {
 		stcs := &src.tcss[i]
-		sgxAddRegion(secs, dtcs.stack, stcs.stack, dtcs.ssiz, prot, SGX_SECINFO_REG)
+		sgxAddRegion(secs, dtcs.Stack, stcs.Stack, dtcs.Ssiz, prot, SGX_SECINFO_REG)
 	}
 	//eadd heap and membuf
 	sgxAddRegion(secs, dest.mhstart, src.mhstart, dest.mhsize, prot, SGX_SECINFO_REG)
@@ -227,22 +227,22 @@ func sgxRegisterTCSs(dest, src *sgx_wrapper) {
 	}
 
 	for i := range dest.tcss {
-		sgxInitEaddTCS(uint64(dest.tcss[i].entry), dest.secs, &dest.tcss[i], &src.tcss[i])
+		sgxInitEaddTCS(uint64(dest.tcss[i].Entry), dest.secs, &dest.tcss[i], &src.tcss[i])
 	}
 }
 
 // TODO should maybe change the layout.
 func sgxInitEaddTCS(entry uint64, secs *secs_t, dest, src *sgx_tcs_info) {
-	tcs := (*tcs_t)(unsafe.Pointer(src.tcs))
+	tcs := (*tcs_t)(unsafe.Pointer(src.Tcs))
 	tcs.reserved1 = uint64(0)
 	tcs.flags = uint64(0)
-	tcs.ossa = uint64(dest.ssa) - secs.baseAddr
+	tcs.ossa = uint64(dest.Ssa) - secs.baseAddr
 	tcs.cssa = uint32(0)
 	tcs.nssa = TCS_N_SSA
 	tcs.oentry = entry - secs.baseAddr
 	tcs.reserved2 = uint64(0)
 
-	tcs.ofsbasgx = uint64(dest.tls) - secs.baseAddr
+	tcs.ofsbasgx = uint64(dest.Tls) - secs.baseAddr
 	tcs.ogsbasgx = tcs.ofsbasgx
 	tcs.fslimit = SGX_FS_LIMIT
 	tcs.gslimit = SGX_GS_LIMIT
@@ -251,15 +251,15 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, dest, src *sgx_tcs_info) {
 	}
 
 	// Add the TCS
-	sgxAddRegion(secs, dest.tcs, src.tcs, PSIZE, _PROT_READ|_PROT_WRITE,
+	sgxAddRegion(secs, dest.Tcs, src.Tcs, PSIZE, _PROT_READ|_PROT_WRITE,
 		SGX_SECINFO_TCS)
 
 	// Add the SSA and FS.
-	sgxAddRegion(secs, dest.ssa, src.ssa,
+	sgxAddRegion(secs, dest.Ssa, src.Ssa,
 		SSA_SIZE, _PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 
 	// Add the MSGX and TLS regions
-	sgxAddRegion(secs, dest.msgx, src.msgx, uintptr(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE),
+	sgxAddRegion(secs, dest.Msgx, src.Msgx, uintptr(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE),
 		_PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 }
 
@@ -430,11 +430,11 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	//mmap the unprotected stack
 	//_, ret := syscall.RMmap(src.stack, int(src.ssiz), prot, manon, -1, 0)
 	//check(ret)
-	_, ret := runtime.RMmap(unsafe.Pointer(src.stack), src.ssiz, prot, manon, -1, 0)
+	_, ret := runtime.RMmap(unsafe.Pointer(src.Stack), src.Ssiz, prot, manon, -1, 0)
 	if ret != 0 {
 		panic("Unable to map tcs stack.")
 	}
-	swsptr := src.stack + src.ssiz
+	swsptr := src.Stack + src.Ssiz
 	ptrs := (*uint64)(unsafe.Pointer(swsptr))
 
 	// Spawning a new thread for the enclave
@@ -461,9 +461,9 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	// room for the argc argv, so sizeof(int32) + sizeof(ptr -- 64bits)
 	if req == nil {
 		argssiz := unsafe.Sizeof(int32(0)) + unsafe.Sizeof(uint64(0))
-		*ptrs = uint64(dest.stack + dest.ssiz - argssiz)
+		*ptrs = uint64(dest.Stack + dest.Ssiz - argssiz)
 	} else {
-		*ptrs = uint64(dest.stack + dest.ssiz)
+		*ptrs = uint64(dest.Stack + dest.Ssiz)
 	}
 
 	// isSim flag - 40 RSP
@@ -478,7 +478,7 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	// msgx address - 32 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(dest.tls - TLS_MSGX_OFF)
+	*ptrs = uint64(dest.Tls - TLS_MSGX_OFF)
 
 	//TODO @aghosn this is the one that does not work.
 	//pre-allocate them in the dest tcs???
@@ -488,12 +488,12 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	// RSI - 24 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.rsi)))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.Rsi)))
 
 	// RDI - 16 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.rdi)))
+	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.Rdi)))
 
 	// Xception - 8 RSP
 	xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
@@ -504,7 +504,7 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.SpawnRequest) {
 	// tcs - 0 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
-	*ptrs = uint64(dest.tcs)
+	*ptrs = uint64(dest.Tcs)
 
 	runtime.StartEnclaveOSThread(swsptr, unsafe.Pointer(enclWrap.entry))
 }

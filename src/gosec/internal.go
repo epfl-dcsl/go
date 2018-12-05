@@ -127,12 +127,12 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 func spawnEnclaveThread(req *runtime.SpawnRequest) {
 	// TODO @aghosn will need a lock here.
 	for i := range enclWrap.tcss {
-		if enclWrap.tcss[i].used {
+		if enclWrap.tcss[i].Used {
 			continue
 		}
 		src := &srcWrap.tcss[i]
 		dest := &enclWrap.tcss[i]
-		src.used, dest.used = true, true
+		src.Used, dest.Used = true, true
 		//TODO unlock now.
 
 		sgxEEnter(uint64(i), dest, src, req)

@@ -57,8 +57,23 @@ type poolSudog struct {
 
 type SpawnRequest struct {
 	Sid uint64  //tcs source id of requester
+	Did uint64  // tcs dest id for new thread
 	Gp  uintptr // the g that will be used for the new thread
 	Mp  uintptr // the m that will be used for the new thread
+}
+
+//SgxTCSInfo describes a tcs related information, such as tls.
+type SgxTCSInfo struct {
+	Stack uintptr
+	Ssiz  uintptr
+	Tcs   uintptr // tcs size 0x1000.
+	Ssa   uintptr
+	Msgx  uintptr // size 0x1000, for the mglobal otherwise doesn't work
+	Tls   uintptr // size 0x1000
+	Rdi   uint64
+	Rsi   uint64
+	Entry uintptr // entry point for this tcs.
+	Used  bool
 }
 
 //CooperativeRuntime structure contains information and channels for runtime cooperation.
@@ -87,6 +102,7 @@ type CooperativeRuntime struct {
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
 	eHeap  uintptr
+	Tcss   []SgxTCSInfo
 	OEntry uintptr
 }
 
@@ -455,7 +471,7 @@ func EnclHeapSizeToAllocate() uintptr {
 
 // For debugging
 func DebuggingShit() {
-	lockOSThread()
-	gcenable()
-	UnlockOSThread()
+	//lockOSThread()
+	//gcenable()
+	//UnlockOSThread()
 }

@@ -51,27 +51,28 @@ func simLoadProgram(path string) {
 		prot := _PROT_READ | _PROT_WRITE
 		manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
 		// mmap the stack
-		_, err = syscall.RMmap(tcs.stack, int(tcs.ssiz), prot, manon, -1, 0)
+		_, err = syscall.RMmap(tcs.Stack, int(tcs.Ssiz), prot, manon, -1, 0)
 		check(err)
 
 		// Map the MSGX+TLS area
 		size := int(MSGX_SIZE + MSGX_TLS_OFF + TLS_SIZE)
-		_, err = syscall.RMmap(tcs.msgx, size, prot, manon, -1, 0)
+		_, err = syscall.RMmap(tcs.Msgx, size, prot, manon, -1, 0)
 		check(err)
 		// unprotected stack is mmap lazily
 	}
 
 	// register the heap, setup the enclave stack
 	etcs := enclWrap.defaultTcs()
-	etcs.used = true
-	srcWrap.defaultTcs().used = true
-	_ = runtime.SetupEnclSysStack(etcs.stack+etcs.ssiz, enclWrap.mhstart)
+	etcs.Used = true
+	srcWrap.defaultTcs().Used = true
+	runtime.Cooprt.Tcss = enclWrap.tcss
+	_ = runtime.SetupEnclSysStack(etcs.Stack+etcs.Ssiz, enclWrap.mhstart)
 
 	// Create the thread for enclave, setups the stacks.
 	fn := unsafe.Pointer(uintptr(file.Entry))
 	enclWrap.entry = uintptr(fn)
 	dtcs, stcs := enclWrap.defaultTcs(), srcWrap.defaultTcs()
-	dtcs.used, stcs.used = true, true
+	dtcs.Used, stcs.Used = true, true
 	sgxEEnter(uint64(0), dtcs, stcs, nil)
 }
 

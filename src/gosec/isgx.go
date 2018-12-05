@@ -99,18 +99,7 @@ type sgx_wrapper struct {
 	entry   uintptr // where to jump (asm_eenter or file.Entry)
 }
 
-type sgx_tcs_info struct {
-	stack uintptr
-	ssiz  uintptr
-	tcs   uintptr // tcs size 0x1000.
-	ssa   uintptr
-	msgx  uintptr // size 0x1000, for the mglobal otherwise doesn't work
-	tls   uintptr // size 0x1000
-	rdi   uint64
-	rsi   uint64
-	entry uintptr // entry point for this tcs.
-	used  bool
-}
+type sgx_tcs_info = runtime.SgxTCSInfo
 
 func (s *sgx_wrapper) DumpDebugInfo() {
 	if runtime.Cooprt != nil {
@@ -120,13 +109,9 @@ func (s *sgx_wrapper) DumpDebugInfo() {
 	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
 	fmt.Printf("{base: %x, siz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.mhstart, s.mhsize)
 	for _, tcs := range s.tcss {
-		tcs.DumpTcs()
+		fmt.Printf("stack: %x, ssiz: %x, tcs: %x, msgx: %x, tls: %x\n", tcs.Stack,
+			tcs.Ssiz, tcs.Tcs, tcs.Msgx, tcs.Tls)
 	}
-}
-
-func (tcs *sgx_tcs_info) DumpTcs() {
-	fmt.Printf("stack: %x, ssiz: %x, tcs: %x, msgx: %x, tls: %x\n", tcs.stack,
-		tcs.ssiz, tcs.tcs, tcs.msgx, tcs.tls)
 }
 
 func (s *sgx_wrapper) defaultTcs() *sgx_tcs_info {
@@ -152,8 +137,8 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 
 func transposeOutTCS(orig sgx_tcs_info) sgx_tcs_info {
 	return sgx_tcs_info{
-		transposeOut(orig.stack), orig.ssiz, transposeOut(orig.tcs),
-		transposeOut(orig.ssa), transposeOut(orig.msgx), transposeOut(orig.tls),
-		orig.rdi, orig.rsi,
-		transposeOut(orig.entry), orig.used}
+		transposeOut(orig.Stack), orig.Ssiz, transposeOut(orig.Tcs),
+		transposeOut(orig.Ssa), transposeOut(orig.Msgx), transposeOut(orig.Tls),
+		orig.Rdi, orig.Rsi,
+		transposeOut(orig.Entry), orig.Used}
 }
