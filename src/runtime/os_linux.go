@@ -34,8 +34,10 @@ const (
 // Don't sleep longer than ns; ns < 0 means forever.
 //go:nosplit
 func futexsleep(addr *uint32, val uint32, ns int64) {
+	if isEnclave {
+		panic("Enclave calling futexsleep")
+	}
 	var ts timespec
-
 	// TODO @aghosn: just a check for the moment. Seems we have a problem here.
 	if !isEnclave && uintptr(unsafe.Pointer(addr)) > ENCLMASK {
 		panic("[DEBUG] trying to futexsleep from untrusted on trusted object.")
@@ -69,6 +71,9 @@ func futexsleep(addr *uint32, val uint32, ns int64) {
 // If any procs are sleeping on addr, wake up at most cnt.
 //go:nosplit
 func futexwakeup(addr *uint32, cnt uint32) {
+	if isEnclave {
+		panic("Enclave calling futexwakeup")
+	}
 	ret := futex(unsafe.Pointer(addr), _FUTEX_WAKE, cnt, nil, nil, 0)
 	if ret >= 0 {
 		return

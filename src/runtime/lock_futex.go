@@ -163,10 +163,16 @@ func unlock(l *mutex) {
 
 // One-time notifications.
 func noteclear(n *note) {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	n.key = 0
 }
 
 func notewakeup(n *note) {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	old := atomic.Xchg(key32(&n.key), 1)
 	if old != 0 {
 		print("notewakeup - double wakeup (", old, ")\n")
@@ -176,6 +182,9 @@ func notewakeup(n *note) {
 }
 
 func notesleep(n *note) {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	gp := getg()
 	if gp != gp.m.g0 {
 		throw("notesleep not on g0")
@@ -201,6 +210,9 @@ func notesleep(n *note) {
 //go:nosplit
 //go:nowritebarrier
 func notetsleep_internal(n *note, ns int64) bool {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	gp := getg()
 
 	if ns < 0 {
@@ -247,6 +259,9 @@ func notetsleep_internal(n *note, ns int64) bool {
 }
 
 func notetsleep(n *note, ns int64) bool {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	gp := getg()
 	if gp != gp.m.g0 && gp.m.preemptoff != "" {
 		throw("notetsleep not on g0")
@@ -258,6 +273,9 @@ func notetsleep(n *note, ns int64) bool {
 // same as runtime·notetsleep, but called on user g (not g0)
 // calls only nosplit functions between entersyscallblock/exitsyscall
 func notetsleepg(n *note, ns int64) bool {
+	if isEnclave {
+		n = Cooprt.TranslateNote(n)
+	}
 	gp := getg()
 	if gp == gp.m.g0 {
 		throw("notetsleepg on g0")

@@ -102,7 +102,8 @@ type CooperativeRuntime struct {
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
 	eHeap  uintptr
-	Tcss   []SgxTCSInfo
+	Tcss   []SgxTCSInfo // array of tcs infos used in spawnThread
+	Notes  [10]note     // notes for futex calls.
 	OEntry uintptr
 }
 
@@ -165,12 +166,38 @@ func InitCooperativeRuntime() {
 	Cooprt.SizeUnsafe = _unsafeSize
 }
 
+// SetHeapValue allows to let Cooprt register enclave heap value.
 func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
 	if c.eHeap != 0 {
 		return false
 	}
 	c.eHeap = e
 	return true
+}
+
+// TranslateNote translates enclave note address into unsafe one.
+// Required for futexsleepp from the enclave.
+//go:nowritebarrier
+func (c *CooperativeRuntime) TranslateNote(n *note) *note {
+	nptr := uintptr(unsafe.Pointer(n))
+	// Calling futex on something outside of the enclave.
+	// Should not happen so throw exception for the moment
+	// TODO support this later
+	if nptr < ENCLMASK || nptr > ENCLMASK+ENCLSIZE {
+		throw("Calling futex from enclave on a non enclave note")
+		return n
+	}
+	for i, tcs := range c.Tcss {
+		if nptr > tcs.Tls && nptr < tcs.Tls+PSIZE {
+			return &c.Notes[i]
+		}
+	}
+	println("nptr: ", nptr)
+	for _, tcs := range c.Tcss {
+		println("tls: ", tcs.Tls, " Msgx: ", tcs.Msgx)
+	}
+	throw("Could not find the corresponding note")
+	return n
 }
 
 //MarkNoFutex sets the g's markednofutex attribute to true.

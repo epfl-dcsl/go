@@ -2013,6 +2013,7 @@ retry:
 		} else if run == 0 {
 			throw("Apparently this can happen")
 		} else if isEnclave {
+			println("run: ", run, " -- waiting: ", sched.gcwaiting)
 			for {
 			}
 			throw("This should not happen either")
