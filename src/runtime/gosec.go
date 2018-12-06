@@ -55,11 +55,25 @@ type poolSudog struct {
 	isRcv     bool
 }
 
-type SpawnRequest struct {
-	Sid uint64  //tcs source id of requester
-	Did uint64  // tcs dest id for new thread
-	Gp  uintptr // the g that will be used for the new thread
-	Mp  uintptr // the m that will be used for the new thread
+// Request types for OExitRequest.
+const (
+	SpawnRequest       = uint64(1)
+	FutexSleepRequest  = uint64(2)
+	FutexWakeupRequest = uint64(3)
+)
+
+//OExitRequest pass when doing an sgx_ocall.
+//It is supposed to have a size of 64bytes, which is the granularity of our
+//unsafe allocator.
+type OExitRequest struct {
+	Cid  uint64  //OExit id
+	Sid  uint64  //tcs source id of requester
+	Did  uint64  // tcs dest id for new thread
+	Gp   uintptr // the g that will be used for the new thread
+	Mp   uintptr // the m that will be used for the new thread
+	Addr uintptr // pointer to futex target
+	Val  uint32  // value that needs to be written with futex
+	Ns   int64   // nano sleep timeout
 }
 
 //SgxTCSInfo describes a tcs related information, such as tls.
@@ -501,4 +515,53 @@ func DebuggingShit() {
 	lockOSThread()
 	gcenable()
 	UnlockOSThread()
+}
+
+// Futexsleep for the enclave. We interpose so that we can eexit.
+//go:nosplit
+func futexsleep0(addr *uint32, val uint32, ns int64) {
+	gp := getg()
+	if gp == nil || gp.m == nil || gp.m.g0 == nil {
+		throw("Something is not initialized.")
+	}
+	ustk := gp.m.g0.sched.usp
+	ubp := gp.m.g0.sched.ubp
+	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(OExitRequest{}))
+	args := (*OExitRequest)(unsafe.Pointer(aptr))
+	args.Cid = FutexSleepRequest
+	args.Sid = gp.m.procid
+	args.Addr = uintptr(unsafe.Pointer(addr))
+	args.Val = val
+	args.Ns = ns
+	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
+	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
+}
+
+// Futexwakeup for the enclave.
+//go:nosplit
+func futexwakeup0(addr *uint32, cnt uint32) {
+	gp := getg()
+	if gp == nil || gp.m == nil || gp.m.g0 == nil {
+		throw("Something is not initialized.")
+	}
+	ustk := gp.m.g0.sched.usp
+	ubp := gp.m.g0.sched.ubp
+	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(OExitRequest{}))
+	args := (*OExitRequest)(unsafe.Pointer(aptr))
+	args.Cid = FutexWakeupRequest
+	args.Sid = gp.m.procid
+	args.Addr = uintptr(unsafe.Pointer(addr))
+	args.Val = cnt
+	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
+	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
+}
+
+func futexsleepE(req *OExitRequest) {
+	//TODO
+	panic("Sleep not implemented yet.")
+}
+
+func futexwakeupE(req *OExitRequest) {
+	//TODO
+	panic("Wakeup not implemented yet.")
 }

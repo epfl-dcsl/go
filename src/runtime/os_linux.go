@@ -35,7 +35,8 @@ const (
 //go:nosplit
 func futexsleep(addr *uint32, val uint32, ns int64) {
 	if isEnclave {
-		panic("Enclave calling futexsleep")
+		futexsleep0(addr, val, ns)
+		return
 	}
 	var ts timespec
 	// TODO @aghosn: just a check for the moment. Seems we have a problem here.
@@ -72,7 +73,8 @@ func futexsleep(addr *uint32, val uint32, ns int64) {
 //go:nosplit
 func futexwakeup(addr *uint32, cnt uint32) {
 	if isEnclave {
-		panic("Enclave calling futexwakeup")
+		futexwakeup0(addr, cnt)
+		return
 	}
 	ret := futex(unsafe.Pointer(addr), _FUTEX_WAKE, cnt, nil, nil, 0)
 	if ret >= 0 {
@@ -169,8 +171,9 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	}
 	ustk := gp.m.g0.sched.usp
 	ubp := gp.m.g0.sched.ubp
-	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(SpawnRequest{}))
-	args := (*SpawnRequest)(unsafe.Pointer(aptr))
+	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(OExitRequest{}))
+	args := (*OExitRequest)(unsafe.Pointer(aptr))
+	args.Cid = SpawnRequest
 	args.Sid = gp.m.procid
 	args.Did = mp.procid
 	if isSimulation {
@@ -179,7 +182,7 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	args.Gp = uintptr(unsafe.Pointer(mp.g0))
 	args.Mp = uintptr(unsafe.Pointer(mp))
 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
-	UnsafeAllocator.Free(aptr, unsafe.Sizeof(SpawnRequest{}))
+	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
 }
 
 // May run with m.p==nil, so write barriers are not allowed.

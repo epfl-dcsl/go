@@ -25,7 +25,7 @@ type funcval struct {
 
 var initOnce sync.Once
 
-func asm_oentry(req *runtime.SpawnRequest)
+func asm_oentry(req *runtime.OExitRequest)
 
 func LoadEnclave() {
 	p, err := elf.Open(os.Args[0])
@@ -124,7 +124,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 }
 
 // executes without g, m, or p, so might need to do better.
-func spawnEnclaveThread(req *runtime.SpawnRequest) {
+func spawnEnclaveThread(req *runtime.OExitRequest) {
 	if !enclWrap.tcss[req.Did].Used {
 		panic("Error, tcs is not reserved.")
 	}
