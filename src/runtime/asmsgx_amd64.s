@@ -3,8 +3,7 @@
 #include "funcdata.h"
 #include "textflag.h"
 
-//TODO @aghosn find what to do with pstack?
-//Maybe we don't even need to allocate it in the end.
+//Maybe we don't even need to allocate pstack in the end.
 // This is the entry point for enclave threads.
 // sgxtramp_encl(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g, id)
 TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
@@ -28,9 +27,16 @@ nonsim:
 
 	MOVQ id+72(FP), R9
 	MOVQ R9, m_procid(R8)
+	
+	// save unprotected stack
+	get_tls(CX)
+	MOVQ g(CX), AX // AX = g
+	MOVQ g_m(AX), BX // BX = m
+	MOVQ m_g0(BX), DX // DX = m.g0
+	MOVQ SP, g_sched+gobuf_bp+8(DX)
+	MOVQ BP, g_sched+gobuf_bp+16(DX)
 
 	// Switch stacks now that we used all the values
-	// TODO save unsafe stack somewhere.
 	// Protected stack is mp.g0.stack.hi
 	get_tls(CX)
 	MOVQ g(CX), AX
@@ -251,10 +257,6 @@ nonsim:
 	// start this M
 	CALL	runtime·mstart(SB)
 
-	// TODO remove afterwards (just for debuggin)
-	MOVQ $0x050000000000, R8
-	MOVQ $0x222, (R8)
-
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
@@ -272,14 +274,17 @@ TEXT setg_gcc<>(SB),NOSPLIT,$0
 // 5. [~]set rbp too (rbp)
 // void sgx_ocall(void* trgt, void* args, void* nstk, void* rbp)
 TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
+	//save current stack and bp in unprotected
+	get_tls(CX)
+	MOVQ g(CX), AX // AX = g
+	MOVQ g_m(AX), BX // BX = m
+	MOVQ m_g0(BX), DX // DX = m.g0
+	MOVQ SP, g_sched+gobuf_bp+8(DX)
+	MOVQ BP, g_sched+gobuf_bp+16(DX)
+
 	//Arguments for the ocall
 	MOVQ trgt+0(FP), BX
 	MOVQ args+8(FP), SI
-
-	//save current stack and bp in unprotected TODO not sure correct.
-	MOVQ $runtime·g0(SB), R8
-	MOVQ SP, g_sched+gobuf_bp+8(R8)
-	MOVQ BP, g_sched+gobuf_bp+16(R8)
 
 	//restore the rbp and rsp
 	MOVQ nstk+16(FP), R8
@@ -300,14 +305,20 @@ sgxcall:
 	BYTE $0x0f; BYTE $0x01; BYTE $0xd7 //ENCLU EEXIT
 
 cleanup:
-	//switch the stack and bp back, save unprotected.
-	MOVQ $runtime·g0(SB), R8
-	LEAQ g_sched+gobuf_bp+8(R8), DI
-	LEAQ g_sched+gobuf_bp+16(R8), SI
+	get_tls(CX)
+	MOVQ g(CX), AX // AX = g
+	MOVQ g_m(AX), BX // BX = m
+	MOVQ m_g0(BX), DX // DX = m.g0
 
-	MOVQ SP, g_sched+gobuf_bp+8(R8)
-	MOVQ BP, g_sched+gobuf_bp+16(R8)
+	//Get previous values for the stack
+	MOVQ g_sched+gobuf_bp+8(DX), DI
+	MOVQ g_sched+gobuf_bp+16(DX), SI
 
+	//Save the unsafe stack current location
+	MOVQ SP, g_sched+gobuf_bp+8(DX)
+	MOVQ BP, g_sched+gobuf_bp+16(DX)
+	
+	//switch stacks
 	MOVQ DI, SP
 	MOVQ SI, BP
 

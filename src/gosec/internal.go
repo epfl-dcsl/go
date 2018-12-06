@@ -135,10 +135,6 @@ func spawnEnclaveThread(req *runtime.SpawnRequest) {
 	sgxEEnter(uint64(req.Did), dest, src, req)
 	// In the simulation we just return.
 	if enclWrap.isSim {
-		//TODO this is buggy right now.
-		//just loop forever to debugg the other issue and come back to that.
-		for {
-		}
 		return
 	}
 	// For sgx, we call eresume
