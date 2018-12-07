@@ -140,8 +140,8 @@ const (
 )
 
 var (
-	//UnsafeAllocator manages unsafe memory from the enclave.
-	UnsafeAllocator uledger
+	UnsafeAllocator uledger // manages unsafe memory from the enclave.
+	workEnclave     uintptr // replica for the gc in unsafe memory
 )
 
 // entry point for an ocall, defined in asm in runtime/asmsgx_amd64.s
@@ -201,11 +201,21 @@ func (c *CooperativeRuntime) TranslateNote(n *note) *note {
 		throw("Calling futex from enclave on a non enclave note")
 		return n
 	}
+	// A note from the M
 	for i, tcs := range c.Tcss {
 		if nptr > tcs.Tls && nptr < tcs.Tls+PSIZE {
 			return &c.Notes[i]
 		}
 	}
+
+	// A note from the work
+	wkptr := uintptr(unsafe.Pointer(&work))
+	wksize := unsafe.Sizeof(work)
+	if nptr > wkptr && nptr < wkptr+wksize {
+		res := (*note)(unsafe.Pointer(workEnclave + (wkptr - nptr)))
+		return res
+	}
+
 	println("nptr: ", nptr)
 	for _, tcs := range c.Tcss {
 		println("tls: ", tcs.Tls, " Msgx: ", tcs.Msgx)

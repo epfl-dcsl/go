@@ -120,6 +120,9 @@ func (u *uledger) Initialize(start, size uintptr) {
 		sp.freesize = _psize
 		u.freespans.add(sp)
 	}
+
+	// Now initialize the workEnclave
+	workEnclave = u.Malloc(unsafe.Sizeof(work))
 }
 
 //go:nowritebarrier
