@@ -556,12 +556,22 @@ func futexwakeup0(addr *uint32, cnt uint32) {
 	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
 }
 
+//go:nosplit
+//go:nowritebarrier
 func futexsleepE(req *OExitRequest) {
-	//TODO
-	panic("Sleep not implemented yet.")
+	if req.Ns < 0 {
+		futex(unsafe.Pointer(req.Addr), _FUTEX_WAIT, req.Val, nil, nil, 0)
+		return
+	}
+	throw("Call to futexsleep with Ns != 0")
 }
 
+//go:nosplit
+//go:nowritebarrier
 func futexwakeupE(req *OExitRequest) {
-	//TODO
-	panic("Wakeup not implemented yet.")
+	ret := futex(unsafe.Pointer(req.Addr), _FUTEX_WAKE, req.Val, nil, nil, 0)
+	if ret >= 0 {
+		return
+	}
+	throw("Futex wakeup enclave failed.")
 }
