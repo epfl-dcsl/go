@@ -123,6 +123,7 @@ func (u *uledger) Initialize(start, size uintptr) {
 
 	// Now initialize the workEnclave
 	workEnclave = u.Malloc(unsafe.Sizeof(work))
+	//println("Address of work ", unsafe.Pointer(&work.bgMarkReady))
 }
 
 //go:nowritebarrier

@@ -105,6 +105,7 @@ func (s *sgx_wrapper) DumpDebugInfo() {
 	if runtime.Cooprt != nil {
 		fmt.Printf("Cooprt at %p\n", runtime.Cooprt)
 		fmt.Printf("Cooprt.Ecall %p, Cooprt.Ocall %p\n", runtime.Cooprt.EcallSrv, runtime.Cooprt.Ocall)
+		fmt.Printf("Unsafe allocation: %x, size: %x\n", runtime.Cooprt.StartUnsafe, runtime.Cooprt.SizeUnsafe)
 	}
 	fmt.Printf("[DEBUG-INFO] wrapper at %p\n", s)
 	fmt.Printf("{base: %x, siz: %x, mhstart: %x, mhsize: %x}\n", s.base, s.siz, s.mhstart, s.mhsize)

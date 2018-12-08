@@ -176,9 +176,6 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 	args.Cid = SpawnRequest
 	args.Sid = gp.m.procid
 	args.Did = mp.procid
-	if isSimulation {
-		println("g0: ", mp.g0, " m: ", mp)
-	}
 	args.Gp = uintptr(unsafe.Pointer(mp.g0))
 	args.Mp = uintptr(unsafe.Pointer(mp))
 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)

@@ -190,10 +190,16 @@ func (c *CooperativeRuntime) SetHeapValue(e uintptr) bool {
 }
 
 // TranslateNote translates enclave note address into unsafe one.
-// Required for futexsleepp from the enclave.
+// Required for futexsleepp from the enclave. TODO this is wrong somehow.
+//go:nosplit
 //go:nowritebarrier
 func (c *CooperativeRuntime) TranslateNote(n *note) *note {
 	nptr := uintptr(unsafe.Pointer(n))
+	//Sometimes nested calls, so already translated
+	if nptr >= c.StartUnsafe && nptr <= c.StartUnsafe+c.SizeUnsafe {
+		return n
+	}
+
 	// Calling futex on something outside of the enclave.
 	// Should not happen so throw exception for the moment
 	// TODO support this later
@@ -212,7 +218,7 @@ func (c *CooperativeRuntime) TranslateNote(n *note) *note {
 	wkptr := uintptr(unsafe.Pointer(&work))
 	wksize := unsafe.Sizeof(work)
 	if nptr > wkptr && nptr < wkptr+wksize {
-		res := (*note)(unsafe.Pointer(workEnclave + (wkptr - nptr)))
+		res := (*note)(unsafe.Pointer(workEnclave + (nptr - wkptr)))
 		return res
 	}
 

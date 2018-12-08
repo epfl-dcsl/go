@@ -25,7 +25,7 @@ const (
 	MSGX_ADDR = 0x050000000020
 	//TLS is m0+m_tls+8
 	TLS_MSGX_OFF = (0x70 + 8) // TODO this depends on m_tls which is bad.
-	NBTCS        = 2          // how many tcs do we provide.
+	NBTCS        = 3          // how many tcs do we provide.
 )
 
 type SortedElfSections []*elf.Section
