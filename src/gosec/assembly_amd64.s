@@ -1,3 +1,5 @@
+#include "textflag.h"
+
 // func asm_eenter(tcs, xcpt, rdi, rsi uint64)
 TEXT gosec·asm_eenter(SB),$0-40
     MOVQ $2, AX				//EENTER
@@ -18,7 +20,7 @@ TEXT gosec·asm_exception(SB),$0
 // According to our current implementation, req is in SI
 // This function does the dispatch for the enclave
 // func asm_oentry() 
-TEXT gosec·asm_oentry(SB),$8-8
+TEXT gosec·asm_oentry(SB),NOSPLIT,$8-8
 	PUSHQ SI
 	MOVQ (SI), R9
 	CMPQ R9, $1 // SpawnRequest (runtime/gosec.go)

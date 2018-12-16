@@ -161,13 +161,12 @@ skipsysmon:
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
-	//TODO @aghosn terrible
+	//TODO @aghosn terrible, change that.
 	if isEnclave {
-		goto skipgcenable
+		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
 	}
 	gcenable()
 
-skipgcenable:
 	main_init_done = make(chan bool)
 	if iscgo {
 		if _cgo_thread_start == nil {
@@ -194,14 +193,6 @@ skipgcenable:
 	fn()
 
 	close(main_init_done)
-
-	if isEnclave {
-		if Cooprt == nil {
-			throw("Cooprt is nil here...")
-		}
-		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
-		//gcenable()
-	}
 
 	needUnlock = false
 	unlockOSThread()

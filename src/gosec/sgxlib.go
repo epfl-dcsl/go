@@ -423,6 +423,7 @@ func sgxEinit(secs *secs_t, tok *TokenGob) {
 
 //TODO @aghosn, this is bad, we should use the address from source,
 // we should also change the way the assembly works (maybe later).
+//go:nosplit
 func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.OExitRequest) {
 	prot := int32(_PROT_READ | _PROT_WRITE)
 	manon := int32(_MAP_ANON | _MAP_FIXED | _MAP_PRIVATE)

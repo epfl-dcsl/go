@@ -470,6 +470,7 @@ func SetupEnclSysStack(stack, eS uintptr) uintptr {
 	return addrArgv
 }
 
+//go:nosplit
 func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	ret := clone(cloneFlags, unsafe.Pointer(stack), nil, nil, fn)
 	if ret < 0 {
@@ -524,13 +525,6 @@ func enclaveIsMapped(ptr uintptr, n uintptr) bool {
 
 func EnclHeapSizeToAllocate() uintptr {
 	return _MaxMemEncl
-}
-
-// For debugging
-func DebuggingShit() {
-	lockOSThread()
-	gcenable()
-	UnlockOSThread()
 }
 
 // Futexsleep for the enclave. We interpose so that we can eexit.
@@ -590,4 +584,19 @@ func futexwakeupE(req *OExitRequest) {
 		return
 	}
 	throw("Futex wakeup enclave failed.")
+}
+
+//		DEBUGGING stuff that will need to be removed or replaced
+//TODO @aghosn
+
+// For debugging
+func DebuggingShit() {
+	//	lockOSThread()
+	//	gcenable()
+	//	UnlockOSThread()
+}
+
+func ForceGC() {
+	for gosweepone() != ^uintptr(0) {
+	}
 }

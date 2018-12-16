@@ -123,9 +123,9 @@ func (u *uledger) Initialize(start, size uintptr) {
 
 	// Now initialize the workEnclave
 	workEnclave = u.Malloc(unsafe.Sizeof(work))
-	//println("Address of work ", unsafe.Pointer(&work.bgMarkReady))
 }
 
+//go:nosplit
 //go:nowritebarrier
 func (u *uledger) Malloc(size uintptr) uintptr {
 	if u.freespans.isEmpty() {
@@ -151,6 +151,7 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 	return uintptr(0)
 }
 
+//go:nosplit
 //go:nowritebarrier
 func (u *uledger) Free(ptr, size uintptr) {
 	index := (ptr - u.start) / _psize //find the pod
@@ -165,6 +166,7 @@ func (u *uledger) Free(ptr, size uintptr) {
 }
 
 //AllocateSudog allocates an unsafe sudog
+//go:nosplit
 func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
 	if !isEnclave {
 		panicGosec("Trying to allocate sudog from untrusted")
@@ -186,6 +188,7 @@ func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint1
 }
 
 //ReleaseUnsafeSudog
+//go:nosplit
 func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	if sg.id != -1 && !isEnclave {
 		panicGosec("Wrong call to realeaseUnsafeSudog")
@@ -207,6 +210,7 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	u.Free(uintptr(unsafe.Pointer(sg)), unsafe.Sizeof(sudog{}))
 }
 
+//go:nosplit
 //go:nowritebarrier
 func (u *uspan) allocate(size uintptr) (uintptr, bool) {
 	cbits := size / _uspgranularity
@@ -239,6 +243,8 @@ func (u *uspan) allocate(size uintptr) (uintptr, bool) {
 	return ptr, true
 }
 
+//go:nosplit
+//go:nowritebarrier
 func (u *uspan) deallocate(ptr, size uintptr) (bool, bool) {
 	cbits := size / _uspgranularity
 	if size%_uspgranularity != 0 {

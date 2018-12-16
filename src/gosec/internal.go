@@ -124,6 +124,7 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 }
 
 // executes without g, m, or p, so might need to do better.
+//go:nosplit
 func spawnEnclaveThread(req *runtime.OExitRequest) {
 	if !enclWrap.tcss[req.Did].Used {
 		panic("Error, tcs is not reserved.")
