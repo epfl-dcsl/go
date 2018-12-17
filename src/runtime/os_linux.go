@@ -317,7 +317,7 @@ func osinit() {
 	_MHeapMap_BitsEncl = _MHeapMap_BitsEncl - _PageShift
 	_MaxMemEncl = 1<<_MHeapMap_TotalBitsEncl - 1
 	if isEnclave {
-		gomaxprocs = 1
+		gomaxprocs = 0
 		ncpu = 1
 		return
 	}
