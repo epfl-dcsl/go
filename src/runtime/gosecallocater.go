@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -53,6 +54,31 @@ type spanlist struct {
 	tail uspanptr
 }
 
+type slock struct {
+	key uint32
+}
+
+//go:nosplit
+func (l *slock) lock() {
+	for {
+		for i := 0; i < active_spin_cnt; i++ {
+			if l.key == mutex_unlocked {
+				if atomic.Cas(&l.key, mutex_unlocked, mutex_locked) {
+					return
+				}
+			}
+		}
+		procyield(15)
+	}
+}
+
+//go:nosplit
+func (l *slock) unlock() {
+	if v := atomic.Xchg(&l.key, mutex_unlocked); v != mutex_locked {
+		throw("Error on spinlock.")
+	}
+}
+
 type uledger struct {
 	start     uintptr
 	size      uintptr
@@ -63,6 +89,7 @@ type uledger struct {
 	inusesg map[uintptr]sgentry //map that keeps track of untrusted sudog
 	poolsg  []*sudog            //keep a pool of allocated sgs
 	inited  bool
+	sl      slock
 }
 
 //go:nowritebarrier
@@ -128,6 +155,7 @@ func (u *uledger) Initialize(start, size uintptr) {
 //go:nosplit
 //go:nowritebarrier
 func (u *uledger) Malloc(size uintptr) uintptr {
+	u.sl.lock()
 	if u.freespans.isEmpty() {
 		println("Size of allspans ", len(u.allspans))
 		println("Size of a sudog ", unsafe.Sizeof(sudog{}), " - ", u.inited)
@@ -143,10 +171,12 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 					u.freespans.remove(span)
 					u.fullspans.add(span)
 				}
+				u.sl.unlock()
 				return ptr
 			}
 		}
 	}
+	u.sl.unlock()
 	throw("uledger: ran out of contiguous memory")
 	return uintptr(0)
 }
@@ -154,6 +184,7 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 //go:nosplit
 //go:nowritebarrier
 func (u *uledger) Free(ptr, size uintptr) {
+	u.sl.lock()
 	index := (ptr - u.start) / _psize //find the pod
 	move, ok := u.allspans[index].deallocate(ptr, size)
 	if !ok { //Failed de-allocating
@@ -163,52 +194,53 @@ func (u *uledger) Free(ptr, size uintptr) {
 		u.fullspans.remove(&u.allspans[index])
 		u.freespans.add(&u.allspans[index])
 	}
+	u.sl.unlock()
 }
 
 //AllocateSudog allocates an unsafe sudog
 //go:nosplit
-func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
-	if !isEnclave {
-		panicGosec("Trying to allocate sudog from untrusted")
-	}
-	var sg *sudog
-	if len(u.poolsg) > 0 {
-		sg = u.poolsg[0]
-		u.poolsg = u.poolsg[1:]
-	} else {
-		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sudog{}))))
-	}
-	sg.id = 1
-	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
-	if elem != nil {
-		memmove(buff, elem, uintptr(size))
-	}
-	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff, uintptr(size)}
-	return sg, buff
-}
+//func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
+//	if !isEnclave {
+//		panicGosec("Trying to allocate sudog from untrusted")
+//	}
+//	var sg *sudog
+//	if len(u.poolsg) > 0 {
+//		sg = u.poolsg[0]
+//		u.poolsg = u.poolsg[1:]
+//	} else {
+//		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sudog{}))))
+//	}
+//	sg.id = 1
+//	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
+//	if elem != nil {
+//		memmove(buff, elem, uintptr(size))
+//	}
+//	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff, uintptr(size)}
+//	return sg, buff
+//}
 
 //ReleaseUnsafeSudog
 //go:nosplit
-func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
-	if sg.id != -1 && !isEnclave {
-		panicGosec("Wrong call to realeaseUnsafeSudog")
-	}
-
-	e, ok := u.inusesg[uintptr(unsafe.Pointer(sg))]
-	if !ok {
-		panicGosec("Cannot find the sudog in the inusesg map")
-	}
-	if e.isrcv && e.orig != nil {
-		memmove(e.orig, e.buff, uintptr(size))
-	}
-	//Free the buffer
-	u.Free(uintptr(e.buff), e.sbuff)
-	if len(u.poolsg) < 500 {
-		u.poolsg = append(u.poolsg, sg)
-		return
-	}
-	u.Free(uintptr(unsafe.Pointer(sg)), unsafe.Sizeof(sudog{}))
-}
+//func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
+//	if sg.id != -1 && !isEnclave {
+//		panicGosec("Wrong call to realeaseUnsafeSudog")
+//	}
+//
+//	e, ok := u.inusesg[uintptr(unsafe.Pointer(sg))]
+//	if !ok {
+//		panicGosec("Cannot find the sudog in the inusesg map")
+//	}
+//	if e.isrcv && e.orig != nil {
+//		memmove(e.orig, e.buff, uintptr(size))
+//	}
+//	//Free the buffer
+//	u.Free(uintptr(e.buff), e.sbuff)
+//	if len(u.poolsg) < 500 {
+//		u.poolsg = append(u.poolsg, sg)
+//		return
+//	}
+//	u.Free(uintptr(unsafe.Pointer(sg)), unsafe.Sizeof(sudog{}))
+//}
 
 //go:nosplit
 //go:nowritebarrier

@@ -2421,10 +2421,6 @@ stop:
 		}
 	}
 
-	//if cprtQ != nil && cprtQ.size > 0 {
-	//	migrateCrossDomain(false)
-	//}
-
 	// check all runqueues once again
 	for _, _p_ := range allp {
 		if !runqempty(_p_) {
@@ -2690,7 +2686,6 @@ func park_m(gp *g) {
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
-	//migrateCrossDomain()
 	schedule()
 }
 
@@ -2702,9 +2697,6 @@ func goschedImpl(gp *g) {
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
 	dropg()
-	//if Cooprt != nil {
-	//	migrateCrossDomain()
-	//}
 	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)

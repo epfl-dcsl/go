@@ -273,13 +273,6 @@ func panicGosec(a string) {
 	panic(a)
 }
 
-//AvoidDeadlock drives the scheduler forever.
-func AvoidDeadlock() {
-	for {
-		Gosched()
-	}
-}
-
 // sysFutex allows to do a wakeup call on a futex while going through the
 // interposition mechanism.
 func sysFutex(addr *uint32, cnt uint32) {
