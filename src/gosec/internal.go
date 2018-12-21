@@ -109,8 +109,6 @@ func Gosecload(size int32, fn *funcval, b uint8) {
 		LoadEnclave()
 		// Server to allocate requests & service system calls for the enclave.
 		go oCallServer()
-		//go allocServer()
-		//go runtime.AvoidDeadlock()
 	})
 
 	//Copy the stack frame inside a buffer.

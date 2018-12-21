@@ -46,15 +46,6 @@ type poolSysChan struct {
 	c         chan OcallRes
 }
 
-type poolSudog struct {
-	wg        *sudog
-	isencl    bool
-	available uint32
-	buff      []byte
-	orig      unsafe.Pointer
-	isRcv     bool
-}
-
 // Request types for OExitRequest.
 const (
 	SpawnRequest       = uint64(1)
@@ -100,9 +91,6 @@ type CooperativeRuntime struct {
 
 	readyE lfqueue //Ready to be rescheduled in the enclave
 	readyO lfqueue //Ready to be rescheduled outside of the enclave
-
-	//pool of sudog structs allocated in non-trusted.
-	pool []*poolSudog
 
 	//pool of answer channels.
 	sysPool []*poolSysChan
@@ -156,13 +144,6 @@ func InitCooperativeRuntime() {
 	Cooprt = &CooperativeRuntime{}
 	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
-
-	Cooprt.pool = make([]*poolSudog, POOL_INIT_SIZE)
-	for i := range Cooprt.pool {
-		Cooprt.pool[i] = &poolSudog{&sudog{}, false, 1, make([]byte, SG_BUF_SIZE), nil, false}
-		Cooprt.pool[i].wg.id = int32(i)
-	}
-
 	Cooprt.sysPool = make([]*poolSysChan, POOL_INIT_SIZE)
 	for i := range Cooprt.sysPool {
 		Cooprt.sysPool[i] = &poolSysChan{i, 1, make(chan OcallRes)}
@@ -334,27 +315,27 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 	if !isEnclave {
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
-	//return UnsafeAllocator.AcquireUnsafeSudog(elem, isrcv, size)
-	if size > SG_BUF_SIZE {
-		panic("fake sudog buffer is too small.")
-	}
-	for i := range Cooprt.pool {
-		if Cooprt.pool[i].available == 1 {
-			Cooprt.pool[i].available = 0
-			Cooprt.pool[i].wg.id = int32(i)
-			Cooprt.pool[i].isencl = isEnclave
-			Cooprt.pool[i].orig = elem
-			Cooprt.pool[i].isRcv = isrcv
-			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
-			if elem != nil {
-				memmove(ptr, elem, uintptr(size))
-			}
-			return Cooprt.pool[i].wg, ptr
-		}
-	}
-	//TODO @aghosn should come up with something here.
-	panicGosec("Ran out of sudog in the pool.")
-	return nil, nil
+	return UnsafeAllocator.AcquireUnsafeSudog(elem, isrcv, size)
+	//	if size > SG_BUF_SIZE {
+	//		panic("fake sudog buffer is too small.")
+	//	}
+	//	for i := range Cooprt.pool {
+	//		if Cooprt.pool[i].available == 1 {
+	//			Cooprt.pool[i].available = 0
+	//			Cooprt.pool[i].wg.id = int32(i)
+	//			Cooprt.pool[i].isencl = isEnclave
+	//			Cooprt.pool[i].orig = elem
+	//			Cooprt.pool[i].isRcv = isrcv
+	//			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
+	//			if elem != nil {
+	//				memmove(ptr, elem, uintptr(size))
+	//			}
+	//			return Cooprt.pool[i].wg, ptr
+	//		}
+	//	}
+	//	//TODO @aghosn should come up with something here.
+	//	panicGosec("Ran out of sudog in the pool.")
+	//	return nil, nil
 }
 
 // crossReleaseSudog calls the appropriate releaseSudog version depending on whether
@@ -366,26 +347,26 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 		return
 	}
 
-	//UnsafeAllocator.ReleaseUnsafeSudog(sg, size)
-	// This is called from someone who just woke up.
-	// We are executing and are in the correct domain.
-	// Hence this is our first check: id != -1 implies we are in the enclave
-	if sg.id != -1 && !isEnclave {
-		panicGosec("We have a pool sudog containing a non enclave element.")
-	}
-
-	//Copy back the result.
-	if Cooprt.pool[sg.id].isRcv && Cooprt.pool[sg.id].orig != nil {
-		value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
-		memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
-	}
-
-	// Second step is if we are from the pool (and we are inside the enclave),
-	// We are runnable again. We just release the sudog from the pool.
-	Cooprt.pool[sg.id].isencl = false
-	Cooprt.pool[sg.id].orig = nil
-	Cooprt.pool[sg.id].isRcv = false
-	Cooprt.pool[sg.id].available = 1
+	UnsafeAllocator.ReleaseUnsafeSudog(sg, size)
+	//	// This is called from someone who just woke up.
+	//	// We are executing and are in the correct domain.
+	//	// Hence this is our first check: id != -1 implies we are in the enclave
+	//	if sg.id != -1 && !isEnclave {
+	//		panicGosec("We have a pool sudog containing a non enclave element.")
+	//	}
+	//
+	//	//Copy back the result.
+	//	if Cooprt.pool[sg.id].isRcv && Cooprt.pool[sg.id].orig != nil {
+	//		value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
+	//		memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
+	//	}
+	//
+	//	// Second step is if we are from the pool (and we are inside the enclave),
+	//	// We are runnable again. We just release the sudog from the pool.
+	//	Cooprt.pool[sg.id].isencl = false
+	//	Cooprt.pool[sg.id].orig = nil
+	//	Cooprt.pool[sg.id].isRcv = false
+	//	Cooprt.pool[sg.id].available = 1
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.

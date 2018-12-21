@@ -2003,9 +2003,7 @@ retry:
 			goto wakeup
 		} else if run == 0 {
 			throw("Apparently this can happen")
-		} /*else if isEnclave {
-			throw("This should not happen either")
-		}*/
+		}
 	}
 	mput(_g_.m)
 	unlock(&sched.lock)

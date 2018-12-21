@@ -10,6 +10,9 @@ const (
 	_uspgranularity = 64 //allocate by chunks of 64 bytes.
 	_uspfree        = uint64(0x0000000000000000)
 	_uspfull        = uint64(0xffffffffffffffff)
+	_sgfree         = uint32(0x0)
+	_sglock         = uint32(0x1)
+	_sgcachesize    = uint32(500)
 )
 
 //uspan is an unsafe span of memory from which we perform the allocation.
@@ -41,7 +44,7 @@ type umentry struct {
 }
 
 type sgentry struct {
-	sg    *sudog
+	sg    sudog
 	isrcv bool
 	orig  unsafe.Pointer
 	buff  unsafe.Pointer
@@ -60,10 +63,12 @@ type uledger struct {
 	freespans spanlist
 	fullspans spanlist
 
-	inusesg map[uintptr]sgentry //map that keeps track of untrusted sudog
-	poolsg  []*sudog            //keep a pool of allocated sgs
-	inited  bool
-	sl      slock
+	poolsg  waitq //keep a pool of allocated sgs
+	psgsize uint32
+	psglock slock
+
+	inited bool
+	sl     slock
 }
 
 //go:nowritebarrier
@@ -112,7 +117,6 @@ func (u *uledger) Initialize(start, size uintptr) {
 	u.size = size
 	nbpages := size / _psize
 	u.allspans = make([]uspan, nbpages)
-	u.inusesg = make(map[uintptr]sgentry)
 	for i := 0; i < int(nbpages); i++ {
 		sp := &u.allspans[i]
 		sp.id = uint32(i)
@@ -171,6 +175,43 @@ func (u *uledger) Free(ptr, size uintptr) {
 	u.sl.unlock()
 }
 
+// AcquireUnsafeSudog returns an unsafe sudog and an unsafe buffer as
+// requested.
+//go:nosplit
+func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
+	if !isEnclave {
+		throw("Error in AcquireUnsafeSudog")
+	}
+	var sg *sudog
+	//Quick check if the queue is empty
+	if u.psgsize > 0 {
+		u.psglock.lock()
+		sg = u.poolsg.dequeue()
+		if sg != nil {
+			u.psgsize--
+		}
+		u.psglock.unlock()
+	}
+
+	//Need to allocate a new one.
+	if sg == nil {
+		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sgentry{}))))
+	}
+	sg.id = 1
+	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
+	if elem != nil {
+		memmove(buff, elem, uintptr(size))
+	}
+	sg.schednext = 0
+	//book-keeping for the release.
+	sge := (*sgentry)(unsafe.Pointer(sg))
+	sge.isrcv = isrcv
+	sge.orig = elem
+	sge.buff = buff
+	sge.sbuff = uintptr(size)
+	return sg, buff
+}
+
 //AllocateSudog allocates an unsafe sudog
 //go:nosplit
 //func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -192,6 +233,36 @@ func (u *uledger) Free(ptr, size uintptr) {
 //	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff, uintptr(size)}
 //	return sg, buff
 //}
+
+//go:nosplit
+func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
+	if sg.id != -1 && !isEnclave {
+		throw("Error in ReleaseUnsafeSudog")
+	}
+
+	//release values
+	sge := (*sgentry)(unsafe.Pointer(sg))
+
+	if sge.sbuff != uintptr(size) {
+		throw("Error wrong size.")
+	}
+
+	if sge.isrcv && sge.orig != nil {
+		memmove(sge.orig, sge.buff, sge.sbuff)
+	}
+
+	u.Free(uintptr(sge.buff), sge.sbuff)
+
+	//caching size
+	if u.psgsize < _sgcachesize {
+		u.psglock.lock()
+		u.poolsg.enqueue(sg)
+		u.psgsize++
+		u.psglock.unlock()
+	} else {
+		u.Free(uintptr(unsafe.Pointer(sge)), unsafe.Sizeof(sgentry{}))
+	}
+}
 
 //ReleaseUnsafeSudog
 //go:nosplit
