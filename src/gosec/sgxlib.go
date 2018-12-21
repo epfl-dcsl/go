@@ -118,6 +118,7 @@ func sgxLoadProgram(path string) {
 	//transpstack := transposeIn(pstack)
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
 	enclWrap.entry = uintptr(fn)
+	runtime.Cooprt.Tcss = enclWrap.tcss
 	stcs = srcWrap.defaultTcs()
 	dtcs := enclWrap.defaultTcs()
 	stcs.Used, dtcs.Used = true, true

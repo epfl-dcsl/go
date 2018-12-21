@@ -4,6 +4,8 @@ import (
 	"unsafe"
 )
 
+const DEBUGMASK = 0x060000000000
+
 //EcallServerRequest type is used to send a request for the enclave to spawn
 //a new dedicated ecall server listening on the provided private PC channel.
 type EcallServerReq struct {
@@ -281,13 +283,18 @@ func checkinterdomain(rlocal, rforeign bool) bool {
 // migrateCrossDomain takes ready routines from the cross domain queue and puts
 // them in the local or global run queue.
 // the locked argument tells us if sched.lock is locked.
+//go:nosplit
+//go:nowritebarrier
 func migrateCrossDomain(locked bool) {
+	_g_ := getg()
+	_g_.m.locks++
 	if cprtQ == nil {
 		throw("migrateCrossdomain called on un-init cprtQ.")
 	}
 
 	sgq, tail, size := lfqget(cprtQ, locked)
 	if size == 0 {
+		_g_.m.locks--
 		return
 	}
 	if sgq == nil {
@@ -305,10 +312,10 @@ func migrateCrossDomain(locked bool) {
 		sg.schednext = 0
 		ready(gp, 3+1, false)
 	}
-	_g_ := getg()
 	if size > 0 && _g_.m.spinning {
 		resetspinning()
 	}
+	_g_.m.locks--
 }
 
 func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
@@ -316,26 +323,6 @@ func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog,
 		panicGosec("Acquiring fake sudog from non-trusted domain.")
 	}
 	return UnsafeAllocator.AcquireUnsafeSudog(elem, isrcv, size)
-	//	if size > SG_BUF_SIZE {
-	//		panic("fake sudog buffer is too small.")
-	//	}
-	//	for i := range Cooprt.pool {
-	//		if Cooprt.pool[i].available == 1 {
-	//			Cooprt.pool[i].available = 0
-	//			Cooprt.pool[i].wg.id = int32(i)
-	//			Cooprt.pool[i].isencl = isEnclave
-	//			Cooprt.pool[i].orig = elem
-	//			Cooprt.pool[i].isRcv = isrcv
-	//			ptr := unsafe.Pointer(&(Cooprt.pool[i].buff[0]))
-	//			if elem != nil {
-	//				memmove(ptr, elem, uintptr(size))
-	//			}
-	//			return Cooprt.pool[i].wg, ptr
-	//		}
-	//	}
-	//	//TODO @aghosn should come up with something here.
-	//	panicGosec("Ran out of sudog in the pool.")
-	//	return nil, nil
 }
 
 // crossReleaseSudog calls the appropriate releaseSudog version depending on whether
@@ -346,27 +333,7 @@ func crossReleaseSudog(sg *sudog, size uint16) {
 		releaseSudog(sg)
 		return
 	}
-
 	UnsafeAllocator.ReleaseUnsafeSudog(sg, size)
-	//	// This is called from someone who just woke up.
-	//	// We are executing and are in the correct domain.
-	//	// Hence this is our first check: id != -1 implies we are in the enclave
-	//	if sg.id != -1 && !isEnclave {
-	//		panicGosec("We have a pool sudog containing a non enclave element.")
-	//	}
-	//
-	//	//Copy back the result.
-	//	if Cooprt.pool[sg.id].isRcv && Cooprt.pool[sg.id].orig != nil {
-	//		value := unsafe.Pointer(&Cooprt.pool[sg.id].buff[0])
-	//		memmove(Cooprt.pool[sg.id].orig, value, uintptr(size))
-	//	}
-	//
-	//	// Second step is if we are from the pool (and we are inside the enclave),
-	//	// We are runnable again. We just release the sudog from the pool.
-	//	Cooprt.pool[sg.id].isencl = false
-	//	Cooprt.pool[sg.id].orig = nil
-	//	Cooprt.pool[sg.id].isRcv = false
-	//	Cooprt.pool[sg.id].available = 1
 }
 
 // isReschedulable checks if a sudog can be directly rescheduled.
@@ -542,18 +509,14 @@ func futexwakeup0(addr *uint32, cnt uint32) {
 
 //go:nosplit
 //go:nowritebarrier
-func futexsleepE(req *OExitRequest) {
-	if req.Ns < 0 {
-		futex(unsafe.Pointer(req.Addr), _FUTEX_WAIT, req.Val, nil, nil, 0)
-		return
-	}
-	throw("Call to futexsleep with Ns != 0")
+func FutexsleepE(addr unsafe.Pointer, val uint32) {
+	futex(addr, _FUTEX_WAIT, val, nil, nil, 0)
 }
 
 //go:nosplit
 //go:nowritebarrier
-func futexwakeupE(req *OExitRequest) {
-	ret := futex(unsafe.Pointer(req.Addr), _FUTEX_WAKE, req.Val, nil, nil, 0)
+func FutexwakeupE(addr unsafe.Pointer, val uint32) {
+	ret := futex(addr, _FUTEX_WAKE, val, nil, nil, 0)
 	if ret >= 0 {
 		return
 	}
@@ -563,14 +526,17 @@ func futexwakeupE(req *OExitRequest) {
 //		DEBUGGING stuff that will need to be removed or replaced
 //TODO @aghosn
 
-// For debugging
-func DebuggingShit() {
-	//	lockOSThread()
-	//	gcenable()
-	//	UnlockOSThread()
-}
-
 func ForceGC() {
 	for gosweepone() != ^uintptr(0) {
+	}
+}
+
+var addr_debug uintptr = uintptr(DEBUGMASK)
+
+func DebugTag(i int) {
+	if isEnclave {
+		ptr := (*uint64)(unsafe.Pointer(addr_debug))
+		*ptr = uint64(i)
+		addr_debug += unsafe.Sizeof(uint64(0))
 	}
 }

@@ -12,6 +12,9 @@ import (
 	"unsafe"
 )
 
+//TODO @aghosn Debugging right now, remove after
+const DEBUGMASK = 0x060000000000
+
 func check(e error) {
 	if e != nil {
 		panic(e.Error())
@@ -55,6 +58,12 @@ func LoadEnclave() {
 	name := "enclavebin"
 	encl, err := os.Create(name)
 	check(err)
+
+	//Mmap debugging region
+	prot := _PROT_READ | _PROT_WRITE
+	manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
+	_, err = syscall.RMmap(DEBUGMASK, 0x1000, prot, manon, -1, 0)
+	check(err)
 	defer func() { check(encl.Close()) }()
 
 	check(os.Chmod(name, 0755))
@@ -65,8 +74,11 @@ func LoadEnclave() {
 	//Setup the OEntry in Cooprt for extra threads
 	runtime.Cooprt.OEntry = reflect.ValueOf(asm_oentry).Pointer()
 	//Start loading the program within the correct address space.
-	simLoadProgram(name)
-	//sgxLoadProgram(name)
+	if s := os.Getenv("SIMSGX"); s != "" {
+		simLoadProgram(name)
+	} else {
+		sgxLoadProgram(name)
+	}
 }
 
 func oCallServer() {
@@ -139,6 +151,24 @@ func spawnEnclaveThread(req *runtime.OExitRequest) {
 	// For sgx, we call eresume
 	sgxEResume(req.Sid)
 	panic("gosec: unable to find an available tcs")
+}
+
+//go:nosplit
+func FutexSleep(req *runtime.OExitRequest) {
+	runtime.FutexsleepE(unsafe.Pointer(req.Addr), req.Val)
+	if enclWrap.isSim {
+		return
+	}
+	sgxEResume(req.Sid)
+}
+
+//go:nosplit
+func FutexWakeup(req *runtime.OExitRequest) {
+	runtime.FutexwakeupE(unsafe.Pointer(req.Addr), req.Val)
+	if enclWrap.isSim {
+		return
+	}
+	sgxEResume(req.Sid)
 }
 
 //TODO place holder for the moment

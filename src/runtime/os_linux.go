@@ -156,13 +156,8 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 		newosproc1(mp, stk)
 		return
 	}
-
 	if Cooprt == nil {
 		throw("Cooprt is nil.")
-	}
-
-	if !isSimulation {
-		throw("Pure sgx not yet supported")
 	}
 
 	gp := getg()

@@ -30,10 +30,10 @@ TEXT gosec·asm_oentry(SB),NOSPLIT,$8-8
 futsleep:
 	CMPQ R9, $2 // FutexSleepRequest (runtime/gosec.go)
 	JNE futwake
-	CALL runtime·futexsleepE(SB)
+	CALL gosec·FutexSleep(SB)
 	JMP end
 futwake:
-	CALL runtime·futexwakeupE(SB)
+	CALL gosec·FutexWakeup(SB)
 end:
 	POPQ SI
 	RET

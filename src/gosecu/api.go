@@ -49,7 +49,6 @@ func EcallServer() {
 func RegisterSecureFunction(f interface{}) {
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
-		runtime.DebuggingShit()
 	}
 
 	ptr := reflect.ValueOf(f).Pointer()
