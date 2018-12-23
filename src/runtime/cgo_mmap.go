@@ -20,6 +20,7 @@ var _cgo_mmap unsafe.Pointer
 //go:linkname _cgo_munmap _cgo_munmap
 var _cgo_munmap unsafe.Pointer
 
+//go:nosplit
 func mmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uint32) (unsafe.Pointer, int) {
 	if _cgo_mmap != nil {
 		// Make ret a uintptr so that writing to it in the

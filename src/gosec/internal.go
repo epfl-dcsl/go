@@ -74,7 +74,7 @@ func LoadEnclave() {
 	//Setup the OEntry in Cooprt for extra threads
 	runtime.Cooprt.OEntry = reflect.ValueOf(asm_oentry).Pointer()
 	//Start loading the program within the correct address space.
-	if s := os.Getenv("SIMSGX"); s != "" {
+	if s := os.Getenv("SIM"); s != "" {
 		simLoadProgram(name)
 	} else {
 		sgxLoadProgram(name)
@@ -171,8 +171,10 @@ func FutexWakeup(req *runtime.OExitRequest) {
 	sgxEResume(req.Sid)
 }
 
-//TODO place holder for the moment
+//go:nosplit
 func sgxEResume(id uint64) {
-	for {
-	}
+	runtime.DebugTagAt(0, 0)
+	tcs := runtime.Cooprt.Tcss[id]
+	xcpt := runtime.Cooprt.ExceptionHandler
+	asm_eresume(uint64(tcs.Tcs), xcpt)
 }

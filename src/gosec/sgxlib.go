@@ -51,6 +51,9 @@ var (
 // asm_eenter calls the enclu.
 func asm_eenter(tcs, xcpt, rdi, rsi uint64)
 
+// asm_eresume calls enclu to resume execution
+func asm_eresume(tcs, xcpt uint64)
+
 // asm_exception does an eresume
 func asm_exception()
 
@@ -119,6 +122,7 @@ func sgxLoadProgram(path string) {
 	fn := unsafe.Pointer(reflect.ValueOf(asm_eenter).Pointer())
 	enclWrap.entry = uintptr(fn)
 	runtime.Cooprt.Tcss = enclWrap.tcss
+	runtime.Cooprt.ExceptionHandler = uint64(reflect.ValueOf(asm_exception).Pointer())
 	stcs = srcWrap.defaultTcs()
 	dtcs := enclWrap.defaultTcs()
 	stcs.Used, dtcs.Used = true, true
@@ -498,7 +502,7 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.OExitRequest) {
 	*ptrs = uint64(uintptr(unsafe.Pointer(&dest.Rdi)))
 
 	// Xception - 8 RSP
-	xcpt := uint64(reflect.ValueOf(asm_exception).Pointer())
+	xcpt := runtime.Cooprt.ExceptionHandler
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = xcpt

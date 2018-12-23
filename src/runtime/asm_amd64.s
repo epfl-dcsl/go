@@ -13,9 +13,6 @@
 // We also have to setup the tls if in sim and the appropriate stack.
 // _encl0_amd64(tcs, xcpt, rdi, rsi, msgx, isSim, pstack, m, g, id)
 TEXT _encl0_amd64(SB),NOSPLIT,$-80
-	//See if we need trampoline or not
-	//if we do, we switch stacks overthere.
-	//TODO this is wrong??/.
 	MOVB runtime·isEnclave(SB), R8
 	CMPB R8, $1
 	JNE needinit
@@ -37,7 +34,6 @@ needinit:
 	CALL runtime·sgxsettls(SB)
 
 nonsim:
-	//TODO this does not work actually
 	//Save unsafe stack inside g0.sched.usp
 	MOVQ $runtime·g0(SB), R8
 	MOVQ SP, g_sched+gobuf_bp+8(R8) // save usp 

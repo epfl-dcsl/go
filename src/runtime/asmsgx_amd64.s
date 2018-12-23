@@ -15,8 +15,34 @@ TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
 	MOVQ msgx+32(FP), R9
 	LEAQ m_tls(R9), DI
 	CALL runtime·sgxsettls(SB)
+	JMP setup
 
 nonsim:
+	// check if we are reentering
+	// TODO check the value of gm instead
+	CMPQ R10, $0xdead
+	JNE setup
+
+	get_tls(CX)
+	MOVQ g(CX), AX // AX = g
+	MOVQ g_m(AX), BX // BX = m
+	MOVQ m_g0(BX), DX // DX = m.g0
+
+	//Get previous values for the stack
+	MOVQ g_sched+gobuf_bp+8(DX), DI
+	MOVQ g_sched+gobuf_bp+16(DX), SI	
+
+	//Save the unsafe stack current location
+	MOVQ SP, g_sched+gobuf_bp+8(DX)
+	MOVQ BP, g_sched+gobuf_bp+16(DX)
+
+	//switch stacks
+	MOVQ DI, SP
+	MOVQ SI, BP
+
+	RET
+
+setup:
 	// set the m and g
 	MOVQ mp+56(FP), R8
 	MOVQ gp+64(FP), R9
@@ -304,7 +330,10 @@ sgxcall:
 	MOVQ $4, AX
 	BYTE $0x0f; BYTE $0x01; BYTE $0xd7 //ENCLU EEXIT
 
-cleanup:
+	// see if we can come back here.
+	MOVQ $124, 124
+
+cleanup: 
 	get_tls(CX)
 	MOVQ g(CX), AX // AX = g
 	MOVQ g_m(AX), BX // BX = m

@@ -16,6 +16,17 @@ TEXT gosec·asm_eenter(SB),$0-40
 TEXT gosec·asm_exception(SB),$0
     BYTE $0x0f; BYTE $0x01; BYTE $0xd7
 
+// func asm_eresume(tcs, xcpt uint64)
+TEXT gosec·asm_eresume(SB),$0-40
+    MOVQ $2, AX				//EENTER
+    MOVQ tcs+0(FP),BX
+    MOVQ xcpt+8(FP), CX
+		MOVQ $0xdead, R10
+    BYTE $0x0f; BYTE $0x01; BYTE $0xd7 //ENCLU EENTER
+    // Should never return
+		MOVQ $123, 123
+		RET
+
 // The goals is to push req *runtime.OExitRequest on the stack before the call
 // According to our current implementation, req is in SI
 // This function does the dispatch for the enclave

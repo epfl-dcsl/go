@@ -105,10 +105,11 @@ type CooperativeRuntime struct {
 	// The enclave heap region.
 	// This is the equivalent of my previous preallocated regions.
 	// TODO secure it somehow.
-	eHeap  uintptr
-	Tcss   []SgxTCSInfo // array of tcs infos used in spawnThread
-	Notes  [10]note     // notes for futex calls.
-	OEntry uintptr
+	eHeap            uintptr
+	Tcss             []SgxTCSInfo // array of tcs infos used in spawnThread
+	Notes            [10]note     // notes for futex calls.
+	OEntry           uintptr
+	ExceptionHandler uint64
 }
 
 const (
@@ -539,4 +540,10 @@ func DebugTag(i int) {
 		*ptr = uint64(i)
 		addr_debug += unsafe.Sizeof(uint64(0))
 	}
+}
+
+func DebugTagAt(offset, value int) {
+	base := uintptr(DEBUGMASK + offset*8)
+	ptr := (*uint64)(unsafe.Pointer(base))
+	*ptr = uint64(value)
 }
