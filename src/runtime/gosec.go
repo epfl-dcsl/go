@@ -4,8 +4,6 @@ import (
 	"unsafe"
 )
 
-const DEBUGMASK = 0x060000000000
-
 //EcallServerRequest type is used to send a request for the enclave to spawn
 //a new dedicated ecall server listening on the provided private PC channel.
 type EcallServerReq struct {
@@ -85,7 +83,7 @@ type SgxTCSInfo struct {
 
 //CooperativeRuntime information and channels for runtime cooperation.
 type CooperativeRuntime struct {
-	EcallSrv chan EcallServerReq
+	EcallSrv chan *EcallServerReq
 	Ocall    chan OcallReq
 
 	argc int32
@@ -110,6 +108,8 @@ type CooperativeRuntime struct {
 	Notes            [10]note     // notes for futex calls.
 	OEntry           uintptr
 	ExceptionHandler uint64
+
+	Markers [20]int64
 }
 
 const (
@@ -145,7 +145,8 @@ func InitCooperativeRuntime() {
 	}
 
 	Cooprt = &CooperativeRuntime{}
-	Cooprt.EcallSrv, Cooprt.argc, Cooprt.argv = make(chan EcallServerReq), -1, argv
+	Cooprt.EcallSrv = make(chan *EcallServerReq)
+	Cooprt.argc, Cooprt.argv = -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
 	Cooprt.sysPool = make([]*poolSysChan, POOL_INIT_SIZE)
 	for i := range Cooprt.sysPool {
@@ -319,13 +320,6 @@ func migrateCrossDomain(locked bool) {
 	_g_.m.locks--
 }
 
-func acquireSudogFromPool(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
-	if !isEnclave {
-		panicGosec("Acquiring fake sudog from non-trusted domain.")
-	}
-	return UnsafeAllocator.AcquireUnsafeSudog(elem, isrcv, size)
-}
-
 // crossReleaseSudog calls the appropriate releaseSudog version depending on whether
 // the sudog is a crossdomain one or not.
 func crossReleaseSudog(sg *sudog, size uint16) {
@@ -421,6 +415,7 @@ func StartEnclaveOSThread(stack uintptr, fn unsafe.Pointer) {
 	}
 }
 
+//go:nosplit
 func Newproc(ptr uintptr, argp *uint8, siz int32) {
 	if Cooprt == nil {
 		panic("Cooprt must be init before calling gosec.go:Newproc")
@@ -439,13 +434,12 @@ func GosecureSend(req EcallReq) {
 	if gp == nil {
 		throw("Gosecure: un-init g.")
 	}
-
 	if Cooprt == nil {
 		throw("Cooprt not initialized.")
 	}
 	if gp.ecallchan == nil {
 		gp.ecallchan = make(chan EcallReq)
-		srvreq := EcallServerReq{gp.ecallchan}
+		srvreq := &EcallServerReq{gp.ecallchan}
 		MarkNoFutex()
 		Cooprt.EcallSrv <- srvreq
 		MarkFutex()
@@ -522,28 +516,4 @@ func FutexwakeupE(addr unsafe.Pointer, val uint32) {
 		return
 	}
 	throw("Futex wakeup enclave failed.")
-}
-
-//		DEBUGGING stuff that will need to be removed or replaced
-//TODO @aghosn
-
-func ForceGC() {
-	for gosweepone() != ^uintptr(0) {
-	}
-}
-
-var addr_debug uintptr = uintptr(DEBUGMASK)
-
-func DebugTag(i int) {
-	if isEnclave {
-		ptr := (*uint64)(unsafe.Pointer(addr_debug))
-		*ptr = uint64(i)
-		addr_debug += unsafe.Sizeof(uint64(0))
-	}
-}
-
-func DebugTagAt(offset, value int) {
-	base := uintptr(DEBUGMASK + offset*8)
-	ptr := (*uint64)(unsafe.Pointer(base))
-	*ptr = uint64(value)
 }

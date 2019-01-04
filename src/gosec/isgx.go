@@ -1,6 +1,7 @@
 package gosec
 
 import (
+	"debug/elf"
 	"fmt"
 	"runtime"
 )
@@ -60,6 +61,11 @@ const (
 	TLS_MHSTART_OFF = PSIZE
 )
 
+// Elf.Symbol.Name to find addresses
+const (
+	mtlsArrayName = "runtime.enclaveMsgxTlsArr"
+)
+
 var (
 	RT_M0 = uintptr(0)
 )
@@ -97,6 +103,7 @@ type sgx_wrapper struct {
 	secs    *secs_t
 	isSim   bool
 	entry   uintptr // where to jump (asm_eenter or file.Entry)
+	mtlsarr uintptr
 }
 
 type sgx_tcs_info = runtime.SgxTCSInfo
@@ -127,7 +134,7 @@ func transposeOutWrapper(wrap *sgx_wrapper) *sgx_wrapper {
 		transposeOut(wrap.base), wrap.siz, nil,
 		transposeOut(wrap.mhstart), wrap.mhsize,
 		transposeOut(wrap.membuf), nil, wrap.secs, wrap.isSim,
-		wrap.entry}
+		wrap.entry, transposeOut(wrap.mtlsarr)}
 
 	trans.tcss = make([]sgx_tcs_info, len(wrap.tcss))
 	for i := 0; i < len(wrap.tcss); i++ {
@@ -142,4 +149,19 @@ func transposeOutTCS(orig sgx_tcs_info) sgx_tcs_info {
 		transposeOut(orig.Ssa), transposeOut(orig.Msgx), transposeOut(orig.Tls),
 		orig.Rdi, orig.Rsi,
 		transposeOut(orig.Entry), orig.Used}
+}
+
+// getMtlsArr finds the address of the array that we leverage to put MSGX | TLS
+// pages in the enclave as part of the bss segment.
+func getMtlsArr(file *elf.File) uintptr {
+	syms, err := file.Symbols()
+	check(err)
+	for _, s := range syms {
+		if s.Name == mtlsArrayName {
+			return uintptr(palign(s.Value, false))
+		}
+	}
+	//Unable to find the symbol.
+	panic("isgx was unable to find the enclaveMsgxTlsArr symbol address.")
+	return uintptr(0)
 }

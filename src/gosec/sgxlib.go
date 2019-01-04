@@ -24,8 +24,8 @@ const (
 	SIM_FLAG  = 0x050000000008
 	MSGX_ADDR = 0x050000000020
 	//TLS is m0+m_tls+8
-	TLS_MSGX_OFF = (0x70 + 8) // TODO this depends on m_tls which is bad.
-	NBTCS        = 3          // how many tcs do we provide.
+	TLS_MSGX_OFF = (0x70 + 8)            // TODO this depends on m_tls which is bad.
+	NBTCS        = runtime.EnclaveMaxTls // how many tcs do we provide.
 )
 
 type SortedElfSections []*elf.Section
@@ -107,7 +107,6 @@ func sgxLoadProgram(path string) {
 	sgxEaddPrealloc(secs, enclWrap, srcWrap)
 	// initialize the TCSs and Eadd their elements.
 	sgxRegisterTCSs(enclWrap, srcWrap)
-	//	sgxInitEaddTCS(file.Entry, secs, enclWrap.defaultTcs(), srcWrap.defaultTcs())
 
 	// EINIT: first get the token, then call the ioctl.
 	sgxHashFinalize()
@@ -181,23 +180,23 @@ func sgxCreateSecs(file *elf.File) (*secs_t, *sgx_wrapper) {
 	secs.xfrm = 0x7
 	secs.ssaFrameSize = 1
 	secs.attributes = 0x06
-	// Here we should setup stack | guard page | TCS | SSA | guard page | MSG | TLS
-	//Check the tcs, ssa, etc..
+	// Here we should setup stack | guard page | TCS | SSA
 	wrapper := &sgx_wrapper{}
 	wrapper.base = uintptr(secs.baseAddr)
 	wrapper.siz = uintptr(secs.size)
 	wrapper.tcss = make([]sgx_tcs_info, NBTCS)
+	wrapper.mtlsarr = getMtlsArr(file)
 	for i := 0; i < NBTCS; i++ {
 		ptcs := &wrapper.tcss[i]
 		ptcs.Stack = uintptr(palign(endAddr, false)) + 2*PSIZE
 		ptcs.Ssiz = uintptr(STACK_SIZE)
 		ptcs.Tcs = ptcs.Stack + uintptr(STACK_SIZE) + STACK_TCS_OFF
 		ptcs.Ssa = ptcs.Tcs + uintptr(TCS_SIZE) + TCS_SSA_OFF
-		ptcs.Msgx = ptcs.Ssa + uintptr(SSA_SIZE) + SSA_MSGX_OFF
+		endAddr = uint64(ptcs.Ssa + SSA_SIZE + SSA_MSGX_OFF + MSGX_SIZE + MSGX_TLS_OFF + TLS_SIZE)
+		ptcs.Msgx = wrapper.mtlsarr + uintptr(i)*(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE)
 		ptcs.Tls = ptcs.Msgx + uintptr(MSGX_SIZE) + MSGX_TLS_OFF
 		ptcs.Entry = uintptr(file.Entry)
 		ptcs.Used = false
-		endAddr = uint64(ptcs.Tls + TLS_SIZE)
 	}
 	wrapper.mhstart = uintptr(endAddr) + TLS_MHSTART_OFF
 	wrapper.mhsize = runtime.EnclHeapSizeToAllocate()
@@ -236,7 +235,6 @@ func sgxRegisterTCSs(dest, src *sgx_wrapper) {
 	}
 }
 
-// TODO should maybe change the layout.
 func sgxInitEaddTCS(entry uint64, secs *secs_t, dest, src *sgx_tcs_info) {
 	tcs := (*tcs_t)(unsafe.Pointer(src.Tcs))
 	tcs.reserved1 = uint64(0)
@@ -263,9 +261,7 @@ func sgxInitEaddTCS(entry uint64, secs *secs_t, dest, src *sgx_tcs_info) {
 	sgxAddRegion(secs, dest.Ssa, src.Ssa,
 		SSA_SIZE, _PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
 
-	// Add the MSGX and TLS regions
-	sgxAddRegion(secs, dest.Msgx, src.Msgx, uintptr(MSGX_SIZE+MSGX_TLS_OFF+TLS_SIZE),
-		_PROT_READ|_PROT_WRITE, SGX_SECINFO_REG)
+	// TLS and MSGX are already mapped in BSS.
 }
 
 func sgxAddRegion(secs *secs_t, addr, src, siz, prot uintptr, tpe uint64) {

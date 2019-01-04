@@ -225,7 +225,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if checkinterdomain(gp.isencl, c.isencl) {
 		// Blocking on a send from enclave.
 		// take a sudog from the free list and use it.
-		mysg, ep = acquireSudogFromPool(ep, false, c.elemsize)
+		mysg, ep = UnsafeAllocator.AcquireUnsafeSudog(ep, false, c.elemsize, c.elemtype)
 		if !gp.isencl || !isEnclave {
 			panic("Acquiring sudog from the pool in wrong environment.")
 		}
@@ -538,7 +538,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	// @aghosn for inter-domain communication.
 	var mysg *sudog = nil
 	if checkinterdomain(gp.isencl, c.isencl) {
-		mysg, ep = acquireSudogFromPool(ep, true, c.elemsize)
+		mysg, ep = UnsafeAllocator.AcquireUnsafeSudog(ep, true, c.elemsize, c.elemtype)
 	} else {
 		mysg = acquireSudog()
 	}
@@ -550,7 +550,6 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
-	//TODO aghosn here is the problem.
 	mysg.elem = ep
 	mysg.waitlink = nil
 	gp.waiting = mysg

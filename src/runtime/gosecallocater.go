@@ -44,11 +44,12 @@ type umentry struct {
 }
 
 type sgentry struct {
-	sg    sudog
-	isrcv bool
-	orig  unsafe.Pointer
-	buff  unsafe.Pointer
-	sbuff uintptr
+	sg       sudog
+	isrcv    bool
+	orig     unsafe.Pointer
+	buff     unsafe.Pointer
+	sbuff    uintptr
+	elemtype *_type
 }
 
 type spanlist struct {
@@ -150,6 +151,11 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 					u.fullspans.add(span)
 				}
 				u.sl.unlock()
+				//set to zero
+				for i := uintptr(0); i < size; i++ {
+					bptr := (*byte)(unsafe.Pointer(ptr + i))
+					*bptr = byte(0)
+				}
 				return ptr
 			}
 		}
@@ -178,7 +184,7 @@ func (u *uledger) Free(ptr, size uintptr) {
 // AcquireUnsafeSudog returns an unsafe sudog and an unsafe buffer as
 // requested.
 //go:nosplit
-func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
+func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16, elemtype *_type) (*sudog, unsafe.Pointer) {
 	if !isEnclave {
 		throw("Error in AcquireUnsafeSudog")
 	}
@@ -200,7 +206,7 @@ func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint1
 	sg.id = 1
 	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
 	if elem != nil {
-		memmove(buff, elem, uintptr(size))
+		typedmemmove(elemtype, buff, elem)
 	}
 	sg.schednext = 0
 	//book-keeping for the release.
@@ -209,30 +215,11 @@ func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint1
 	sge.orig = elem
 	sge.buff = buff
 	sge.sbuff = uintptr(size)
+	sge.elemtype = elemtype
+	// register the g
+	allcgadd(getg())
 	return sg, buff
 }
-
-//AllocateSudog allocates an unsafe sudog
-//go:nosplit
-//func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint16) (*sudog, unsafe.Pointer) {
-//	if !isEnclave {
-//		panicGosec("Trying to allocate sudog from untrusted")
-//	}
-//	var sg *sudog
-//	if len(u.poolsg) > 0 {
-//		sg = u.poolsg[0]
-//		u.poolsg = u.poolsg[1:]
-//	} else {
-//		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sudog{}))))
-//	}
-//	sg.id = 1
-//	buff := unsafe.Pointer(u.Malloc(uintptr(size)))
-//	if elem != nil {
-//		memmove(buff, elem, uintptr(size))
-//	}
-//	u.inusesg[uintptr(unsafe.Pointer(sg))] = sgentry{sg, isrcv, elem, buff, uintptr(size)}
-//	return sg, buff
-//}
 
 //go:nosplit
 func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
@@ -248,9 +235,10 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	}
 
 	if sge.isrcv && sge.orig != nil {
+		dst := sge.orig
+		typeBitsBulkBarrier(sge.elemtype, uintptr(dst), uintptr(sge.buff), sge.elemtype.size)
 		memmove(sge.orig, sge.buff, sge.sbuff)
 	}
-
 	u.Free(uintptr(sge.buff), sge.sbuff)
 
 	//caching size
@@ -262,30 +250,9 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	} else {
 		u.Free(uintptr(unsafe.Pointer(sge)), unsafe.Sizeof(sgentry{}))
 	}
+	// unregister the routine
+	allcgremove(getg())
 }
-
-//ReleaseUnsafeSudog
-//go:nosplit
-//func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
-//	if sg.id != -1 && !isEnclave {
-//		panicGosec("Wrong call to realeaseUnsafeSudog")
-//	}
-//
-//	e, ok := u.inusesg[uintptr(unsafe.Pointer(sg))]
-//	if !ok {
-//		panicGosec("Cannot find the sudog in the inusesg map")
-//	}
-//	if e.isrcv && e.orig != nil {
-//		memmove(e.orig, e.buff, uintptr(size))
-//	}
-//	//Free the buffer
-//	u.Free(uintptr(e.buff), e.sbuff)
-//	if len(u.poolsg) < 500 {
-//		u.poolsg = append(u.poolsg, sg)
-//		return
-//	}
-//	u.Free(uintptr(unsafe.Pointer(sg)), unsafe.Sizeof(sudog{}))
-//}
 
 //go:nosplit
 //go:nowritebarrier

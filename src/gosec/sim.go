@@ -46,19 +46,12 @@ func simLoadProgram(path string) {
 	// Map the enclave preallocated heap.
 	simPreallocate(enclWrap)
 
-	//TODO aghosn now we must try to do the clone with the fn pointer.
 	for _, tcs := range enclWrap.tcss {
 		prot := _PROT_READ | _PROT_WRITE
 		manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
 		// mmap the stack
 		_, err = syscall.RMmap(tcs.Stack, int(tcs.Ssiz), prot, manon, -1, 0)
 		check(err)
-
-		// Map the MSGX+TLS area
-		size := int(MSGX_SIZE + MSGX_TLS_OFF + TLS_SIZE)
-		_, err = syscall.RMmap(tcs.Msgx, size, prot, manon, -1, 0)
-		check(err)
-		// unprotected stack is mmap lazily
 	}
 
 	// register the heap, setup the enclave stack

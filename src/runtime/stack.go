@@ -751,6 +751,11 @@ func adjustsudogs(gp *g, adjinfo *adjustinfo) {
 	// the data elements pointed to by a SudoG structure
 	// might be in the stack.
 	for s := gp.waiting; s != nil; s = s.waitlink {
+		if isEnclave && s.id != -1 {
+			sge := (*sgentry)(unsafe.Pointer(s))
+			adjustpointer(adjinfo, unsafe.Pointer(&sge.orig))
+			continue
+		}
 		adjustpointer(adjinfo, unsafe.Pointer(&s.elem))
 	}
 }

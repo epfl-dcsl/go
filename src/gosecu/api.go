@@ -11,6 +11,9 @@ var (
 	secureMap map[string]func(size int32, argp *uint8)
 )
 
+// We cannot use reflect to get the value of the arguments. Instead, we give
+// a pointer to a buffer allocated inside the ecall attribute and use it to pass
+// the arguments from the stack frame.
 func privateServer(c chan runtime.EcallReq) {
 	success := 0
 	for {
@@ -28,14 +31,13 @@ func privateServer(c chan runtime.EcallReq) {
 
 // EcallServer keeps polling the Cooprt.Ecall queue for incoming private ecall
 // server requests.
-// We cannot use reflect to get the value of the arguments. Instead, we give
-// a pointer to a buffer allocated inside the ecall attribute and use it to pass
-// the arguments from the stack frame.
 func EcallServer() {
-	//Init the unprotected memory allocator
+	// Init the cross domain ref pointer for crossed routines.
+	runtime.InitAllcg()
 	for {
 		req := <-runtime.Cooprt.EcallSrv
-		if req.PrivChan == nil {
+		if req == nil || req.PrivChan == nil {
+			panic("[EcallServer] nil value received, probably stack shrink")
 			continue
 		}
 
