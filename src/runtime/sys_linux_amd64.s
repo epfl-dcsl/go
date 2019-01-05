@@ -183,6 +183,19 @@ TEXT runtime·mincore(SB),NOSPLIT,$0-28
 
 // func walltime() (sec int64, nsec int32)
 TEXT runtime·walltime(SB),NOSPLIT,$16
+	MOVB 	runtime·isEnclave(SB), R9
+	CMPB 	R9, $0
+	JE 	normal
+
+	//MOVB 	runtime·isSimulation(SB), R9
+	//CMPB 	R9, $1
+	//JE 	normal 
+
+	MOVQ $1, AX
+	MOVQ AX, ret+0(FP)
+	RET
+
+normal:
 	// Be careful. We're calling a function with gcc calling convention here.
 	// We're guaranteed 128 bytes on entry, and we've taken 16, and the
 	// call uses another 8.
@@ -218,9 +231,9 @@ TEXT runtime·nanotime(SB),NOSPLIT,$16
 	CMPB 	R9, $0
 	JE 	normal
 
-	MOVB 	runtime·isSimulation(SB), R9
-	CMPB 	R9, $1
-	JE 	normal 
+	//MOVB 	runtime·isSimulation(SB), R9
+	//CMPB 	R9, $1
+	//JE 	normal 
 
 	MOVQ $1, AX
 	MOVQ AX, ret+0(FP)

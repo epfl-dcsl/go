@@ -33,10 +33,79 @@ func DebugTag(i int) {
 	}
 }
 
+const (
+	BASE_WAKE_TRACE = 0x60
+	BEGINTAG        = iota
+	PROLOG
+	POSTSYS
+	POSTSYS1
+	POSTGARB
+	POSTGARB2
+	POSTRELEASE
+	ENDTAG
+	POSTSHIT
+)
+
+//go:nosplit
+func DebugEndTag() {
+	base := uintptr(DEBUGMASK + BASE_WAKE_TRACE + POSTSHIT*8)
+	ptr := (*uint64)(unsafe.Pointer(base))
+	*ptr = 0xbeef
+}
+
+//go:nosplit
+func DebugFatTag(begin bool) {
+	if !isEnclave {
+		return
+	}
+	var base uintptr
+	if begin {
+		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + BEGINTAG*8)
+	} else {
+		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + ENDTAG*8)
+	}
+	ptr := (*uint64)(unsafe.Pointer(base))
+	*ptr = 0xbeef
+}
+
+//go:nosplit
 func DebugTagAt(offset, value int) {
 	base := uintptr(DEBUGMASK + offset*8)
 	ptr := (*uint64)(unsafe.Pointer(base))
 	*ptr = uint64(value)
+}
+
+//go:nosplit
+func DebugIncreaseAt(offset int) {
+	base := uintptr(DEBUGMASK + offset*8)
+	ptr := (*uint64)(unsafe.Pointer(base))
+	*ptr += 1
+}
+
+// DebugCheckFailAt throws a panic if value is == to expected
+//go:nosplit
+func DebugCheckFailAt(offset, expected int) {
+	base := uintptr(DEBUGMASK + offset*8)
+	ptr := (*uint64)(unsafe.Pointer(base))
+	if *ptr == uint64(expected) {
+		panic("CheckFailAt")
+	}
+}
+
+//go:nosplit
+func DebugGetAt(offset int) int {
+	base := uintptr(DEBUGMASK + offset*8)
+	ptr := (*uint64)(unsafe.Pointer(base))
+	return int(*ptr)
+}
+
+// DebugCheckFailAt throws a panic if value is == to expected
+//go:nosplit
+func DebugTraceAt(id int) {
+	if !isEnclave {
+		return
+	}
+	DebugIncreaseAt(BASE_WAKE_TRACE/8 + id)
 }
 
 const (

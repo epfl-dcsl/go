@@ -173,7 +173,6 @@ func FutexWakeup(req *runtime.OExitRequest) {
 
 //go:nosplit
 func sgxEResume(id uint64) {
-	runtime.DebugTagAt(0, 0)
 	tcs := runtime.Cooprt.Tcss[id]
 	xcpt := runtime.Cooprt.ExceptionHandler
 	asm_eresume(uint64(tcs.Tcs), xcpt)

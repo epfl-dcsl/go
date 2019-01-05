@@ -1,0 +1,332 @@
+diff --git a/src/gosec/assembly_amd64.s b/src/gosec/assembly_amd64.s
+index 946f57b6bb..1eac5a54b8 100644
+--- a/src/gosec/assembly_amd64.s
++++ b/src/gosec/assembly_amd64.s
+@@ -18,7 +18,11 @@ TEXT gosec·asm_exception(SB),$0
+ 
+ // func asm_eresume(tcs, xcpt uint64)
+ TEXT gosec·asm_eresume(SB),$0-40
+-    MOVQ $2, AX				//EENTER
++		//TODO @aghosn debugging
++		MOVQ $0x060000000008, R9
++		MOVQ $1, (R9)
++  
++		MOVQ $2, AX				//EENTER
+     MOVQ tcs+0(FP),BX
+     MOVQ xcpt+8(FP), CX
+ 		MOVQ $0xdead, R10
+diff --git a/src/gosec/internal.go b/src/gosec/internal.go
+index d863a4d90d..191130f631 100644
+--- a/src/gosec/internal.go
++++ b/src/gosec/internal.go
+@@ -173,7 +173,6 @@ func FutexWakeup(req *runtime.OExitRequest) {
+ 
+ //go:nosplit
+ func sgxEResume(id uint64) {
+-	runtime.DebugTagAt(0, 0)
+ 	tcs := runtime.Cooprt.Tcss[id]
+ 	xcpt := runtime.Cooprt.ExceptionHandler
+ 	asm_eresume(uint64(tcs.Tcs), xcpt)
+diff --git a/src/runtime/asmsgx_amd64.s b/src/runtime/asmsgx_amd64.s
+index 71e91c35ad..126ad329bf 100644
+--- a/src/runtime/asmsgx_amd64.s
++++ b/src/runtime/asmsgx_amd64.s
+@@ -28,18 +28,34 @@ nonsim:
+ 	MOVQ g_m(AX), BX // BX = m
+ 	MOVQ m_g0(BX), DX // DX = m.g0
+ 
++	//TODO @aghosn debugging
++	MOVQ $0x060000000008, R9
++	MOVQ $1, (R9)
++
+ 	//Get previous values for the stack
+ 	MOVQ g_sched+gobuf_bp+8(DX), DI
+ 	MOVQ g_sched+gobuf_bp+16(DX), SI	
+ 
++	//TODO @aghosn debugging
++	MOVQ $0x060000000008, R9
++	MOVQ $2, (R9)
++
+ 	//Save the unsafe stack current location
+ 	MOVQ SP, g_sched+gobuf_bp+8(DX)
+ 	MOVQ BP, g_sched+gobuf_bp+16(DX)
+ 
++	//TODO @aghosn debugging
++	MOVQ $0x060000000008, R9
++	MOVQ $3, (R9)
++
+ 	//switch stacks
+ 	MOVQ DI, SP
+ 	MOVQ SI, BP
+ 
++	//TODO @aghosn debugging
++	MOVQ $0x060000000008, R9
++	MOVQ $4, (R9)
++
+ 	RET
+ 
+ setup:
+@@ -53,7 +69,7 @@ setup:
+ 
+ 	MOVQ id+72(FP), R9
+ 	MOVQ R9, m_procid(R8)
+-	
++
+ 	// save unprotected stack
+ 	get_tls(CX)
+ 	MOVQ g(CX), AX // AX = g
+diff --git a/src/runtime/gosec.go b/src/runtime/gosec.go
+index b943357f8d..d0eef6a0d6 100644
+--- a/src/runtime/gosec.go
++++ b/src/runtime/gosec.go
+@@ -479,7 +479,11 @@ func futexsleep0(addr *uint32, val uint32, ns int64) {
+ 	args.Addr = uintptr(unsafe.Pointer(addr))
+ 	args.Val = val
+ 	args.Ns = ns
++	//TODO @aghosn debugging
++	DebugIncreaseAt(2 + int(gp.m.procid))
+ 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
++	//TODO @aghosn debugging
++	DebugIncreaseAt(4 + int(gp.m.procid))
+ 	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
+ }
+ 
+@@ -498,7 +502,10 @@ func futexwakeup0(addr *uint32, cnt uint32) {
+ 	args.Sid = gp.m.procid
+ 	args.Addr = uintptr(unsafe.Pointer(addr))
+ 	args.Val = cnt
++	//TODO @aghosn debugging
++	DebugIncreaseAt(6 + int(gp.m.procid))
+ 	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
++	DebugIncreaseAt(8 + int(gp.m.procid))
+ 	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
+ }
+ 
+diff --git a/src/runtime/gosecuredbg.go b/src/runtime/gosecuredbg.go
+index a1242a68f5..062cdb48bd 100644
+--- a/src/runtime/gosecuredbg.go
++++ b/src/runtime/gosecuredbg.go
+@@ -33,12 +33,81 @@ func DebugTag(i int) {
+ 	}
+ }
+ 
++const (
++	BASE_WAKE_TRACE = 0x60
++	BEGINTAG        = iota
++	PROLOG
++	POSTSYS
++	POSTSYS1
++	POSTGARB
++	POSTGARB2
++	POSTRELEASE
++	ENDTAG
++	POSTSHIT
++)
++
++//go:nosplit
++func DebugEndTag() {
++	base := uintptr(DEBUGMASK + BASE_WAKE_TRACE + POSTSHIT*8)
++	ptr := (*uint64)(unsafe.Pointer(base))
++	*ptr = 0xbeef
++}
++
++//go:nosplit
++func DebugFatTag(begin bool) {
++	if !isEnclave {
++		return
++	}
++	var base uintptr
++	if begin {
++		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + BEGINTAG*8)
++	} else {
++		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + ENDTAG*8)
++	}
++	ptr := (*uint64)(unsafe.Pointer(base))
++	*ptr = 0xbeef
++}
++
++//go:nosplit
+ func DebugTagAt(offset, value int) {
+ 	base := uintptr(DEBUGMASK + offset*8)
+ 	ptr := (*uint64)(unsafe.Pointer(base))
+ 	*ptr = uint64(value)
+ }
+ 
++//go:nosplit
++func DebugIncreaseAt(offset int) {
++	base := uintptr(DEBUGMASK + offset*8)
++	ptr := (*uint64)(unsafe.Pointer(base))
++	*ptr += 1
++}
++
++// DebugCheckFailAt throws a panic if value is == to expected
++//go:nosplit
++func DebugCheckFailAt(offset, expected int) {
++	base := uintptr(DEBUGMASK + offset*8)
++	ptr := (*uint64)(unsafe.Pointer(base))
++	if *ptr == uint64(expected) {
++		panic("CheckFailAt")
++	}
++}
++
++//go:nosplit
++func DebugGetAt(offset int) int {
++	base := uintptr(DEBUGMASK + offset*8)
++	ptr := (*uint64)(unsafe.Pointer(base))
++	return int(*ptr)
++}
++
++// DebugCheckFailAt throws a panic if value is == to expected
++//go:nosplit
++func DebugTraceAt(id int) {
++	if !isEnclave {
++		return
++	}
++	DebugIncreaseAt(BASE_WAKE_TRACE/8 + id)
++}
++
+ const (
+ 	DBG_BEFORE_GOSECALL = iota
+ 	DBG_IN_GOSECALL
+diff --git a/src/runtime/mgc.go b/src/runtime/mgc.go
+index c1edd17842..5d1c21c496 100644
+--- a/src/runtime/mgc.go
++++ b/src/runtime/mgc.go
+@@ -1452,9 +1452,10 @@ top:
+ 		// endCycle depends on all gcWork cache stats being
+ 		// flushed. This is ensured by mark 2.
+ 		nextTriggerRatio := gcController.endCycle()
+-
+ 		// Perform mark termination. This will restart the world.
++		DebugFatTag(true)
+ 		gcMarkTermination(nextTriggerRatio)
++		DebugFatTag(true)
+ 	}
+ }
+ 
+@@ -1476,6 +1477,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 	casgstatus(gp, _Grunning, _Gwaiting)
+ 	gp.waitreason = "garbage collection"
+ 
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(PROLOG)
++	}
+ 	// Run gc on the g0 stack. We do this so that the g stack
+ 	// we're currently running on will no longer change. Cuts
+ 	// the root set down a bit (g0 stacks are not scanned, and
+@@ -1491,7 +1495,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 		// non-system stack to pick up the new addresses
+ 		// before continuing.
+ 	})
+-
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(POSTSYS)
++	}
+ 	systemstack(func() {
+ 		work.heap2 = work.bytesMarked
+ 		if debug.gccheckmark > 0 {
+@@ -1525,7 +1531,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 			gcSweep(work.mode)
+ 		}
+ 	})
+-
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(POSTSYS1)
++	}
+ 	_g_.m.traceback = 0
+ 	casgstatus(gp, _Gwaiting, _Grunning)
+ 
+@@ -1555,6 +1563,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 	memstats.pause_end[memstats.numgc%uint32(len(memstats.pause_end))] = uint64(unixNow)
+ 	memstats.pause_total_ns += uint64(work.pauseNS)
+ 
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(POSTGARB)
++	}
+ 	// Update work.totaltime.
+ 	sweepTermCpu := int64(work.stwprocs) * (work.tMark - work.tSweepTerm)
+ 	// We report idle marking time below, but omit it from the
+@@ -1576,6 +1587,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 		memstats.numforcedgc++
+ 	}
+ 
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(POSTGARB2)
++	}
+ 	// Bump GC cycle count and wake goroutines waiting on sweep.
+ 	lock(&work.sweepWaiters.lock)
+ 	memstats.numgc++
+@@ -1644,7 +1658,9 @@ func gcMarkTermination(nextTriggerRatio float64) {
+ 
+ 	semrelease(&worldsema)
+ 	// Careful: another GC cycle may start now.
+-
++	if _g_.m.procid == 1 && DebugGetAt(8+int(_g_.m.procid)) == 2 {
++		DebugTraceAt(POSTRELEASE)
++	}
+ 	releasem(mp)
+ 	mp = nil
+ 
+@@ -1854,7 +1870,6 @@ func gcBgMarkWorker(_p_ *p) {
+ 			releasem(park.m.ptr())
+ 
+ 			gcMarkDone()
+-
+ 			// Disable preemption and prepare to reattach
+ 			// to the P.
+ 			//
+diff --git a/src/runtime/mgcsweep.go b/src/runtime/mgcsweep.go
+index 1bb19ec689..565a22511d 100644
+--- a/src/runtime/mgcsweep.go
++++ b/src/runtime/mgcsweep.go
+@@ -49,7 +49,13 @@ func bgsweep(c chan int) {
+ 	lock(&sweep.lock)
+ 	sweep.parked = true
+ 	c <- 1
++	if isEnclave {
++		DebugTagAt(0, 0xdead)
++	}
+ 	goparkunlock(&sweep.lock, "GC sweep wait", traceEvGoBlock, 1)
++	if isEnclave {
++		DebugEndTag()
++	}
+ 
+ 	for {
+ 		for gosweepone() != ^uintptr(0) {
+diff --git a/src/runtime/sys_linux_amd64.s b/src/runtime/sys_linux_amd64.s
+index c2fbed01fa..a1306fbaab 100644
+--- a/src/runtime/sys_linux_amd64.s
++++ b/src/runtime/sys_linux_amd64.s
+@@ -183,6 +183,19 @@ TEXT runtime·mincore(SB),NOSPLIT,$0-28
+ 
+ // func walltime() (sec int64, nsec int32)
+ TEXT runtime·walltime(SB),NOSPLIT,$16
++	MOVB 	runtime·isEnclave(SB), R9
++	CMPB 	R9, $0
++	JE 	normal
++
++	//MOVB 	runtime·isSimulation(SB), R9
++	//CMPB 	R9, $1
++	//JE 	normal 
++
++	MOVQ $1, AX
++	MOVQ AX, ret+0(FP)
++	RET
++
++normal:
+ 	// Be careful. We're calling a function with gcc calling convention here.
+ 	// We're guaranteed 128 bytes on entry, and we've taken 16, and the
+ 	// call uses another 8.
+@@ -218,9 +231,9 @@ TEXT runtime·nanotime(SB),NOSPLIT,$16
+ 	CMPB 	R9, $0
+ 	JE 	normal
+ 
+-	MOVB 	runtime·isSimulation(SB), R9
+-	CMPB 	R9, $1
+-	JE 	normal 
++	//MOVB 	runtime·isSimulation(SB), R9
++	//CMPB 	R9, $1
++	//JE 	normal 
+ 
+ 	MOVQ $1, AX
+ 	MOVQ AX, ret+0(FP)
