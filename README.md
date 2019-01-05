@@ -17,4 +17,4 @@ https://github.com/epfl-dcsl/gosecure-benchmarks
 
 ## Paper
 
-https://github.com/epfl-dcsl/gosecure-asplos2019
+https://github.com/epfl-dcsl/gosecure-paper/tree/master/atc19
