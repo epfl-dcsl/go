@@ -12,9 +12,6 @@ import (
 	"unsafe"
 )
 
-//TODO @aghosn Debugging right now, remove after
-const DEBUGMASK = 0x060000000000
-
 func check(e error) {
 	if e != nil {
 		panic(e.Error())
@@ -60,10 +57,10 @@ func LoadEnclave() {
 	check(err)
 
 	//Mmap debugging region
-	prot := _PROT_READ | _PROT_WRITE
-	manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
-	_, err = syscall.RMmap(DEBUGMASK, 0x1000, prot, manon, -1, 0)
-	check(err)
+	//prot := _PROT_READ | _PROT_WRITE
+	//manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
+	//_, err = syscall.RMmap(runtime.DEBUGMASK, 0x1000, prot, manon, -1, 0)
+	//check(err)
 	defer func() { check(encl.Close()) }()
 
 	check(os.Chmod(name, 0755))
