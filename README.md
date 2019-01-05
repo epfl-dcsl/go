@@ -11,8 +11,7 @@ This fork of the go compiler aims at providing a new keyword, `gosecure`, that a
 
 ## Benchmarks
 
-Not stable yet.
-
+Work in progress
 https://github.com/epfl-dcsl/gosecure-benchmarks
 
 ## Paper
