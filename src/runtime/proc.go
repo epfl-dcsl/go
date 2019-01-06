@@ -161,10 +161,6 @@ skipsysmon:
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
-	//TODO @aghosn terrible, change that.
-	if isEnclave {
-		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
-	}
 	gcenable()
 
 	main_init_done = make(chan bool)
@@ -524,6 +520,7 @@ func schedinit() {
 		procs = n
 	}
 	if isEnclave {
+		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
 		procs = 1
 	}
 

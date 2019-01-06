@@ -86,7 +86,7 @@ func lock(l *mutex) {
 			gp.markednofutex = false
 			chg = false
 		}
-		if nbfailures > 100 {
+		if nbfailures > 1000 {
 			throw("Too many spins")
 		}
 		// Try for lock, spinning.
