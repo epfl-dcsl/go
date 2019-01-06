@@ -402,7 +402,7 @@ type g struct {
 
 	isencl        bool
 	markednofutex bool
-	ecallchan     chan EcallReq
+	//ecallchan     chan EcallReq
 }
 
 type m struct {

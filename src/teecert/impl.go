@@ -2,6 +2,7 @@ package teecert
 
 import (
 	"crypto/rsa"
+	"runtime"
 	"teecomm"
 )
 
@@ -19,10 +20,13 @@ func TeeProtectKey(req chan *rsa.PrivateKey) {
 }
 
 func TeeDecryptService(comm chan teecomm.DecrRequestMsg) {
+	runtime.GosecDBG("Starting a new TeeDecryptService")
 	for {
 		req := <-comm
+		runtime.GosecDBG("received a req")
 		err := rsa.DecryptPKCS1v15SessionKey(nil, req.Key, req.Msg, req.Plaintxt)
 		check(err)
+		runtime.GosecDBG("returning a reply")
 		req.Done <- true
 	}
 }

@@ -161,8 +161,11 @@ skipsysmon:
 	// because nanotime on some platforms depends on startNano.
 	runtimeInitTime = nanotime()
 
+	if isEnclave {
+		goto skipgc
+	}
 	gcenable()
-
+skipgc:
 	main_init_done = make(chan bool)
 	if iscgo {
 		if _cgo_thread_start == nil {

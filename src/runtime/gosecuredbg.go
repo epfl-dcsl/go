@@ -12,6 +12,10 @@ func gosecassert(b bool) {
 	}
 }
 
+func GosecDBG(a string) {
+	println("message ", a)
+}
+
 //TODO @aghosn remove afterwards.
 
 //const DEBUGMASK = 0x060000000000

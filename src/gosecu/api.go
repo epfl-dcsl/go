@@ -34,15 +34,16 @@ func privateServer(c chan runtime.EcallReq) {
 func EcallServer() {
 	// Init the cross domain ref pointer for crossed routines.
 	runtime.InitAllcg()
-	for {
-		req := <-runtime.Cooprt.EcallSrv
-		if req == nil || req.PrivChan == nil {
-			panic("[EcallServer] nil value received, probably stack shrink")
-			continue
-		}
-
-		go privateServer(req.PrivChan)
-	}
+	privateServer(runtime.Cooprt.EcallSrv)
+	//for {
+	//	req := <-runtime.Cooprt.EcallSrv
+	//	if req == nil || req.PrivChan == nil {
+	//		panic("[EcallServer] nil value received, probably stack shrink")
+	//		continue
+	//	}
+	//
+	//	go privateServer(req.PrivChan)
+	//}
 }
 
 // RegisterSecureFunction is called automatically at the begining of the enclave

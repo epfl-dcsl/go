@@ -14,11 +14,11 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
+	"golang_org/x/crypto/curve25519"
 	"io"
 	"math/big"
+	"runtime"
 	"teecomm"
-
-	"golang_org/x/crypto/curve25519"
 )
 
 var errClientKeyExchange = errors.New("tls: invalid ClientKeyExchange message")
@@ -68,8 +68,10 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 			key, ciphertext,
 			&rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48},
 			preMasterSecret, done}
+		runtime.GosecDBG("Doing what I can to survive")
 		cert.DecrChan <- req
 		_ = <-done
+		runtime.GosecDBG("Received a response")
 	}
 
 	// We don't check the version number in the premaster secret. For one,
