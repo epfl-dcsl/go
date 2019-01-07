@@ -83,7 +83,7 @@ type SgxTCSInfo struct {
 
 //CooperativeRuntime information and channels for runtime cooperation.
 type CooperativeRuntime struct {
-	EcallSrv chan *EcallServerReq
+	EcallSrv chan EcallReq
 	Ocall    chan OcallReq
 
 	argc int32
@@ -143,7 +143,7 @@ func InitCooperativeRuntime() {
 	}
 
 	Cooprt = &CooperativeRuntime{}
-	Cooprt.EcallSrv = make(chan *EcallServerReq)
+	Cooprt.EcallSrv = make(chan EcallReq)
 	Cooprt.argc, Cooprt.argv = -1, argv
 	Cooprt.Ocall = make(chan OcallReq)
 	Cooprt.sysPool = make([]*poolSysChan, POOL_INIT_SIZE)
@@ -435,15 +435,16 @@ func GosecureSend(req EcallReq) {
 	if Cooprt == nil {
 		throw("Cooprt not initialized.")
 	}
-	if gp.ecallchan == nil {
-		gp.ecallchan = make(chan EcallReq)
-		srvreq := &EcallServerReq{gp.ecallchan}
-		MarkNoFutex()
-		Cooprt.EcallSrv <- srvreq
-		MarkFutex()
-	}
+	//if gp.ecallchan == nil {
+	//	gp.ecallchan = make(chan EcallReq)
+	//	srvreq := &EcallServerReq{gp.ecallchan}
+	//	MarkNoFutex()
+	//	Cooprt.EcallSrv <- srvreq
+	//	MarkFutex()
+	//}
 	MarkNoFutex()
-	gp.ecallchan <- req
+	Cooprt.EcallSrv <- req
+	//gp.ecallchan <- req
 	MarkFutex()
 }
 
