@@ -1990,7 +1990,7 @@ retry:
 	lock(&sched.lock)
 	if cprtQ != nil {
 		run := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
-		if run == 1 && sched.gcwaiting == 0 {
+		if (run == 1 || sched.npidle == 1) && sched.gcwaiting == 0 {
 			//throw("Should not be here !")
 			//We are the last and hence should not block, and there should be a p.
 			//Code inspired from startm.
@@ -2003,6 +2003,8 @@ retry:
 			goto wakeup
 		} else if run == 0 {
 			throw("Apparently this can happen")
+		} else {
+			println("Going to sleep with ", sched.npidle, ":", run)
 		}
 	}
 	mput(_g_.m)
@@ -2385,7 +2387,7 @@ stop:
 	if cprtQ != nil {
 		rcount := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
 		if rcount == 1 && sched.gcwaiting == 0 {
-			//we are te last and hence should not block.
+			//we are the last and hence should not block.
 			//we still have our p.
 			unlock(&sched.lock)
 			goto top
