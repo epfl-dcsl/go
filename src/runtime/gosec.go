@@ -131,6 +131,7 @@ const (
 var (
 	UnsafeAllocator uledger // manages unsafe memory from the enclave.
 	workEnclave     uintptr // replica for the gc in unsafe memory
+	schedEnclave    uintptr // replica for notesleeps on the sched.
 )
 
 // entry point for an ocall, defined in asm in runtime/asmsgx_amd64.s
@@ -202,6 +203,13 @@ func (c *CooperativeRuntime) TranslateNote(n *note) *note {
 	wksize := unsafe.Sizeof(work)
 	if nptr > wkptr && nptr < wkptr+wksize {
 		res := (*note)(unsafe.Pointer(workEnclave + (nptr - wkptr)))
+		return res
+	}
+
+	scdptr := uintptr(unsafe.Pointer(&sched))
+	scdsize := unsafe.Sizeof(sched)
+	if nptr > scdptr && nptr < scdptr+scdsize {
+		res := (*note)(unsafe.Pointer(schedEnclave + (nptr - scdptr)))
 		return res
 	}
 

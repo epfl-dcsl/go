@@ -129,6 +129,7 @@ func (u *uledger) Initialize(start, size uintptr) {
 
 	// Now initialize the workEnclave
 	workEnclave = u.Malloc(unsafe.Sizeof(work))
+	schedEnclave = u.Malloc(unsafe.Sizeof(sched))
 }
 
 //go:nosplit
