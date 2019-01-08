@@ -74,6 +74,14 @@ GLOBL andMask<>(SB), (NOPTR+RODATA), $240
 // func hasGCMAsm() bool
 // returns whether AES-NI AND CLMUL-NI are supported
 TEXT ·hasGCMAsm(SB),NOSPLIT,$0
+	// @aghosn we want to avoid the cpuid
+	MOVB runtime·isEnclave(SB), R8
+	CMPB R8, $1
+	JNE normal
+	MOVB $1, CX
+	JMP end
+
+normal:
 	XORQ AX, AX
 	INCL AX
 	CPUID
@@ -82,6 +90,7 @@ TEXT ·hasGCMAsm(SB),NOSPLIT,$0
 	SHRQ $1, DX
 	ANDQ DX, CX
 	ANDQ $1, CX
+end:
 	MOVB CX, ret+0(FP)
 	RET
 
