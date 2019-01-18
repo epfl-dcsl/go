@@ -4857,6 +4857,10 @@ func runqgrab(_p_ *p, batch *[256]guintptr, batchHead uint32, stealRunNextG bool
 					// thrashing gs between different Ps.
 					// A sync chan send/recv takes ~50ns as of time of writing,
 					// so 3us gives ~50x overshoot.
+					// @aghosn: If it is enclave, we skip and trash, don't care. THUG LIFE
+					if isEnclave {
+						goto enclskip
+					}
 					if GOOS != "windows" {
 						usleep(3)
 					} else {
@@ -4865,6 +4869,7 @@ func runqgrab(_p_ *p, batch *[256]guintptr, batchHead uint32, stealRunNextG bool
 						// So just yield.
 						osyield()
 					}
+				enclskip:
 					if !_p_.runnext.cas(next, 0) {
 						continue
 					}
