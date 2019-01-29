@@ -31,7 +31,7 @@
 package sym
 
 // A SymKind describes the kind of memory represented by a symbol.
-type SymKind int16
+type SymKind uint8
 
 // Defined SymKind values.
 //
@@ -105,8 +105,6 @@ const (
 	SDWARFINFO
 	SDWARFRANGE
 	SDWARFLOC
-	SSUB       = SymKind(1 << 8)
-	SMASK      = SymKind(SSUB - 1)
 )
 
 // AbiSymKindToSymKind maps values read from object files (which are

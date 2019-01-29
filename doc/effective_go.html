@@ -2790,7 +2790,7 @@ job := &amp;Job{command, log.New(os.Stderr, "Job: ", log.Ldate)}
 <p>
 If we need to refer to an embedded field directly, the type name of the field,
 ignoring the package qualifier, serves as a field name, as it did
-in the <code>Read</code> method of our <code>ReaderWriter</code> struct.
+in the <code>Read</code> method of our <code>ReadWriter</code> struct.
 Here, if we needed to access the
 <code>*log.Logger</code> of a <code>Job</code> variable <code>job</code>,
 we would write <code>job.Logger</code>,
@@ -3588,8 +3588,7 @@ That's left as an exercise for the reader.
 <p>
 Let's finish with a complete Go program, a web server.
 This one is actually a kind of web re-server.
-Google provides a service at
-<a href="http://chart.apis.google.com">http://chart.apis.google.com</a>
+Google provides a service at <code>chart.apis.google.com</code>
 that does automatic formatting of data into charts and graphs.
 It's hard to use interactively, though,
 because you need to put the data into the URL as a query.

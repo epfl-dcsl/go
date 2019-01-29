@@ -24,7 +24,7 @@ const (
 	SIM_FLAG  = 0x050000000008
 	MSGX_ADDR = 0x050000000020
 	//TLS is m0+m_tls+8
-	TLS_MSGX_OFF = (0x70 + 8)            // TODO this depends on m_tls which is bad.
+	TLS_MSGX_OFF = (0x98 + 8)            // TODO this depends on m_tls which is bad.
 	NBTCS        = runtime.EnclaveMaxTls // how many tcs do we provide.
 )
 
@@ -481,11 +481,6 @@ func sgxEEnter(id uint64, dest, src *sgx_tcs_info, req *runtime.OExitRequest) {
 	swsptr -= unsafe.Sizeof(uint64(0))
 	ptrs = (*uint64)(unsafe.Pointer(swsptr))
 	*ptrs = uint64(dest.Tls - TLS_MSGX_OFF)
-
-	//TODO @aghosn this is the one that does not work.
-	//pre-allocate them in the dest tcs???
-	// Put the arguments for sgxEEnter
-	//rdi, rsi := uint64(0), uint64(0)
 
 	// RSI - 24 RSP
 	swsptr -= unsafe.Sizeof(uint64(0))

@@ -113,6 +113,11 @@
 
 (Sqrt x) -> (SQRTSD x)
 
+(RoundToEven x) -> (ROUNDSD [0] x)
+(Floor x)	-> (ROUNDSD [1] x)
+(Ceil x)  	-> (ROUNDSD [2] x)
+(Trunc x) 	-> (ROUNDSD [3] x)
+
 // Lowering extension
 // Note: we always extend to 64 bits even though some ops don't need that many result bits.
 (SignExt8to16  x) -> (MOVBQSX x)
@@ -550,6 +555,9 @@
 // Atomic memory updates.
 (AtomicAnd8 ptr val mem) -> (ANDBlock ptr val mem)
 (AtomicOr8 ptr val mem) -> (ORBlock ptr val mem)
+
+// Write barrier.
+(WB {fn} destptr srcptr mem) -> (LoweredWB {fn} destptr srcptr mem)
 
 // ***************************
 // Above: lowering rules
@@ -1639,9 +1647,9 @@
 (SUBQconst (MOVQconst [d]) [c]) -> (MOVQconst [d-c])
 (SUBQconst (SUBQconst x [d]) [c]) && is32Bit(-c-d) -> (ADDQconst [-c-d] x)
 (SARQconst [c] (MOVQconst [d])) -> (MOVQconst [d>>uint64(c)])
-(SARLconst [c] (MOVQconst [d])) -> (MOVQconst [d>>uint64(c)])
-(SARWconst [c] (MOVQconst [d])) -> (MOVQconst [d>>uint64(c)])
-(SARBconst [c] (MOVQconst [d])) -> (MOVQconst [d>>uint64(c)])
+(SARLconst [c] (MOVQconst [d])) -> (MOVQconst [int64(int32(d))>>uint64(c)])
+(SARWconst [c] (MOVQconst [d])) -> (MOVQconst [int64(int16(d))>>uint64(c)])
+(SARBconst [c] (MOVQconst [d])) -> (MOVQconst [int64(int8(d))>>uint64(c)])
 (NEGQ (MOVQconst [c])) -> (MOVQconst [-c])
 (NEGL (MOVLconst [c])) -> (MOVLconst [int64(int32(-c))])
 (MULQconst [c] (MOVQconst [d])) -> (MOVQconst [c*d])
@@ -2479,22 +2487,6 @@
   && clobber(mem2)
   -> (MOVQstore [i-4] {s} p (MOVQload [j-4] {s2} p2 mem) mem)
 
-// This is somewhat tricky. There may be pointers in SSE registers due to rule below.
-// However those register shouldn't live across GC safepoint.
-(MOVQstore [i] {s} p
-  x1:(MOVQload [j] {s2} p2 mem)
-    mem2:(MOVQstore [i-8] {s} p
-      x2:(MOVQload [j-8] {s2} p2 mem) mem))
-  && x1.Uses == 1
-  && x2.Uses == 1
-  && mem2.Uses == 1
-  && config.useSSE
-  && clobber(x1)
-  && clobber(x2)
-  && clobber(mem2)
-  -> (MOVOstore [i-8] {s} p (MOVOload [j-8] {s2} p2 mem) mem)
-
-
 // amd64p32 rules
 // same as the rules above, but with 32 instead of 64 bit pointer arithmetic.
 // LEAQ,ADDQ -> LEAL,ADDL
@@ -2666,7 +2658,7 @@
 
 // Load args directly into the register class where it will be used.
 // We do this by just modifying the type of the Arg.
-(MOVQf2i <t> (Arg [off] {sym})) -> @b.Func.Entry (Arg <t> [off] {sym})
-(MOVLf2i <t> (Arg [off] {sym})) -> @b.Func.Entry (Arg <t> [off] {sym})
-(MOVQi2f <t> (Arg [off] {sym})) -> @b.Func.Entry (Arg <t> [off] {sym})
-(MOVLi2f <t> (Arg [off] {sym})) -> @b.Func.Entry (Arg <t> [off] {sym})
+(MOVQf2i <t> (Arg <u> [off] {sym})) && t.Size() == u.Size() -> @b.Func.Entry (Arg <t> [off] {sym})
+(MOVLf2i <t> (Arg <u> [off] {sym})) && t.Size() == u.Size() -> @b.Func.Entry (Arg <t> [off] {sym})
+(MOVQi2f <t> (Arg <u> [off] {sym})) && t.Size() == u.Size() -> @b.Func.Entry (Arg <t> [off] {sym})
+(MOVLi2f <t> (Arg <u> [off] {sym})) && t.Size() == u.Size() -> @b.Func.Entry (Arg <t> [off] {sym})

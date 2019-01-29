@@ -268,10 +268,15 @@ var genericOps = []opData{
 	//   ±∞  → ±∞ (sign preserved)
 	//   ±0  → ±0 (sign preserved)
 	//   NaN → NaN
-	{name: "Floor", argLength: 1}, // round arg0 toward -∞
-	{name: "Ceil", argLength: 1},  // round arg0 toward +∞
-	{name: "Trunc", argLength: 1}, // round arg0 toward 0
-	{name: "Round", argLength: 1}, // round arg0 to nearest, ties away from 0
+	{name: "Floor", argLength: 1},       // round arg0 toward -∞
+	{name: "Ceil", argLength: 1},        // round arg0 toward +∞
+	{name: "Trunc", argLength: 1},       // round arg0 toward 0
+	{name: "Round", argLength: 1},       // round arg0 to nearest, ties away from 0
+	{name: "RoundToEven", argLength: 1}, // round arg0 to nearest, ties to even
+
+	// Modify the sign bit
+	{name: "Abs", argLength: 1},      // absolute value arg0
+	{name: "Copysign", argLength: 2}, // copy sign from arg0 to arg1
 
 	// Data movement, max argument length for Phi is indefinite so just pick
 	// a really large number
@@ -316,8 +321,11 @@ var genericOps = []opData{
 	{name: "Invalid"},            // unused value
 
 	// Memory operations
-	{name: "Load", argLength: 2},                             // Load from arg0.  arg1=memory
-	{name: "Store", argLength: 3, typ: "Mem", aux: "Typ"},    // Store arg1 to arg0.  arg2=memory, aux=type.  Returns memory.
+	{name: "Load", argLength: 2},                          // Load from arg0.  arg1=memory
+	{name: "Store", argLength: 3, typ: "Mem", aux: "Typ"}, // Store arg1 to arg0.  arg2=memory, aux=type.  Returns memory.
+	// The source and destination of Move may overlap in some cases. See e.g.
+	// memmove inlining in generic.rules. When inlineablememmovesize (in ../rewrite.go)
+	// returns true, we must do all loads before all stores, when lowering Move.
 	{name: "Move", argLength: 3, typ: "Mem", aux: "TypSize"}, // arg0=destptr, arg1=srcptr, arg2=mem, auxint=size, aux=type.  Returns memory.
 	{name: "Zero", argLength: 2, typ: "Mem", aux: "TypSize"}, // arg0=destptr, arg1=mem, auxint=size, aux=type. Returns memory.
 
@@ -326,6 +334,12 @@ var genericOps = []opData{
 	{name: "StoreWB", argLength: 3, typ: "Mem", aux: "Typ"},    // Store arg1 to arg0. arg2=memory, aux=type.  Returns memory.
 	{name: "MoveWB", argLength: 3, typ: "Mem", aux: "TypSize"}, // arg0=destptr, arg1=srcptr, arg2=mem, auxint=size, aux=type.  Returns memory.
 	{name: "ZeroWB", argLength: 2, typ: "Mem", aux: "TypSize"}, // arg0=destptr, arg1=mem, auxint=size, aux=type. Returns memory.
+
+	// WB invokes runtime.gcWriteBarrier. This is not a normal
+	// call: it takes arguments in registers, doesn't clobber
+	// general-purpose registers (the exact clobber set is
+	// arch-dependent), and is not a safe-point.
+	{name: "WB", argLength: 3, typ: "Mem", aux: "Sym", symEffect: "None"}, // arg0=destptr, arg1=srcptr, arg2=mem, aux=runtime.gcWriteBarrier
 
 	// Function calls. Arguments to the call have already been written to the stack.
 	// Return values appear on the stack. The method receiver, if any, is treated

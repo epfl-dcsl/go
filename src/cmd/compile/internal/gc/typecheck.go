@@ -7,7 +7,6 @@ package gc
 import (
 	"cmd/compile/internal/types"
 	"cmd/internal/objabi"
-	"cmd/internal/src"
 	"fmt"
 	"math"
 	"strings"
@@ -244,21 +243,15 @@ func callrecvlist(l Nodes) bool {
 }
 
 // indexlit implements typechecking of untyped values as
-// array/slice indexes. It is equivalent to defaultlit
-// except for constants of numerical kind, which are acceptable
-// whenever they can be represented by a value of type int.
+// array/slice indexes. It is almost equivalent to defaultlit
+// but also accepts untyped numeric values representable as
+// value of type int (see also checkmake for comparison).
 // The result of indexlit MUST be assigned back to n, e.g.
 // 	n.Left = indexlit(n.Left)
 func indexlit(n *Node) *Node {
-	if n == nil || !n.Type.IsUntyped() {
-		return n
+	if n != nil && n.Type != nil && n.Type.Etype == TIDEAL {
+		return defaultlit(n, types.Types[TINT])
 	}
-	switch consttype(n) {
-	case CTINT, CTRUNE, CTFLT, CTCPLX:
-		n = defaultlit(n, types.Types[TINT])
-	}
-
-	n = defaultlit(n, nil)
 	return n
 }
 
@@ -420,18 +413,7 @@ func typecheck1(n *Node, top int) *Node {
 		}
 		n.Op = OTYPE
 		n.Type = types.NewMap(l.Type, r.Type)
-
-		// map key validation
-		alg, bad := algtype1(l.Type)
-		if alg == ANOEQ {
-			if bad.Etype == TFORW {
-				// queue check for map until all the types are done settling.
-				mapqueue = append(mapqueue, mapqueueval{l, n.Pos})
-			} else if bad.Etype != TANY {
-				// no need to queue, key is already bad
-				yyerror("invalid map key type %v", l.Type)
-			}
-		}
+		mapqueue = append(mapqueue, n) // check map keys when all types are settled
 		n.Left = nil
 		n.Right = nil
 
@@ -2568,18 +2550,18 @@ func hasddd(t *types.Type) bool {
 // typecheck assignment: type list = expression list
 func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes, desc func() string) {
 	var t *types.Type
-	var n *Node
 	var n1 int
 	var n2 int
 	var i int
 
 	lno := lineno
+	defer func() { lineno = lno }()
 
 	if tstruct.Broke() {
-		goto out
+		return
 	}
 
-	n = nil
+	var n *Node
 	if nl.Len() == 1 {
 		n = nl.First()
 		if n.Type != nil && n.Type.IsFuncArgStruct() {
@@ -2608,7 +2590,7 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 							}
 						}
 					}
-					goto out
+					return
 				}
 
 				if i >= len(rfs) {
@@ -2627,7 +2609,7 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 			if len(rfs) > len(lfs) {
 				goto toomany
 			}
-			goto out
+			return
 		}
 	}
 
@@ -2671,7 +2653,7 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 				if n.Type != nil {
 					nl.SetIndex(i, assignconvfn(n, t, desc))
 				}
-				goto out
+				return
 			}
 
 			for ; i < nl.Len(); i++ {
@@ -2681,8 +2663,7 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 					nl.SetIndex(i, assignconvfn(n, t.Elem(), desc))
 				}
 			}
-
-			goto out
+			return
 		}
 
 		if i >= nl.Len() {
@@ -2706,9 +2687,6 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 			yyerror("invalid use of ... in %v", op)
 		}
 	}
-
-out:
-	lineno = lno
 	return
 
 notenough:
@@ -2718,7 +2696,7 @@ notenough:
 			// call is the expression being called, not the overall call.
 			// Method expressions have the form T.M, and the compiler has
 			// rewritten those to ONAME nodes but left T in Left.
-			if call.Op == ONAME && call.Left != nil && call.Left.Op == OTYPE {
+			if call.isMethodExpression() {
 				yyerror("not enough arguments in call to method expression %v%s", call, details)
 			} else {
 				yyerror("not enough arguments in call to %v%s", call, details)
@@ -2730,8 +2708,7 @@ notenough:
 			n.SetDiag(true)
 		}
 	}
-
-	goto out
+	return
 
 toomany:
 	details := errorDetails(nl, tstruct, isddd)
@@ -2740,7 +2717,6 @@ toomany:
 	} else {
 		yyerror("too many arguments to %v%s", op, details)
 	}
-	goto out
 }
 
 func errorDetails(nl Nodes, tstruct *types.Type, isddd bool) string {
@@ -3132,7 +3108,11 @@ func typecheckcomplit(n *Node) *Node {
 
 				f := lookdot1(nil, l.Sym, t, t.Fields(), 0)
 				if f == nil {
-					yyerror("unknown field '%v' in struct literal of type %v", l.Sym, t)
+					if ci := lookdot1(nil, l.Sym, t, t.Fields(), 2); ci != nil { // Case-insensitive lookup.
+						yyerror("unknown field '%v' in struct literal of type %v (but does have %v)", l.Sym, t, ci.Sym)
+					} else {
+						yyerror("unknown field '%v' in struct literal of type %v", l.Sym, t)
+					}
 					continue
 				}
 				fielddup(f.Sym.Name, hash)
@@ -3505,15 +3485,17 @@ func stringtoarraylit(n *Node) *Node {
 	return nn
 }
 
-var ntypecheckdeftype int
+var mapqueue []*Node
 
-type mapqueueval struct {
-	n   *Node
-	lno src.XPos
+func checkMapKeys() {
+	for _, n := range mapqueue {
+		k := n.Type.MapType().Key
+		if !k.Broke() && !IsComparable(k) {
+			yyerrorl(n.Pos, "invalid map key type %v", k)
+		}
+	}
+	mapqueue = nil
 }
-
-// tracks the line numbers at which forward types are first used as map keys
-var mapqueue []mapqueueval
 
 func copytype(n *Node, t *types.Type) {
 	if t.Etype == TFORW {
@@ -3574,7 +3556,6 @@ func copytype(n *Node, t *types.Type) {
 }
 
 func typecheckdeftype(n *Node) {
-	ntypecheckdeftype++
 	lno := lineno
 	setlineno(n)
 	n.Type.Sym = n.Sym
@@ -3593,22 +3574,6 @@ func typecheckdeftype(n *Node) {
 	}
 
 	lineno = lno
-
-	// if there are no type definitions going on, it's safe to
-	// try to validate the map key types for the interfaces
-	// we just read.
-	if ntypecheckdeftype == 1 {
-		for _, e := range mapqueue {
-			lineno = e.lno
-			if !IsComparable(e.n.Type) {
-				yyerror("invalid map key type %v", e.n.Type)
-			}
-		}
-		mapqueue = nil
-		lineno = lno
-	}
-
-	ntypecheckdeftype--
 }
 
 func typecheckdef(n *Node) {
@@ -3821,6 +3786,10 @@ func checkmake(t *types.Type, arg string, n *Node) bool {
 	}
 
 	// defaultlit is necessary for non-constants too: n might be 1.1<<k.
+	// TODO(gri) The length argument requirements for (array/slice) make
+	// are the same as for index expressions. Factor the code better;
+	// for instance, indexlit might be called here and incorporate some
+	// of the bounds checks done for make.
 	n = defaultlit(n, types.Types[TINT])
 
 	return true
@@ -3919,17 +3888,17 @@ func (n *Node) isterminating() bool {
 		if n.HasBreak() {
 			return false
 		}
-		def := 0
+		def := false
 		for _, n1 := range n.List.Slice() {
 			if !n1.Nbody.isterminating() {
 				return false
 			}
 			if n1.List.Len() == 0 { // default
-				def = 1
+				def = true
 			}
 		}
 
-		if n.Op != OSELECT && def == 0 {
+		if n.Op != OSELECT && !def {
 			return false
 		}
 		return true

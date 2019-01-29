@@ -14,7 +14,8 @@ func gosecassert(b bool) {
 
 //TODO @aghosn remove afterwards.
 
-//const DEBUGMASK = 0x060000000000
+const DEBUGMASK = 0x060000000000
+
 //
 ////		DEBUGGING stuff that will need to be removed or replaced
 //

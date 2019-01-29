@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // iteration over encoded pcdata tables.
@@ -162,11 +163,13 @@ func renumberfiles(ctxt *Link, files []*sym.Symbol, d *sym.Pcdata) {
 	*d = out
 }
 
-// onlycsymbol reports whether this is a cgo symbol provided by the
-// runtime and only used from C code.
+// onlycsymbol reports whether this is a symbol that is referenced by C code.
 func onlycsymbol(s *sym.Symbol) bool {
 	switch s.Name {
 	case "_cgo_topofstack", "_cgo_panic", "crosscall2":
+		return true
+	}
+	if strings.HasPrefix(s.Name, "_cgoexp_") {
 		return true
 	}
 	return false
@@ -312,12 +315,47 @@ func (ctxt *Link) pclntab() {
 		}
 		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), args))
 
-		// frame int32
-		// This has been removed (it was never set quite correctly anyway).
-		// Nothing should use it.
-		// Leave an obviously incorrect value.
-		// TODO: Remove entirely.
-		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), 0x1234567))
+		// funcID uint32
+		funcID := objabi.FuncID_normal
+		switch s.Name {
+		case "runtime.goexit":
+			funcID = objabi.FuncID_goexit
+		case "runtime.jmpdefer":
+			funcID = objabi.FuncID_jmpdefer
+		case "runtime.mcall":
+			funcID = objabi.FuncID_mcall
+		case "runtime.morestack":
+			funcID = objabi.FuncID_morestack
+		case "runtime.mstart":
+			funcID = objabi.FuncID_mstart
+		case "runtime.rt0_go":
+			funcID = objabi.FuncID_rt0_go
+		case "runtime.asmcgocall":
+			funcID = objabi.FuncID_asmcgocall
+		case "runtime.sigpanic":
+			funcID = objabi.FuncID_sigpanic
+		case "runtime.runfinq":
+			funcID = objabi.FuncID_runfinq
+		case "runtime.bgsweep":
+			funcID = objabi.FuncID_bgsweep
+		case "runtime.forcegchelper":
+			funcID = objabi.FuncID_forcegchelper
+		case "runtime.timerproc":
+			funcID = objabi.FuncID_timerproc
+		case "runtime.gcBgMarkWorker":
+			funcID = objabi.FuncID_gcBgMarkWorker
+		case "runtime.systemstack_switch":
+			funcID = objabi.FuncID_systemstack_switch
+		case "runtime.systemstack":
+			funcID = objabi.FuncID_systemstack
+		case "runtime.cgocallback_gofunc":
+			funcID = objabi.FuncID_cgocallback_gofunc
+		case "runtime.gogo":
+			funcID = objabi.FuncID_gogo
+		case "runtime.externalthreadhandler":
+			funcID = objabi.FuncID_externalthreadhandler
+		}
+		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(funcID)))
 
 		if pcln != &pclntabZpcln {
 			renumberfiles(ctxt, pcln.File, &pcln.Pcfile)
@@ -421,14 +459,18 @@ func (ctxt *Link) pclntab() {
 	}
 }
 
+func gorootFinal() string {
+	root := objabi.GOROOT
+	if final := os.Getenv("GOROOT_FINAL"); final != "" {
+		root = final
+	}
+	return root
+}
+
 func expandGoroot(s string) string {
 	const n = len("$GOROOT")
 	if len(s) >= n+1 && s[:n] == "$GOROOT" && (s[n] == '/' || s[n] == '\\') {
-		root := objabi.GOROOT
-		if final := os.Getenv("GOROOT_FINAL"); final != "" {
-			root = final
-		}
-		return filepath.ToSlash(filepath.Join(root, s[n:]))
+		return filepath.ToSlash(filepath.Join(gorootFinal(), s[n:]))
 	}
 	return s
 }

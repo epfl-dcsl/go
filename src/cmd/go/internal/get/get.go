@@ -22,7 +22,7 @@ import (
 )
 
 var CmdGet = &base.Command{
-	UsageLine: "get [-d] [-f] [-fix] [-insecure] [-t] [-u] [build flags] [packages]",
+	UsageLine: "get [-d] [-f] [-fix] [-insecure] [-t] [-u] [-v] [build flags] [packages]",
 	Short:     "download and install packages and dependencies",
 	Long: `
 Get downloads the packages named by the import paths, along with their
@@ -90,8 +90,7 @@ func init() {
 }
 
 func runGet(cmd *base.Command, args []string) {
-	work.InstrumentInit()
-	work.BuildModeInit()
+	work.BuildInit()
 
 	if *getF && !*getU {
 		base.Fatalf("go get: cannot use -f flag without -u")
@@ -208,9 +207,9 @@ var downloadCache = map[string]bool{}
 var downloadRootCache = map[string]bool{}
 
 // download runs the download half of the get command
-// for the package named by the argument.
+// for the package or pattern named by the argument.
 func download(arg string, parent *load.Package, stk *load.ImportStack, mode int) {
-	if mode&load.UseVendor != 0 {
+	if mode&load.ResolveImport != 0 {
 		// Caller is responsible for expanding vendor paths.
 		panic("internal error: download mode has useVendor set")
 	}
@@ -218,7 +217,7 @@ func download(arg string, parent *load.Package, stk *load.ImportStack, mode int)
 		if parent == nil {
 			return load.LoadPackage(path, stk)
 		}
-		return load.LoadImport(path, parent.Dir, parent, stk, nil, mode)
+		return load.LoadImport(path, parent.Dir, parent, stk, nil, mode|load.ResolveModule)
 	}
 
 	p := load1(arg, mode)
@@ -347,12 +346,12 @@ func download(arg string, parent *load.Package, stk *load.ImportStack, mode int)
 				base.Errorf("%s", err)
 				continue
 			}
-			// If this is a test import, apply vendor lookup now.
-			// We cannot pass useVendor to download, because
+			// If this is a test import, apply module and vendor lookup now.
+			// We cannot pass ResolveImport to download, because
 			// download does caching based on the value of path,
 			// so it must be the fully qualified path already.
 			if i >= len(p.Imports) {
-				path = load.VendoredImportPath(p, path)
+				path = load.ResolveImportPath(p, path)
 			}
 			download(path, p, stk, 0)
 		}
@@ -377,6 +376,23 @@ func downloadPackage(p *load.Package) error {
 		security = web.Insecure
 	}
 
+	// p can be either a real package, or a pseudo-package whose “import path” is
+	// actually a wildcard pattern.
+	// Trim the path at the element containing the first wildcard,
+	// and hope that it applies to the wildcarded parts too.
+	// This makes 'go get rsc.io/pdf/...' work in a fresh GOPATH.
+	importPrefix := p.ImportPath
+	if i := strings.Index(importPrefix, "..."); i >= 0 {
+		slash := strings.LastIndexByte(importPrefix[:i], '/')
+		if slash < 0 {
+			return fmt.Errorf("cannot expand ... in %q", p.ImportPath)
+		}
+		importPrefix = importPrefix[:slash]
+	}
+	if err := CheckImportPath(importPrefix); err != nil {
+		return fmt.Errorf("%s: invalid import path: %v", p.ImportPath, err)
+	}
+
 	if p.Internal.Build.SrcRoot != "" {
 		// Directory exists. Look for checkout along path to src.
 		vcs, rootPath, err = vcsFromDir(p.Dir, p.Internal.Build.SrcRoot)
@@ -394,7 +410,7 @@ func downloadPackage(p *load.Package) error {
 			}
 			repo = remote
 			if !*getF {
-				if rr, err := repoRootForImportPath(p.ImportPath, security); err == nil {
+				if rr, err := repoRootForImportPath(importPrefix, security); err == nil {
 					repo := rr.repo
 					if rr.vcs.resolveRepo != nil {
 						resolved, err := rr.vcs.resolveRepo(rr.vcs, dir, repo)
@@ -411,7 +427,7 @@ func downloadPackage(p *load.Package) error {
 	} else {
 		// Analyze the import path to determine the version control system,
 		// repository, and the import path for the root of the repository.
-		rr, err := repoRootForImportPath(p.ImportPath, security)
+		rr, err := repoRootForImportPath(importPrefix, security)
 		if err != nil {
 			return err
 		}

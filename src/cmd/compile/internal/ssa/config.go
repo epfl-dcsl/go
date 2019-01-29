@@ -36,6 +36,7 @@ type Config struct {
 	useSSE          bool          // Use SSE for non-float operations
 	nacl            bool          // GOOS=nacl
 	use387          bool          // GO386=387
+	SoftFloat       bool          //
 	NeedsFpScratch  bool          // No direct move between GP and FP register sets
 	BigEndian       bool          //
 	sparsePhiCutoff uint64        // Sparse phi location algorithm used above this #blocks*#variables score
@@ -88,7 +89,7 @@ type Logger interface {
 
 	// Forwards the Debug flags from gc
 	Debug_checknil() bool
-	Debug_wb() bool
+	Debug_eagerwb() bool
 }
 
 type Frontend interface {
@@ -131,6 +132,10 @@ type Frontend interface {
 
 	// UseWriteBarrier returns whether write barrier is enabled
 	UseWriteBarrier() bool
+
+	// SetWBPos indicates that a write barrier has been inserted
+	// in this function at position pos.
+	SetWBPos(pos src.XPos)
 }
 
 // interface used to hold a *gc.Node (a stack variable).

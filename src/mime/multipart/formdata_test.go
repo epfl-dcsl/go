@@ -38,6 +38,35 @@ func TestReadForm(t *testing.T) {
 	fd.Close()
 }
 
+func TestReadFormWithNamelessFile(t *testing.T) {
+	b := strings.NewReader(strings.Replace(messageWithFileWithoutName, "\n", "\r\n", -1))
+	r := NewReader(b, boundary)
+	f, err := r.ReadForm(25)
+	if err != nil {
+		t.Fatal("ReadForm:", err)
+	}
+	defer f.RemoveAll()
+
+	if g, e := f.Value["hiddenfile"][0], filebContents; g != e {
+		t.Errorf("hiddenfile value = %q, want %q", g, e)
+	}
+}
+
+func TestReadFormWithTextContentType(t *testing.T) {
+	// From https://github.com/golang/go/issues/24041
+	b := strings.NewReader(strings.Replace(messageWithTextContentType, "\n", "\r\n", -1))
+	r := NewReader(b, boundary)
+	f, err := r.ReadForm(25)
+	if err != nil {
+		t.Fatal("ReadForm:", err)
+	}
+	defer f.RemoveAll()
+
+	if g, e := f.Value["texta"][0], textaValue; g != e {
+		t.Errorf("texta value = %q, want %q", g, e)
+	}
+}
+
 func testFile(t *testing.T, fh *FileHeader, efn, econtent string) File {
 	if fh.Filename != efn {
 		t.Errorf("filename = %q, want %q", fh.Filename, efn)
@@ -67,6 +96,24 @@ const (
 	textbValue    = "bar"
 	boundary      = `MyBoundary`
 )
+
+const messageWithFileWithoutName = `
+--MyBoundary
+Content-Disposition: form-data; name="hiddenfile"; filename=""
+Content-Type: text/plain
+
+` + filebContents + `
+--MyBoundary--
+`
+
+const messageWithTextContentType = `
+--MyBoundary
+Content-Disposition: form-data; name="texta"
+Content-Type: text/plain
+
+` + textaValue + `
+--MyBoundary
+`
 
 const message = `
 --MyBoundary

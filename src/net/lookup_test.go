@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"internal/testenv"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,8 @@ func TestLookupGmailMX(t *testing.T) {
 		t.Skip("IPv4 is required")
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for _, tt := range lookupGmailMXTests {
 		mxs, err := LookupMX(tt.name)
 		if err != nil {
@@ -134,6 +138,8 @@ func TestLookupGmailNS(t *testing.T) {
 	if !supportsIPv4() || !*testIPv4 {
 		t.Skip("IPv4 is required")
 	}
+
+	defer dnsWaitGroup.Wait()
 
 	for _, tt := range lookupGmailNSTests {
 		nss, err := LookupNS(tt.name)
@@ -168,6 +174,8 @@ func TestLookupGmailTXT(t *testing.T) {
 		t.Skip("IPv4 is required")
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for _, tt := range lookupGmailTXTTests {
 		txts, err := LookupTXT(tt.name)
 		if err != nil {
@@ -176,10 +184,15 @@ func TestLookupGmailTXT(t *testing.T) {
 		if len(txts) == 0 {
 			t.Error("got no record")
 		}
+		found := false
 		for _, txt := range txts {
-			if !strings.Contains(txt, tt.txt) || (!strings.HasSuffix(txt, tt.host) && !strings.HasSuffix(txt, tt.host+".")) {
-				t.Errorf("got %s; want a record containing %s, %s", txt, tt.txt, tt.host)
+			if strings.Contains(txt, tt.txt) && (strings.HasSuffix(txt, tt.host) || strings.HasSuffix(txt, tt.host+".")) {
+				found = true
+				break
 			}
+		}
+		if !found {
+			t.Errorf("got %v; want a record containing %s, %s", txts, tt.txt, tt.host)
 		}
 	}
 }
@@ -203,6 +216,8 @@ func TestLookupGooglePublicDNSAddr(t *testing.T) {
 		t.Skip("both IPv4 and IPv6 are required")
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for _, tt := range lookupGooglePublicDNSAddrTests {
 		names, err := LookupAddr(tt.addr)
 		if err != nil {
@@ -223,6 +238,8 @@ func TestLookupIPv6LinkLocalAddr(t *testing.T) {
 	if !supportsIPv6() || !*testIPv6 {
 		t.Skip("IPv6 is required")
 	}
+
+	defer dnsWaitGroup.Wait()
 
 	addrs, err := LookupHost("localhost")
 	if err != nil {
@@ -260,6 +277,8 @@ func TestLookupCNAME(t *testing.T) {
 		t.Skip("IPv4 is required")
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for _, tt := range lookupCNAMETests {
 		cname, err := LookupCNAME(tt.name)
 		if err != nil {
@@ -287,6 +306,8 @@ func TestLookupGoogleHost(t *testing.T) {
 		t.Skip("IPv4 is required")
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for _, tt := range lookupGoogleHostTests {
 		addrs, err := LookupHost(tt.name)
 		if err != nil {
@@ -300,6 +321,30 @@ func TestLookupGoogleHost(t *testing.T) {
 				t.Errorf("got %q; want a literal IP address", addr)
 			}
 		}
+	}
+}
+
+func TestLookupLongTXT(t *testing.T) {
+	if runtime.GOOS == "plan9" {
+		t.Skip("skipping on plan9; see https://golang.org/issue/22857")
+	}
+	if testenv.Builder() == "" {
+		testenv.MustHaveExternalNetwork(t)
+	}
+
+	defer dnsWaitGroup.Wait()
+
+	txts, err := LookupTXT("golang.rsc.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(txts)
+	want := []string{
+		strings.Repeat("abcdefghijklmnopqrstuvwxyABCDEFGHJIKLMNOPQRSTUVWXY", 10),
+		"gophers rule",
+	}
+	if !reflect.DeepEqual(txts, want) {
+		t.Fatalf("LookupTXT golang.rsc.io incorrect\nhave %q\nwant %q", txts, want)
 	}
 }
 
@@ -318,6 +363,8 @@ func TestLookupGoogleIP(t *testing.T) {
 	if !supportsIPv4() || !*testIPv4 {
 		t.Skip("IPv4 is required")
 	}
+
+	defer dnsWaitGroup.Wait()
 
 	for _, tt := range lookupGoogleIPTests {
 		ips, err := LookupIP(tt.name)
@@ -354,6 +401,7 @@ var revAddrTests = []struct {
 }
 
 func TestReverseAddress(t *testing.T) {
+	defer dnsWaitGroup.Wait()
 	for i, tt := range revAddrTests {
 		a, err := reverseaddr(tt.Addr)
 		if len(tt.ErrPrefix) > 0 && err == nil {
@@ -376,6 +424,8 @@ func TestDNSFlood(t *testing.T) {
 	if !*testDNSFlood {
 		t.Skip("test disabled; use -dnsflood to enable")
 	}
+
+	defer dnsWaitGroup.Wait()
 
 	var N = 5000
 	if runtime.GOOS == "darwin" {
@@ -458,6 +508,8 @@ func TestLookupDotsWithLocalSource(t *testing.T) {
 		testenv.MustHaveExternalNetwork(t)
 	}
 
+	defer dnsWaitGroup.Wait()
+
 	for i, fn := range []func() func(){forceGoDNS, forceCgoDNS} {
 		fixup := fn()
 		if fixup == nil {
@@ -502,6 +554,8 @@ func TestLookupDotsWithRemoteSource(t *testing.T) {
 	if !supportsIPv4() || !*testIPv4 {
 		t.Skip("IPv4 is required")
 	}
+
+	defer dnsWaitGroup.Wait()
 
 	if fixup := forceGoDNS(); fixup != nil {
 		testDots(t, "go")
@@ -723,6 +777,9 @@ func TestLookupNonLDH(t *testing.T) {
 	if runtime.GOOS == "nacl" {
 		t.Skip("skip on nacl")
 	}
+
+	defer dnsWaitGroup.Wait()
+
 	if fixup := forceGoDNS(); fixup != nil {
 		defer fixup()
 	}
@@ -737,5 +794,30 @@ func TestLookupNonLDH(t *testing.T) {
 	}
 	if !strings.HasSuffix(err.Error(), errNoSuchHost.Error()) {
 		t.Fatalf("lookup error = %v, want %v", err, errNoSuchHost)
+	}
+}
+
+func TestLookupContextCancel(t *testing.T) {
+	if testenv.Builder() == "" {
+		testenv.MustHaveExternalNetwork(t)
+	}
+	if runtime.GOOS == "nacl" {
+		t.Skip("skip on nacl")
+	}
+
+	defer dnsWaitGroup.Wait()
+
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	ctxCancel()
+	_, err := DefaultResolver.LookupIPAddr(ctx, "google.com")
+	if err != errCanceled {
+		testenv.SkipFlakyNet(t)
+		t.Fatal(err)
+	}
+	ctx = context.Background()
+	_, err = DefaultResolver.LookupIPAddr(ctx, "google.com")
+	if err != nil {
+		testenv.SkipFlakyNet(t)
+		t.Fatal(err)
 	}
 }

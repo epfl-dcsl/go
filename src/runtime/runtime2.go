@@ -254,17 +254,19 @@ type gobuf struct {
 	// The offsets of sp, pc, and g are known to (hard-coded in) libmach.
 	//
 	// ctxt is unusual with respect to GC: it may be a
-	// heap-allocated funcval so write require a write barrier,
-	// but gobuf needs to be cleared from assembly. We take
-	// advantage of the fact that the only path that uses a
-	// non-nil ctxt is morestack. As a result, gogo is the only
-	// place where it may not already be nil, so gogo uses an
-	// explicit write barrier. Everywhere else that resets the
-	// gobuf asserts that ctxt is already nil.
+	// heap-allocated funcval, so GC needs to track it, but it
+	// needs to be set and cleared from assembly, where it's
+	// difficult to have write barriers. However, ctxt is really a
+	// saved, live register, and we only ever exchange it between
+	// the real register and the gobuf. Hence, we treat it as a
+	// root during stack scanning, which means assembly that saves
+	// and restores it doesn't need write barriers. It's still
+	// typed as a pointer so that any other writes from Go get
+	// write barriers.
 	sp   uintptr
 	pc   uintptr
 	g    guintptr
-	ctxt unsafe.Pointer // this has to be a pointer so that gc scans it
+	ctxt unsafe.Pointer
 	ret  sys.Uintreg
 	lr   uintptr
 	bp   uintptr // for GOEXPERIMENT=framepointer
@@ -411,10 +413,11 @@ type m struct {
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
-	procid        uint64     // for debuggers, but offset not hard-coded
-	gsignal       *g         // signal-handling g
-	sigmask       sigset     // storage for saved signal mask
-	tls           [6]uintptr // thread-local storage (for x86 extern register)
+	procid        uint64       // for debuggers, but offset not hard-coded
+	gsignal       *g           // signal-handling g
+	goSigStack    gsignalStack // Go-allocated signal handling stack
+	sigmask       sigset       // storage for saved signal mask
+	tls           [6]uintptr   // thread-local storage (for x86 extern register)
 	mstartfn      func()
 	curg          *g       // current running goroutine
 	caughtsig     guintptr // goroutine running during fatal signal
@@ -544,6 +547,11 @@ type p struct {
 	// disposed on certain GC state transitions.
 	gcw gcWork
 
+	// wbBuf is this P's GC write barrier buffer.
+	//
+	// TODO: Consider caching this in the running G.
+	wbBuf wbBuf
+
 	runSafePointFn uint32 // if 1, run sched.safePointFn at next safe point
 
 	pad [sys.CacheLineSize]byte
@@ -623,7 +631,7 @@ const (
 	_SigDefault              // if the signal isn't explicitly requested, don't monitor it
 	_SigGoExit               // cause all runtime procs to exit (only used on Plan 9).
 	_SigSetStack             // add SA_ONSTACK to libc handler
-	_SigUnblock              // unblocked in minit
+	_SigUnblock              // always unblock; see blockableSig
 	_SigIgn                  // _SIG_DFL action is to ignore the signal
 )
 
@@ -635,8 +643,8 @@ type _func struct {
 	entry   uintptr // start pc
 	nameoff int32   // function name
 
-	args int32 // in/out args size
-	_    int32 // previously legacy frame size; kept for layout compatibility
+	args   int32  // in/out args size
+	funcID funcID // set for certain special runtime functions
 
 	pcsp      int32
 	pcfile    int32

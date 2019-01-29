@@ -52,6 +52,7 @@ var bootstrapDirs = []string{
 	"cmd/internal/bio",
 	"cmd/internal/gcprog",
 	"cmd/internal/dwarf",
+	"cmd/internal/edit",
 	"cmd/internal/objabi",
 	"cmd/internal/obj",
 	"cmd/internal/obj/arm",
@@ -77,12 +78,14 @@ var bootstrapDirs = []string{
 	"cmd/link/internal/s390x",
 	"cmd/link/internal/sym",
 	"cmd/link/internal/x86",
+	"container/heap",
 	"debug/dwarf",
 	"debug/elf",
 	"debug/macho",
 	"debug/pe",
 	"math/big",
 	"math/bits",
+	"sort",
 }
 
 // File prefixes that are ignored by go/build anyway, and cause
@@ -104,7 +107,7 @@ func bootstrapBuildTools() {
 	if goroot_bootstrap == "" {
 		goroot_bootstrap = pathf("%s/go1.4", os.Getenv("HOME"))
 	}
-	xprintf("##### Building Go toolchain using %s.\n", goroot_bootstrap)
+	xprintf("Building Go toolchain1 using %s.\n", goroot_bootstrap)
 
 	mkzbootstrap(pathf("%s/src/cmd/internal/objabi/zbootstrap.go", goroot))
 
@@ -176,12 +179,17 @@ func bootstrapBuildTools() {
 	// https://groups.google.com/d/msg/golang-dev/Ss7mCKsvk8w/Gsq7VYI0AwAJ
 	// Use the math_big_pure_go build tag to disable the assembly in math/big
 	// which may contain unsupported instructions.
+	// Note that if we are using Go 1.10 or later as bootstrap, the -gcflags=-l
+	// only applies to the final cmd/go binary, but that's OK: if this is Go 1.10
+	// or later we don't need to disable inlining to work around bugs in the Go 1.4 compiler.
 	cmd := []string{
 		pathf("%s/bin/go", goroot_bootstrap),
 		"install",
 		"-gcflags=-l",
-		"-tags=math_big_pure_go",
-		"-v",
+		"-tags=math_big_pure_go compiler_bootstrap",
+	}
+	if vflag > 0 {
+		cmd = append(cmd, "-v")
 	}
 	if tool := os.Getenv("GOBOOTSTRAP_TOOLEXEC"); tool != "" {
 		cmd = append(cmd, "-toolexec="+tool)
@@ -200,7 +208,9 @@ func bootstrapBuildTools() {
 		}
 	}
 
-	xprintf("\n")
+	if vflag > 0 {
+		xprintf("\n")
+	}
 }
 
 var ssaRewriteFileSubstring = filepath.FromSlash("src/cmd/compile/internal/ssa/rewrite")

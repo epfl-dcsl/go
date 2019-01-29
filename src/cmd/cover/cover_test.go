@@ -6,6 +6,7 @@ package main_test
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -37,7 +38,7 @@ var (
 	coverProfile = filepath.Join(testdata, "profile.cov")
 )
 
-var debug = false // Keeps the rewritten files around if set.
+var debug = flag.Bool("debug", false, "keep rewritten files for debugging")
 
 // Run this shell script, but do it in Go so it can be run by "go test".
 //
@@ -58,12 +59,23 @@ func TestCover(t *testing.T) {
 	for i, line := range lines {
 		lines[i] = bytes.Replace(line, []byte("LINE"), []byte(fmt.Sprint(i+1)), -1)
 	}
+
+	// Add a function that is not gofmt'ed. This used to cause a crash.
+	// We don't put it in test.go because then we would have to gofmt it.
+	// Issue 23927.
+	lines = append(lines, []byte("func unFormatted() {"),
+		[]byte("\tif true {"),
+		[]byte("\t}else{"),
+		[]byte("\t}"),
+		[]byte("}"))
+	lines = append(lines, []byte("func unFormatted2(b bool) {if b{}else{}}"))
+
 	if err := ioutil.WriteFile(coverInput, bytes.Join(lines, []byte("\n")), 0666); err != nil {
 		t.Fatal(err)
 	}
 
 	// defer removal of test_line.go
-	if !debug {
+	if !*debug {
 		defer os.Remove(coverInput)
 	}
 
@@ -79,7 +91,7 @@ func TestCover(t *testing.T) {
 	run(cmd, t)
 
 	// defer removal of ./testdata/test_cover.go
-	if !debug {
+	if !*debug {
 		defer os.Remove(coverOutput)
 	}
 
@@ -100,10 +112,10 @@ func TestCover(t *testing.T) {
 		t.Error("'go:linkname' compiler directive not found")
 	}
 
-	// No other comments should be present in generated code.
-	c := ".*// This comment shouldn't appear in generated go code.*"
-	if got, err := regexp.MatchString(c, string(file)); err != nil || got {
-		t.Errorf("non compiler directive comment %q found", c)
+	// Other comments should be preserved too.
+	c := ".*// This comment didn't appear in generated go code.*"
+	if got, err := regexp.MatchString(c, string(file)); err != nil || !got {
+		t.Errorf("non compiler directive comment %q not found", c)
 	}
 }
 
@@ -245,6 +257,7 @@ func TestCoverFunc(t *testing.T) {
 }
 
 func run(c *exec.Cmd, t *testing.T) {
+	t.Helper()
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	err := c.Run()

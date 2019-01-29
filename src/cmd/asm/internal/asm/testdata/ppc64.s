@@ -734,6 +734,9 @@ label1:
 	POPCNTW	R1,R2
 	POPCNTB R1,R2
 
+//	Copysign
+	FCPSGN F1,F2,F3
+
 //	Random number generator, X-form
 //	DARN  L,RT produces
 //	darn  RT,L
@@ -928,6 +931,12 @@ label1:
 //	<MNEMONIC> VRA,VRB,VRC,VRT produces
 //	<mnemonic> VRT,VRA,VRB,VRC
 	VPERM V3, V2, V1, V0
+
+//	Vector bit permute, VX-form
+//	<MNEMONIC> VRA,VRB,VRT produces
+//	<mnemonic> VRT,VRA,VRB
+	VBPERMQ	V3,V1,V2
+	VBPERMD	V3,V1,V2
 
 //	Vector select, VA-form
 //	<MNEMONIC> VRA,VRB,VRC,VRT produces

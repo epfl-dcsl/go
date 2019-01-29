@@ -148,6 +148,9 @@ skipsysmon:
 	}
 
 	runtime_init() // must be before defer
+	if nanotime() == 0 {
+		throw("nanotime returning zero")
+	}
 
 	// Defer unlock so that runtime.Goexit during init does the unlock too.
 	needUnlock := true
@@ -408,6 +411,11 @@ func releaseSudog(s *sudog) {
 
 // funcPC returns the entry PC of the function f.
 // It assumes that f is a func value. Otherwise the behavior is undefined.
+// CAREFUL: In programs with plugins, funcPC can return different values
+// for the same function (because there are actually multiple copies of
+// the same function in the address space). To be safe, don't use the
+// results of this function in any == expression. It is only safe to
+// use the result as an address at which to start executing code.
 //go:nosplit
 func funcPC(f interface{}) uintptr {
 	return **(**uintptr)(add(unsafe.Pointer(&f), sys.PtrSize))
@@ -526,6 +534,17 @@ func schedinit() {
 
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
+	}
+
+	// For cgocheck > 1, we turn on the write barrier at all times
+	// and check all pointer writes. We can't do this until after
+	// procresize because the write barrier needs a P.
+	if debug.cgocheck > 1 {
+		writeBarrier.cgo = true
+		writeBarrier.enabled = true
+		for _, p := range allp {
+			p.wbBuf.reset()
+		}
 	}
 
 	if buildVersion == "" {
@@ -797,8 +816,10 @@ func casgstatus(gp *g, oldval, newval uint32) {
 		// _Grunning or _Grunning|_Gscan; either way,
 		// we own gp.gcscanvalid, so it's safe to read.
 		// gp.gcscanvalid must not be true when we are running.
-		print("runtime: casgstatus ", hex(oldval), "->", hex(newval), " gp.status=", hex(gp.atomicstatus), " gp.gcscanvalid=true\n")
-		throw("casgstatus")
+		systemstack(func() {
+			print("runtime: casgstatus ", hex(oldval), "->", hex(newval), " gp.status=", hex(gp.atomicstatus), " gp.gcscanvalid=true\n")
+			throw("casgstatus")
+		})
 	}
 
 	// See http://golang.org/cl/21503 for justification of the yield delay.
@@ -1100,9 +1121,11 @@ func mhelpgc() {
 func startTheWorldWithSema(emitTraceEvent bool) int64 {
 	_g_ := getg()
 
-	_g_.m.locks++        // disable preemption because it can be holding p in a local var
-	gp := netpoll(false) // non-blocking
-	injectglist(gp)
+	_g_.m.locks++ // disable preemption because it can be holding p in a local var
+	if netpollinited() {
+		gp := netpoll(false) // non-blocking
+		injectglist(gp)
+	}
 	add := needaddgcproc()
 	lock(&sched.lock)
 
@@ -1298,13 +1321,7 @@ func mexit(osStack bool) {
 	unminit()
 
 	// Free the gsignal stack.
-	//
-	// If the signal stack was created outside Go, then gsignal
-	// will be non-nil, but unminitSignals set stack.lo to 0
-	// (e.g., Android's libc creates all threads with a signal
-	// stack, so it's possible for Go to exit them but not control
-	// the signal stack).
-	if m.gsignal != nil && m.gsignal.stack.lo != 0 {
+	if m.gsignal != nil {
 		stackfree(m.gsignal.stack)
 	}
 
@@ -2007,7 +2024,9 @@ retry:
 	notesleep(&_g_.m.park)
 	noteclear(&_g_.m.park)
 	if _g_.m.helpgc != 0 {
+		// helpgc() set _g_.m.p and _g_.m.mcache, so we have a P.
 		gchelper()
+		// Undo the effects of helpgc().
 		_g_.m.helpgc = 0
 		_g_.m.mcache = nil
 		_g_.m.p = 0
@@ -2301,11 +2320,12 @@ top:
 
 	// Poll network.
 	// This netpoll is only an optimization before we resort to stealing.
-	// We can safely skip it if there a thread blocked in netpoll already.
-	// If there is any kind of logical race with that blocked thread
-	// (e.g. it has already returned from netpoll, but does not set lastpoll yet),
-	// this thread will do blocking netpoll below anyway.
-	if netpollinited() && sched.lastpoll != 0 {
+	// We can safely skip it if there are no waiters or a thread is blocked
+	// in netpoll already. If there is any kind of logical race with that
+	// blocked thread (e.g. it has already returned from netpoll, but does
+	// not set lastpoll yet), this thread will do blocking netpoll below
+	// anyway.
+	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && atomic.Load64(&sched.lastpoll) != 0 {
 		if gp := netpoll(false); gp != nil { // non-blocking
 			// netpoll returns list of goroutines linked by schedlink.
 			injectglist(gp.schedlink.ptr())
@@ -2367,6 +2387,13 @@ stop:
 		}
 		return gp, false
 	}
+
+	// Before we drop our P, make a snapshot of the allp slice,
+	// which can change underfoot once we no longer block
+	// safe-points. We don't need to snapshot the contents because
+	// everything up to cap(allp) is immutable.
+	allpSnapshot := allp
+
 	// return P and block
 	lock(&sched.lock)
 	if sched.gcwaiting != 0 || _p_.runSafePointFn != 0 {
@@ -2417,7 +2444,7 @@ stop:
 	}
 
 	// check all runqueues once again
-	for _, _p_ := range allp {
+	for _, _p_ := range allpSnapshot {
 		if !runqempty(_p_) {
 			lock(&sched.lock)
 			_p_ = pidleget()
@@ -2760,6 +2787,15 @@ func goexit0(gp *g) {
 	gp.labels = nil
 	gp.timer = nil
 
+	if gcBlackenEnabled != 0 && gp.gcAssistBytes > 0 {
+		// Flush assist credit to the global pool. This gives
+		// better information to pacing if the application is
+		// rapidly creating an exiting goroutines.
+		scanCredit := int64(gcController.assistWorkPerByte * float64(gp.gcAssistBytes))
+		atomic.Xaddint64(&gcController.bgScanCredit, scanCredit)
+		gp.gcAssistBytes = 0
+	}
+
 	// Note that gp's stack scan is now "valid" because it has no
 	// stack.
 	gp.gcscanvalid = true
@@ -3018,7 +3054,9 @@ func exitsyscall(dummy int32) {
 	oldp := _g_.m.p.ptr()
 	if exitsyscallfast() {
 		if _g_.m.mcache == nil {
-			throw("lost mcache")
+			systemstack(func() {
+				throw("lost mcache")
+			})
 		}
 		if trace.enabled {
 			if oldp != _g_.m.p.ptr() || _g_.m.syscalltick != _g_.m.p.ptr().syscalltick {
@@ -3065,7 +3103,9 @@ func exitsyscall(dummy int32) {
 	mcall(exitsyscall0)
 
 	if _g_.m.mcache == nil {
-		throw("lost mcache")
+		systemstack(func() {
+			throw("lost mcache")
+		})
 	}
 
 	// Scheduler returned, so we're allowed to run now.
@@ -3872,8 +3912,8 @@ func setsSP(pc uintptr) bool {
 		// so assume the worst and stop traceback
 		return true
 	}
-	switch f.entry {
-	case gogoPC, systemstackPC, mcallPC, morestackPC:
+	switch f.funcID {
+	case funcID_gogo, funcID_systemstack, funcID_mcall, funcID_morestack:
 		return true
 	}
 	return false
@@ -3965,6 +4005,7 @@ func procresize(nprocs int32) *p {
 			for i := range pp.deferpool {
 				pp.deferpool[i] = pp.deferpoolbuf[i][:0]
 			}
+			pp.wbBuf.reset()
 			atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
 		}
 		if pp.mcache == nil {
@@ -4019,6 +4060,11 @@ func procresize(nprocs int32) *p {
 			// This assignment doesn't race because the
 			// world is stopped.
 			p.gcBgMarkWorker.set(nil)
+		}
+		// Flush p's write barrier buffer.
+		if gcphase != _GCoff {
+			wbBufFlush1(p)
+			p.gcw.dispose()
 		}
 		for i := range p.sudogbuf {
 			p.sudogbuf[i] = nil
@@ -4323,7 +4369,7 @@ func sysmon() {
 		// poll network if not polled for more than 10ms
 		lastpoll := int64(atomic.Load64(&sched.lastpoll))
 		now := nanotime()
-		if lastpoll != 0 && lastpoll+10*1000*1000 < now {
+		if netpollinited() && lastpoll != 0 && lastpoll+10*1000*1000 < now {
 			atomic.Cas64(&sched.lastpoll, uint64(lastpoll), uint64(now))
 			gp := netpoll(false) // non-blocking - returns list of goroutines
 			if gp != nil {
@@ -4848,26 +4894,29 @@ func runqgrab(_p_ *p, batch *[256]guintptr, batchHead uint32, stealRunNextG bool
 			if stealRunNextG {
 				// Try to steal from _p_.runnext.
 				if next := _p_.runnext; next != 0 {
-					// Sleep to ensure that _p_ isn't about to run the g we
-					// are about to steal.
-					// The important use case here is when the g running on _p_
-					// ready()s another g and then almost immediately blocks.
-					// Instead of stealing runnext in this window, back off
-					// to give _p_ a chance to schedule runnext. This will avoid
-					// thrashing gs between different Ps.
-					// A sync chan send/recv takes ~50ns as of time of writing,
-					// so 3us gives ~50x overshoot.
-					// @aghosn: If it is enclave, we skip and trash, don't care. THUG LIFE
-					if isEnclave {
-						goto enclskip
-					}
-					if GOOS != "windows" {
-						usleep(3)
-					} else {
-						// On windows system timer granularity is 1-15ms,
-						// which is way too much for this optimization.
-						// So just yield.
-						osyield()
+					if _p_.status == _Prunning {
+						// @aghosn: If it is enclave, we skip and trash, don't care. THUG LIFE
+						if isEnclave {
+							goto enclskip
+						}
+						// Sleep to ensure that _p_ isn't about to run the g
+						// we are about to steal.
+						// The important use case here is when the g running
+						// on _p_ ready()s another g and then almost
+						// immediately blocks. Instead of stealing runnext
+						// in this window, back off to give _p_ a chance to
+						// schedule runnext. This will avoid thrashing gs
+						// between different Ps.
+						// A sync chan send/recv takes ~50ns as of time of
+						// writing, so 3us gives ~50x overshoot.
+						if GOOS != "windows" {
+							usleep(3)
+						} else {
+							// On windows system timer granularity is
+							// 1-15ms, which is way too much for this
+							// optimization. So just yield.
+							osyield()
+						}
 					}
 				enclskip:
 					if !_p_.runnext.cas(next, 0) {

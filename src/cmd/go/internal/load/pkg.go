@@ -6,7 +6,7 @@
 package load
 
 import (
-	"crypto/sha1"
+	"bytes"
 	"fmt"
 	"go/build"
 	"go/token"
@@ -14,15 +14,15 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
-	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"cmd/go/internal/base"
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/str"
-	"cmd/internal/buildid"
 )
 
 var IgnoreImports bool // control whether we ignore imports in packages
@@ -46,13 +46,19 @@ type PackagePublic struct {
 	Shlib         string `json:",omitempty"` // the shared library that contains this package (only set when -linkshared)
 	Goroot        bool   `json:",omitempty"` // is this package found in the Go root?
 	Standard      bool   `json:",omitempty"` // is this package part of the standard Go library?
-	Stale         bool   `json:",omitempty"` // would 'go install' do anything for this package?
-	StaleReason   string `json:",omitempty"` // why is Stale true?
 	Root          string `json:",omitempty"` // Go root or Go path dir containing this package
 	ConflictDir   string `json:",omitempty"` // Dir is hidden by this other directory
 	BinaryOnly    bool   `json:",omitempty"` // package cannot be recompiled
 
+	// Stale and StaleReason remain here *only* for the list command.
+	// They are only initialized in preparation for list execution.
+	// The regular build determines staleness on the fly during action execution.
+	Stale       bool   `json:",omitempty"` // would 'go install' do anything for this package?
+	StaleReason string `json:",omitempty"` // why is Stale true?
+
 	// Source files
+	// If you add to this list you MUST add to p.AllFiles (below) too.
+	// Otherwise file name security lists will not apply to any new additions.
 	GoFiles        []string `json:",omitempty"` // .go source files (excluding CgoFiles, TestGoFiles, XTestGoFiles)
 	CgoFiles       []string `json:",omitempty"` // .go sources files that import "C"
 	IgnoredGoFiles []string `json:",omitempty"` // .go sources ignored due to build constraints
@@ -84,6 +90,8 @@ type PackagePublic struct {
 	DepsErrors []*PackageError `json:",omitempty"` // errors loading dependencies
 
 	// Test information
+	// If you add to this list you MUST add to p.AllFiles (below) too.
+	// Otherwise file name security lists will not apply to any new additions.
 	TestGoFiles  []string `json:",omitempty"` // _test.go files in package
 	TestImports  []string `json:",omitempty"` // imports from TestGoFiles
 	XTestGoFiles []string `json:",omitempty"` // _test.go files outside package
@@ -96,20 +104,50 @@ type PackagePublic struct {
 	Relocencl    bool                `json:", omitempty"` // false if no relocation, true if reloc
 }
 
+// AllFiles returns the names of all the files considered for the package.
+// This is used for sanity and security checks, so we include all files,
+// even IgnoredGoFiles, because some subcommands consider them.
+// The go/build package filtered others out (like foo_wrongGOARCH.s)
+// and that's OK.
+func (p *Package) AllFiles() []string {
+	return str.StringList(
+		p.GoFiles,
+		p.CgoFiles,
+		p.IgnoredGoFiles,
+		p.CFiles,
+		p.CXXFiles,
+		p.MFiles,
+		p.HFiles,
+		p.FFiles,
+		p.SFiles,
+		p.SwigFiles,
+		p.SwigCXXFiles,
+		p.SysoFiles,
+		p.TestGoFiles,
+		p.XTestGoFiles,
+	)
+}
+
 type PackageInternal struct {
 	// Unexported fields are not part of the public API.
 	Build        *build.Package
 	Imports      []*Package           // this package's direct imports
+	RawImports   []string             // this package's original imports as they appear in the text of the program
 	ForceLibrary bool                 // this package is a library (even if named "main")
-	Cmdline      bool                 // defined by files listed on command line
+	CmdlineFiles bool                 // package built from files listed on command line
+	CmdlinePkg   bool                 // package listed on command line
 	Local        bool                 // imported via local path (./ or ../)
 	LocalPrefix  string               // interpret ./ and ../ imports relative to this prefix
 	ExeName      string               // desired name for temporary executable
 	CoverMode    string               // preprocess Go source files with the coverage tool in this mode
 	CoverVars    map[string]*CoverVar // variables created by coverage analysis
 	OmitDebug    bool                 // tell linker not to write debug information
-	BuildID      string               // expected build ID for generated package
 	GobinSubdir  bool                 // install target would be subdir of GOBIN
+
+	Asmflags   []string // -asmflags for this package
+	Gcflags    []string // -gcflags for this package
+	Ldflags    []string // -ldflags for this package
+	Gccgoflags []string // -gccgoflags for this package
 }
 
 type NoGoError struct {
@@ -138,7 +176,7 @@ func (e *NoGoError) Error() string {
 	return "no Go files in " + e.Package.Dir
 }
 
-// Vendored returns the vendor-resolved version of imports,
+// Resolve returns the resolved version of imports,
 // which should be p.TestImports or p.XTestImports, NOT p.Imports.
 // The imports in p.TestImports and p.XTestImports are not recursively
 // loaded during the initial load of p, so they list the imports found in
@@ -148,14 +186,14 @@ func (e *NoGoError) Error() string {
 // can produce better error messages if it starts with the original paths.
 // The initial load of p loads all the non-test imports and rewrites
 // the vendored paths, so nothing should ever call p.vendored(p.Imports).
-func (p *Package) Vendored(imports []string) []string {
+func (p *Package) Resolve(imports []string) []string {
 	if len(imports) > 0 && len(p.Imports) > 0 && &imports[0] == &p.Imports[0] {
-		panic("internal error: p.vendored(p.Imports) called")
+		panic("internal error: p.Resolve(p.Imports) called")
 	}
 	seen := make(map[string]bool)
 	var all []string
 	for _, path := range imports {
-		path = VendoredImportPath(p, path)
+		path = ResolveImportPath(p, path)
 		if !seen[path] {
 			seen[path] = true
 			all = append(all, path)
@@ -214,6 +252,7 @@ func (p *Package) copyBuild(pp *build.Package) {
 	// We modify p.Imports in place, so make copy now.
 	p.Imports = make([]string, len(pp.Imports))
 	copy(p.Imports, pp.Imports)
+	p.Internal.RawImports = pp.Imports
 	p.TestGoFiles = pp.TestGoFiles
 	p.TestImports = pp.TestImports
 	p.XTestGoFiles = pp.XTestGoFiles
@@ -351,23 +390,27 @@ func makeImportValid(r rune) rune {
 
 // Mode flags for loadImport and download (in get.go).
 const (
-	// useVendor means that loadImport should do vendor expansion
-	// (provided the vendoring experiment is enabled).
-	// That is, useVendor means that the import path came from
-	// a source file and has not been vendor-expanded yet.
-	// Every import path should be loaded initially with useVendor,
-	// and then the expanded version (with the /vendor/ in it) gets
-	// recorded as the canonical import path. At that point, future loads
-	// of that package must not pass useVendor, because
+	// ResolveImport means that loadImport should do import path expansion.
+	// That is, ResolveImport means that the import path came from
+	// a source file and has not been expanded yet to account for
+	// vendoring or possible module adjustment.
+	// Every import path should be loaded initially with ResolveImport,
+	// and then the expanded version (for example with the /vendor/ in it)
+	// gets recorded as the canonical import path. At that point, future loads
+	// of that package must not pass ResolveImport, because
 	// disallowVendor will reject direct use of paths containing /vendor/.
-	UseVendor = 1 << iota
+	ResolveImport = 1 << iota
 
-	// getTestDeps is for download (part of "go get") and indicates
+	// ResolveModule is for download (part of "go get") and indicates
+	// that the module adjustment should be done, but not vendor adjustment.
+	ResolveModule
+
+	// GetTestDeps is for download (part of "go get") and indicates
 	// that test dependencies should be fetched too.
 	GetTestDeps
 )
 
-// loadImport scans the directory named by path, which must be an import path,
+// LoadImport scans the directory named by path, which must be an import path,
 // but possibly a local import path (an absolute file system path or one beginning
 // with ./ or ../). A local relative path is interpreted relative to srcDir.
 // It returns a *Package describing the package found in that directory.
@@ -385,12 +428,15 @@ func LoadImport(path, srcDir string, parent *Package, stk *ImportStack, importPo
 	isLocal := build.IsLocalImport(path)
 	if isLocal {
 		importPath = dirToImportPath(filepath.Join(srcDir, path))
-	} else if mode&UseVendor != 0 {
-		// We do our own vendor resolution, because we want to
+	} else if mode&ResolveImport != 0 {
+		// We do our own path resolution, because we want to
 		// find out the key to use in packageCache without the
 		// overhead of repeated calls to buildContext.Import.
 		// The code is also needed in a few other places anyway.
-		path = VendoredImportPath(parent, path)
+		path = ResolveImportPath(parent, path)
+		importPath = path
+	} else if mode&ResolveModule != 0 {
+		path = ModuleImportPath(parent, path)
 		importPath = path
 	}
 
@@ -406,11 +452,8 @@ func LoadImport(path, srcDir string, parent *Package, stk *ImportStack, importPo
 		// Load package.
 		// Import always returns bp != nil, even if an error occurs,
 		// in order to return partial information.
-		//
-		// TODO: After Go 1, decide when to pass build.AllowBinary here.
-		// See issue 3268 for mistakes to avoid.
 		buildMode := build.ImportComment
-		if mode&UseVendor == 0 || path != origPath {
+		if mode&ResolveImport == 0 || path != origPath {
 			// Not vendoring, or we already found the vendored path.
 			buildMode |= build.IgnoreVendor
 		}
@@ -441,7 +484,7 @@ func LoadImport(path, srcDir string, parent *Package, stk *ImportStack, importPo
 	if perr := disallowInternal(srcDir, p, stk); perr != p {
 		return setErrorPos(perr, importPos)
 	}
-	if mode&UseVendor != 0 {
+	if mode&ResolveImport != 0 {
 		if perr := disallowVendor(srcDir, origPath, p, stk); perr != p {
 			return setErrorPos(perr, importPos)
 		}
@@ -500,7 +543,50 @@ func isDir(path string) bool {
 	return result
 }
 
-// VendoredImportPath returns the expansion of path when it appears in parent.
+// ResolveImportPath returns the true meaning of path when it appears in parent.
+// There are two different resolutions applied.
+// First, there is Go 1.5 vendoring (golang.org/s/go15vendor).
+// If vendor expansion doesn't trigger, then the path is also subject to
+// Go 1.11 vgo legacy conversion (golang.org/issue/25069).
+func ResolveImportPath(parent *Package, path string) (found string) {
+	found = VendoredImportPath(parent, path)
+	if found != path {
+		return found
+	}
+	return ModuleImportPath(parent, path)
+}
+
+// dirAndRoot returns the source directory and workspace root
+// for the package p, guaranteeing that root is a path prefix of dir.
+func dirAndRoot(p *Package) (dir, root string) {
+	dir = filepath.Clean(p.Dir)
+	root = filepath.Join(p.Root, "src")
+	if !str.HasFilePathPrefix(dir, root) || p.ImportPath != "command-line-arguments" && filepath.Join(root, p.ImportPath) != dir {
+		// Look for symlinks before reporting error.
+		dir = expandPath(dir)
+		root = expandPath(root)
+	}
+
+	if !str.HasFilePathPrefix(dir, root) || len(dir) <= len(root) || dir[len(root)] != filepath.Separator || p.ImportPath != "command-line-arguments" && !p.Internal.Local && filepath.Join(root, p.ImportPath) != dir {
+		base.Fatalf("unexpected directory layout:\n"+
+			"	import path: %s\n"+
+			"	root: %s\n"+
+			"	dir: %s\n"+
+			"	expand root: %s\n"+
+			"	expand dir: %s\n"+
+			"	separator: %s",
+			p.ImportPath,
+			filepath.Join(p.Root, "src"),
+			filepath.Clean(p.Dir),
+			root,
+			dir,
+			string(filepath.Separator))
+	}
+
+	return dir, root
+}
+
+// VendoredImportPath returns the vendor-expansion of path when it appears in parent.
 // If parent is x/y/z, then path might expand to x/y/z/vendor/path, x/y/vendor/path,
 // x/vendor/path, vendor/path, or else stay path if none of those exist.
 // VendoredImportPath returns the expanded path or, if no expansion is found, the original.
@@ -509,29 +595,7 @@ func VendoredImportPath(parent *Package, path string) (found string) {
 		return path
 	}
 
-	dir := filepath.Clean(parent.Dir)
-	root := filepath.Join(parent.Root, "src")
-	if !hasFilePathPrefix(dir, root) || parent.ImportPath != "command-line-arguments" && filepath.Join(root, parent.ImportPath) != dir {
-		// Look for symlinks before reporting error.
-		dir = expandPath(dir)
-		root = expandPath(root)
-	}
-
-	if !hasFilePathPrefix(dir, root) || len(dir) <= len(root) || dir[len(root)] != filepath.Separator || parent.ImportPath != "command-line-arguments" && !parent.Internal.Local && filepath.Join(root, parent.ImportPath) != dir {
-		base.Fatalf("unexpected directory layout:\n"+
-			"	import path: %s\n"+
-			"	root: %s\n"+
-			"	dir: %s\n"+
-			"	expand root: %s\n"+
-			"	expand dir: %s\n"+
-			"	separator: %s",
-			parent.ImportPath,
-			filepath.Join(parent.Root, "src"),
-			filepath.Clean(parent.Dir),
-			root,
-			dir,
-			string(filepath.Separator))
-	}
+	dir, root := dirAndRoot(parent)
 
 	vpath := "vendor/" + path
 	for i := len(dir); i >= len(root); i-- {
@@ -571,6 +635,164 @@ func VendoredImportPath(parent *Package, path string) (found string) {
 			}
 			return importPath[:len(importPath)-chopped] + "/" + vpath
 		}
+	}
+	return path
+}
+
+var (
+	modulePrefix   = []byte("\nmodule ")
+	goModPathCache = make(map[string]string)
+)
+
+// goModPath returns the module path in the go.mod in dir, if any.
+func goModPath(dir string) (path string) {
+	path, ok := goModPathCache[dir]
+	if ok {
+		return path
+	}
+	defer func() {
+		goModPathCache[dir] = path
+	}()
+
+	data, err := ioutil.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	var i int
+	if bytes.HasPrefix(data, modulePrefix[1:]) {
+		i = 0
+	} else {
+		i = bytes.Index(data, modulePrefix)
+		if i < 0 {
+			return ""
+		}
+		i++
+	}
+	line := data[i:]
+
+	// Cut line at \n, drop trailing \r if present.
+	if j := bytes.IndexByte(line, '\n'); j >= 0 {
+		line = line[:j]
+	}
+	if line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	line = line[len("module "):]
+
+	// If quoted, unquote.
+	path = strings.TrimSpace(string(line))
+	if path != "" && path[0] == '"' {
+		s, err := strconv.Unquote(path)
+		if err != nil {
+			return ""
+		}
+		path = s
+	}
+	return path
+}
+
+// findVersionElement returns the slice indices of the final version element /vN in path.
+// If there is no such element, it returns -1, -1.
+func findVersionElement(path string) (i, j int) {
+	j = len(path)
+	for i = len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			if isVersionElement(path[i:j]) {
+				return i, j
+			}
+			j = i
+		}
+	}
+	return -1, -1
+}
+
+// isVersionElement reports whether s is a well-formed path version element:
+// v2, v3, v10, etc, but not v0, v05, v1.
+func isVersionElement(s string) bool {
+	if len(s) < 3 || s[0] != '/' || s[1] != 'v' || s[2] == '0' || s[2] == '1' && len(s) == 3 {
+		return false
+	}
+	for i := 2; i < len(s); i++ {
+		if s[i] < '0' || '9' < s[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// ModuleImportPath translates import paths found in go modules
+// back down to paths that can be resolved in ordinary builds.
+//
+// Define “new” code as code with a go.mod file in the same directory
+// or a parent directory. If an import in new code says x/y/v2/z but
+// x/y/v2/z does not exist and x/y/go.mod says “module x/y/v2”,
+// then go build will read the import as x/y/z instead.
+// See golang.org/issue/25069.
+func ModuleImportPath(parent *Package, path string) (found string) {
+	if parent == nil || parent.Root == "" {
+		return path
+	}
+
+	// If there are no vN elements in path, leave it alone.
+	// (The code below would do the same, but only after
+	// some other file system accesses that we can avoid
+	// here by returning early.)
+	if i, _ := findVersionElement(path); i < 0 {
+		return path
+	}
+
+	dir, root := dirAndRoot(parent)
+
+	// Consider dir and parents, up to and including root.
+	for i := len(dir); i >= len(root); i-- {
+		if i < len(dir) && dir[i] != filepath.Separator {
+			continue
+		}
+		if goModPath(dir[:i]) != "" {
+			goto HaveGoMod
+		}
+	}
+	// This code is not in a tree with a go.mod,
+	// so apply no changes to the path.
+	return path
+
+HaveGoMod:
+	// This import is in a tree with a go.mod.
+	// Allow it to refer to code in GOPATH/src/x/y/z as x/y/v2/z
+	// if GOPATH/src/x/y/go.mod says module "x/y/v2",
+
+	// If x/y/v2/z exists, use it unmodified.
+	if bp, _ := cfg.BuildContext.Import(path, "", build.IgnoreVendor); bp.Dir != "" {
+		return path
+	}
+
+	// Otherwise look for a go.mod supplying a version element.
+	// Some version-like elements may appear in paths but not
+	// be module versions; we skip over those to look for module
+	// versions. For example the module m/v2 might have a
+	// package m/v2/api/v1/foo.
+	limit := len(path)
+	for limit > 0 {
+		i, j := findVersionElement(path[:limit])
+		if i < 0 {
+			return path
+		}
+		if bp, _ := cfg.BuildContext.Import(path[:i], "", build.IgnoreVendor); bp.Dir != "" {
+			if mpath := goModPath(bp.Dir); mpath != "" {
+				// Found a valid go.mod file, so we're stopping the search.
+				// If the path is m/v2/p and we found m/go.mod that says
+				// "module m/v2", then we return "m/p".
+				if mpath == path[:j] {
+					return path[:i] + path[j:]
+				}
+				// Otherwise just return the original path.
+				// We didn't find anything worth rewriting,
+				// and the go.mod indicates that we should
+				// not consider parent directories.
+				return path
+			}
+		}
+		limit = i
 	}
 	return path
 }
@@ -661,14 +883,14 @@ func disallowInternal(srcDir string, p *Package, stk *ImportStack) *Package {
 		i-- // rewind over slash in ".../internal"
 	}
 	parent := p.Dir[:i+len(p.Dir)-len(p.ImportPath)]
-	if hasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
+	if str.HasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
 		return p
 	}
 
 	// Look for symlinks before reporting error.
 	srcDir = expandPath(srcDir)
 	parent = expandPath(parent)
-	if hasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
+	if str.HasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
 		return p
 	}
 
@@ -761,14 +983,14 @@ func disallowVendorVisibility(srcDir string, p *Package, stk *ImportStack) *Pack
 		return p
 	}
 	parent := p.Dir[:truncateTo]
-	if hasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
+	if str.HasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
 		return p
 	}
 
 	// Look for symlinks before reporting error.
 	srcDir = expandPath(srcDir)
 	parent = expandPath(parent)
-	if hasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
+	if str.HasFilePathPrefix(filepath.Clean(srcDir), filepath.Clean(parent)) {
 		return p
 	}
 
@@ -843,9 +1065,31 @@ var foldPath = make(map[string]string)
 func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 	p.copyBuild(bp)
 
+	// Decide whether p was listed on the command line.
+	// Given that load is called while processing the command line,
+	// you might think we could simply pass a flag down into load
+	// saying whether we are loading something named on the command
+	// line or something to satisfy an import. But the first load of a
+	// package named on the command line may be as a dependency
+	// of an earlier package named on the command line, not when we
+	// get to that package during command line processing.
+	// For example "go test fmt reflect" will load reflect as a dependency
+	// of fmt before it attempts to load as a command-line argument.
+	// Because loads are cached, the later load will be a no-op,
+	// so it is important that the first load can fill in CmdlinePkg correctly.
+	// Hence the call to an explicit matching check here.
+	p.Internal.CmdlinePkg = isCmdlinePkg(p)
+
+	p.Internal.Asmflags = BuildAsmflags.For(p)
+	p.Internal.Gcflags = BuildGcflags.For(p)
+	p.Internal.Ldflags = BuildLdflags.For(p)
+	p.Internal.Gccgoflags = BuildGccgoflags.For(p)
+
 	// The localPrefix is the path we interpret ./ imports relative to.
 	// Synthesized main packages sometimes override this.
-	p.Internal.LocalPrefix = dirToImportPath(p.Dir)
+	if p.Internal.Local {
+		p.Internal.LocalPrefix = dirToImportPath(p.Dir)
+	}
 
 	if err != nil {
 		if _, ok := err.(*build.NoGoError); ok {
@@ -936,14 +1180,24 @@ func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 
 	// Cgo translation adds imports of "runtime/cgo" and "syscall",
 	// except for certain packages, to avoid circular dependencies.
-	if len(p.CgoFiles) > 0 && (!p.Standard || !cgoExclude[p.ImportPath]) {
+	if p.UsesCgo() && (!p.Standard || !cgoExclude[p.ImportPath]) {
 		addImport("runtime/cgo")
 	}
-	if len(p.CgoFiles) > 0 && (!p.Standard || !cgoSyscallExclude[p.ImportPath]) {
+	if p.UsesCgo() && (!p.Standard || !cgoSyscallExclude[p.ImportPath]) {
 		addImport("syscall")
 	}
 
 	//TODO(aghosn) maybe add the dependency here instead.
+	// SWIG adds imports of some standard packages.
+	if p.UsesSwig() {
+		addImport("runtime/cgo")
+		addImport("syscall")
+		addImport("sync")
+
+		// TODO: The .swig and .swigcxx files can use
+		// %go_import directives to import other packages.
+	}
+
 	// The linker loads implicit dependencies.
 	if p.Name == "main" && !p.Internal.ForceLibrary {
 		for _, dep := range LinkerDeps(p) {
@@ -951,50 +1205,47 @@ func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 		}
 	}
 
-	// If runtime/internal/sys/zversion.go changes, it very likely means the
-	// compiler has been recompiled with that new version, so all existing
-	// archives are now stale. Make everything appear to import runtime/internal/sys,
-	// so that in this situation everything will appear stale and get recompiled.
-	// Due to the rules for visibility of internal packages, things outside runtime
-	// must import runtime, and runtime imports runtime/internal/sys.
-	// Content-based staleness that includes a check of the compiler version
-	// will make this hack unnecessary; once that lands, this whole comment
-	// and switch statement should be removed.
-	switch {
-	case p.Standard && p.ImportPath == "runtime/internal/sys":
-		// nothing
-	case p.Standard && p.ImportPath == "unsafe":
-		// nothing - not a real package, and used by runtime
-	case p.Standard && strings.HasPrefix(p.ImportPath, "runtime"):
-		addImport("runtime/internal/sys")
-	default:
-		addImport("runtime")
-	}
-
 	// Check for case-insensitive collision of input files.
 	// To avoid problems on case-insensitive files, we reject any package
 	// where two different input files have equal names under a case-insensitive
 	// comparison.
-	f1, f2 := str.FoldDup(str.StringList(
-		p.GoFiles,
-		p.CgoFiles,
-		p.IgnoredGoFiles,
-		p.CFiles,
-		p.CXXFiles,
-		p.MFiles,
-		p.HFiles,
-		p.FFiles,
-		p.SFiles,
-		p.SysoFiles,
-		p.SwigFiles,
-		p.SwigCXXFiles,
-		p.TestGoFiles,
-		p.XTestGoFiles,
-	))
+	inputs := p.AllFiles()
+	f1, f2 := str.FoldDup(inputs)
 	if f1 != "" {
 		p.Error = &PackageError{
 			ImportStack: stk.Copy(),
 			Err:         fmt.Sprintf("case-insensitive file name collision: %q and %q", f1, f2),
+		}
+		return
+	}
+
+	// If first letter of input file is ASCII, it must be alphanumeric.
+	// This avoids files turning into flags when invoking commands,
+	// and other problems we haven't thought of yet.
+	// Also, _cgo_ files must be generated by us, not supplied.
+	// They are allowed to have //go:cgo_ldflag directives.
+	// The directory scan ignores files beginning with _,
+	// so we shouldn't see any _cgo_ files anyway, but just be safe.
+	for _, file := range inputs {
+		if !SafeArg(file) || strings.HasPrefix(file, "_cgo_") {
+			p.Error = &PackageError{
+				ImportStack: stk.Copy(),
+				Err:         fmt.Sprintf("invalid input file name %q", file),
+			}
+			return
+		}
+	}
+	if name := pathpkg.Base(p.ImportPath); !SafeArg(name) {
+		p.Error = &PackageError{
+			ImportStack: stk.Copy(),
+			Err:         fmt.Sprintf("invalid input directory name %q", name),
+		}
+		return
+	}
+	if !SafeArg(p.ImportPath) {
+		p.Error = &PackageError{
+			ImportStack: stk.Copy(),
+			Err:         fmt.Sprintf("invalid import path %q", p.ImportPath),
 		}
 		return
 	}
@@ -1005,7 +1256,7 @@ func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 		if path == "C" {
 			continue
 		}
-		p1 := LoadImport(path, p.Dir, p, stk, p.Internal.Build.ImportPos[path], UseVendor)
+		p1 := LoadImport(path, p.Dir, p, stk, p.Internal.Build.ImportPos[path], ResolveImport)
 		if p.Standard && p.Error == nil && !p1.Standard && p1.Error == nil {
 			p.Error = &PackageError{
 				ImportStack: stk.Copy(),
@@ -1120,30 +1371,32 @@ func (p *Package) load(stk *ImportStack, bp *build.Package, err error) {
 		setError(fmt.Sprintf("case-insensitive import collision: %q and %q", p.ImportPath, other))
 		return
 	}
-
-	if p.BinaryOnly {
-		// For binary-only package, use build ID from supplied package binary.
-		buildID, err := buildid.ReadFile(p.Target)
-		if err == nil {
-			// The stored build ID used to be "<actionID>".
-			// Now it is "<actionID>.<contentID>".
-			// For now at least, we want only the <actionID> part here.
-			if i := strings.Index(buildID, "."); i >= 0 {
-				buildID = buildID[:i]
-			}
-			p.Internal.BuildID = buildID
-		}
-	} else {
-		computeBuildID(p)
-	}
 }
 
-// LinkerDeps returns the list of linker-induced dependencies for p.
+// SafeArg reports whether arg is a "safe" command-line argument,
+// meaning that when it appears in a command-line, it probably
+// doesn't have some special meaning other than its own name.
+// Obviously args beginning with - are not safe (they look like flags).
+// Less obviously, args beginning with @ are not safe (they look like
+// GNU binutils flagfile specifiers, sometimes called "response files").
+// To be conservative, we reject almost any arg beginning with non-alphanumeric ASCII.
+// We accept leading . _ and / as likely in file system paths.
+// There is a copy of this function in cmd/compile/internal/gc/noder.go.
+func SafeArg(name string) bool {
+	if name == "" {
+		return false
+	}
+	c := name[0]
+	return '0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '.' || c == '_' || c == '/' || c >= utf8.RuneSelf
+}
+
+// LinkerDeps returns the list of linker-induced dependencies for main package p.
 func LinkerDeps(p *Package) []string {
-	var deps []string
+	// Everything links runtime.
+	deps := []string{"runtime"}
 
 	// External linking mode forces an import of runtime/cgo.
-	if cfg.ExternalLinkingForced() {
+	if externalLinkingForced(p) {
 		deps = append(deps, "runtime/cgo")
 	}
 	// On ARM with GOARM=5, it forces an import of math, for soft floating point.
@@ -1160,6 +1413,46 @@ func LinkerDeps(p *Package) []string {
 	}
 
 	return deps
+}
+
+// externalLinkingForced reports whether external linking is being
+// forced even for programs that do not use cgo.
+func externalLinkingForced(p *Package) bool {
+	// Some targets must use external linking even inside GOROOT.
+	switch cfg.BuildContext.GOOS {
+	case "android":
+		return true
+	case "darwin":
+		switch cfg.BuildContext.GOARCH {
+		case "arm", "arm64":
+			return true
+		}
+	}
+
+	if !cfg.BuildContext.CgoEnabled {
+		return false
+	}
+	// Currently build modes c-shared, pie (on systems that do not
+	// support PIE with internal linking mode (currently all
+	// systems: issue #18968)), plugin, and -linkshared force
+	// external linking mode, as of course does
+	// -ldflags=-linkmode=external. External linking mode forces
+	// an import of runtime/cgo.
+	pieCgo := cfg.BuildBuildmode == "pie"
+	linkmodeExternal := false
+	if p != nil {
+		ldflags := BuildLdflags.For(p)
+		for i, a := range ldflags {
+			if a == "-linkmode=external" {
+				linkmodeExternal = true
+			}
+			if a == "-linkmode" && i+1 < len(ldflags) && ldflags[i+1] == "external" {
+				linkmodeExternal = true
+			}
+		}
+	}
+
+	return cfg.BuildBuildmode == "c-shared" || cfg.BuildBuildmode == "plugin" || pieCgo || cfg.BuildLinkshared || linkmodeExternal
 }
 
 // mkAbs rewrites list, which must be paths relative to p.Dir,
@@ -1222,530 +1515,6 @@ func PackageList(roots []*Package) []*Package {
 		walk(root)
 	}
 	return all
-}
-
-// computeStale computes the Stale flag in the package dag that starts
-// at the named pkgs (command-line arguments).
-func ComputeStale(pkgs ...*Package) {
-	for _, p := range PackageList(pkgs) {
-		if p.Internal.BuildID == "" {
-			computeBuildID(p)
-		}
-		p.Stale, p.StaleReason = isStale(p)
-	}
-}
-
-// The runtime version string takes one of two forms:
-// "go1.X[.Y]" for Go releases, and "devel +hash" at tip.
-// Determine whether we are in a released copy by
-// inspecting the version.
-var isGoRelease = strings.HasPrefix(runtime.Version(), "go1")
-
-// isStale and computeBuildID
-//
-// Theory of Operation
-//
-// There is an installed copy of the package (or binary).
-// Can we reuse the installed copy, or do we need to build a new one?
-//
-// We can use the installed copy if it matches what we'd get
-// by building a new one. The hard part is predicting that without
-// actually running a build.
-//
-// To start, we must know the set of inputs to the build process that can
-// affect the generated output. At a minimum, that includes the source
-// files for the package and also any compiled packages imported by those
-// source files. The *Package has these, and we use them. One might also
-// argue for including in the input set: the build tags, whether the race
-// detector is in use, the target operating system and architecture, the
-// compiler and linker binaries being used, the additional flags being
-// passed to those, the cgo binary being used, the additional flags cgo
-// passes to the host C compiler, the host C compiler being used, the set
-// of host C include files and installed C libraries, and so on.
-// We include some but not all of this information.
-//
-// Once we have decided on a set of inputs, we must next decide how to
-// tell whether the content of that set has changed since the last build
-// of p. If there have been no changes, then we assume a new build would
-// produce the same result and reuse the installed package or binary.
-// But if there have been changes, then we assume a new build might not
-// produce the same result, so we rebuild.
-//
-// There are two common ways to decide whether the content of the set has
-// changed: modification times and content hashes. We use a mixture of both.
-//
-// The use of modification times (mtimes) was pioneered by make:
-// assuming that a file's mtime is an accurate record of when that file was last written,
-// and assuming that the modification time of an installed package or
-// binary is the time that it was built, if the mtimes of the inputs
-// predate the mtime of the installed object, then the build of that
-// object saw those versions of the files, and therefore a rebuild using
-// those same versions would produce the same object. In contrast, if any
-// mtime of an input is newer than the mtime of the installed object, a
-// change has occurred since the build, and the build should be redone.
-//
-// Modification times are attractive because the logic is easy to
-// understand and the file system maintains the mtimes automatically
-// (less work for us). Unfortunately, there are a variety of ways in
-// which the mtime approach fails to detect a change and reuses a stale
-// object file incorrectly. (Making the opposite mistake, rebuilding
-// unnecessarily, is only a performance problem and not a correctness
-// problem, so we ignore that one.)
-//
-// As a warmup, one problem is that to be perfectly precise, we need to
-// compare the input mtimes against the time at the beginning of the
-// build, but the object file time is the time at the end of the build.
-// If an input file changes after being read but before the object is
-// written, the next build will see an object newer than the input and
-// will incorrectly decide that the object is up to date. We make no
-// attempt to detect or solve this problem.
-//
-// Another problem is that due to file system imprecision, an input and
-// output that are actually ordered in time have the same mtime.
-// This typically happens on file systems with 1-second (or, worse,
-// 2-second) mtime granularity and with automated scripts that write an
-// input and then immediately run a build, or vice versa. If an input and
-// an output have the same mtime, the conservative behavior is to treat
-// the output as out-of-date and rebuild. This can cause one or more
-// spurious rebuilds, but only for 1 second, until the object finally has
-// an mtime later than the input.
-//
-// Another problem is that binary distributions often set the mtime on
-// all files to the same time. If the distribution includes both inputs
-// and cached build outputs, the conservative solution to the previous
-// problem will cause unnecessary rebuilds. Worse, in such a binary
-// distribution, those rebuilds might not even have permission to update
-// the cached build output. To avoid these write errors, if an input and
-// output have the same mtime, we assume the output is up-to-date.
-// This is the opposite of what the previous problem would have us do,
-// but binary distributions are more common than instances of the
-// previous problem.
-//
-// A variant of the last problem is that some binary distributions do not
-// set the mtime on all files to the same time. Instead they let the file
-// system record mtimes as the distribution is unpacked. If the outputs
-// are unpacked before the inputs, they'll be older and a build will try
-// to rebuild them. That rebuild might hit the same write errors as in
-// the last scenario. We don't make any attempt to solve this, and we
-// haven't had many reports of it. Perhaps the only time this happens is
-// when people manually unpack the distribution, and most of the time
-// that's done as the same user who will be using it, so an initial
-// rebuild on first use succeeds quietly.
-//
-// More generally, people and programs change mtimes on files. The last
-// few problems were specific examples of this, but it's a general problem.
-// For example, instead of a binary distribution, copying a home
-// directory from one directory or machine to another might copy files
-// but not preserve mtimes. If the inputs are new than the outputs on the
-// first machine but copied first, they end up older than the outputs on
-// the second machine.
-//
-// Because many other build systems have the same sensitivity to mtimes,
-// most programs manipulating source code take pains not to break the
-// mtime assumptions. For example, Git does not set the mtime of files
-// during a checkout operation, even when checking out an old version of
-// the code. This decision was made specifically to work well with
-// mtime-based build systems.
-//
-// The killer problem, though, for mtime-based build systems is that the
-// build only has access to the mtimes of the inputs that still exist.
-// If it is possible to remove an input without changing any other inputs,
-// a later build will think the object is up-to-date when it is not.
-// This happens for Go because a package is made up of all source
-// files in a directory. If a source file is removed, there is no newer
-// mtime available recording that fact. The mtime on the directory could
-// be used, but it also changes when unrelated files are added to or
-// removed from the directory, so including the directory mtime would
-// cause unnecessary rebuilds, possibly many. It would also exacerbate
-// the problems mentioned earlier, since even programs that are careful
-// to maintain mtimes on files rarely maintain mtimes on directories.
-//
-// A variant of the last problem is when the inputs change for other
-// reasons. For example, Go 1.4 and Go 1.5 both install $GOPATH/src/mypkg
-// into the same target, $GOPATH/pkg/$GOOS_$GOARCH/mypkg.a.
-// If Go 1.4 has built mypkg into mypkg.a, a build using Go 1.5 must
-// rebuild mypkg.a, but from mtimes alone mypkg.a looks up-to-date.
-// If Go 1.5 has just been installed, perhaps the compiler will have a
-// newer mtime; since the compiler is considered an input, that would
-// trigger a rebuild. But only once, and only the last Go 1.4 build of
-// mypkg.a happened before Go 1.5 was installed. If a user has the two
-// versions installed in different locations and flips back and forth,
-// mtimes alone cannot tell what to do. Changing the toolchain is
-// changing the set of inputs, without affecting any mtimes.
-//
-// To detect the set of inputs changing, we turn away from mtimes and to
-// an explicit data comparison. Specifically, we build a list of the
-// inputs to the build, compute its SHA1 hash, and record that as the
-// ``build ID'' in the generated object. At the next build, we can
-// recompute the build ID and compare it to the one in the generated
-// object. If they differ, the list of inputs has changed, so the object
-// is out of date and must be rebuilt.
-//
-// Because this build ID is computed before the build begins, the
-// comparison does not have the race that mtime comparison does.
-//
-// Making the build sensitive to changes in other state is
-// straightforward: include the state in the build ID hash, and if it
-// changes, so does the build ID, triggering a rebuild.
-//
-// To detect changes in toolchain, we include the toolchain version in
-// the build ID hash for package runtime, and then we include the build
-// IDs of all imported packages in the build ID for p.
-//
-// It is natural to think about including build tags in the build ID, but
-// the naive approach of just dumping the tags into the hash would cause
-// spurious rebuilds. For example, 'go install' and 'go install -tags neverusedtag'
-// produce the same binaries (assuming neverusedtag is never used).
-// A more precise approach would be to include only tags that have an
-// effect on the build. But the effect of a tag on the build is to
-// include or exclude a file from the compilation, and that file list is
-// already in the build ID hash. So the build ID is already tag-sensitive
-// in a perfectly precise way. So we do NOT explicitly add build tags to
-// the build ID hash.
-//
-// We do not include as part of the build ID the operating system,
-// architecture, or whether the race detector is enabled, even though all
-// three have an effect on the output, because that information is used
-// to decide the install location. Binaries for linux and binaries for
-// darwin are written to different directory trees; including that
-// information in the build ID is unnecessary (although it would be
-// harmless).
-//
-// TODO(rsc): Investigate the cost of putting source file content into
-// the build ID hash as a replacement for the use of mtimes. Using the
-// file content would avoid all the mtime problems, but it does require
-// reading all the source files, something we avoid today (we read the
-// beginning to find the build tags and the imports, but we stop as soon
-// as we see the import block is over). If the package is stale, the compiler
-// is going to read the files anyway. But if the package is up-to-date, the
-// read is overhead.
-//
-// TODO(rsc): Investigate the complexity of making the build more
-// precise about when individual results are needed. To be fully precise,
-// there are two results of a compilation: the entire .a file used by the link
-// and the subpiece used by later compilations (__.PKGDEF only).
-// If a rebuild is needed but produces the previous __.PKGDEF, then
-// no more recompilation due to the rebuilt package is needed, only
-// relinking. To date, there is nothing in the Go command to express this.
-//
-// Special Cases
-//
-// When the go command makes the wrong build decision and does not
-// rebuild something it should, users fall back to adding the -a flag.
-// Any common use of the -a flag should be considered prima facie evidence
-// that isStale is returning an incorrect false result in some important case.
-// Bugs reported in the behavior of -a itself should prompt the question
-// ``Why is -a being used at all? What bug does that indicate?''
-//
-// There is a long history of changes to isStale to try to make -a into a
-// suitable workaround for bugs in the mtime-based decisions.
-// It is worth recording that history to inform (and, as much as possible, deter) future changes.
-//
-// (1) Before the build IDs were introduced, building with alternate tags
-// would happily reuse installed objects built without those tags.
-// For example, "go build -tags netgo myprog.go" would use the installed
-// copy of package net, even if that copy had been built without netgo.
-// (The netgo tag controls whether package net uses cgo or pure Go for
-// functionality such as name resolution.)
-// Using the installed non-netgo package defeats the purpose.
-//
-// Users worked around this with "go build -tags netgo -a myprog.go".
-//
-// Build IDs have made that workaround unnecessary:
-// "go build -tags netgo myprog.go"
-// cannot use a non-netgo copy of package net.
-//
-// (2) Before the build IDs were introduced, building with different toolchains,
-// especially changing between toolchains, tried to reuse objects stored in
-// $GOPATH/pkg, resulting in link-time errors about object file mismatches.
-//
-// Users worked around this with "go install -a ./...".
-//
-// Build IDs have made that workaround unnecessary:
-// "go install ./..." will rebuild any objects it finds that were built against
-// a different toolchain.
-//
-// (3) The common use of "go install -a ./..." led to reports of problems
-// when the -a forced the rebuild of the standard library, which for some
-// users was not writable. Because we didn't understand that the real
-// problem was the bug -a was working around, we changed -a not to
-// apply to the standard library.
-//
-// (4) The common use of "go build -tags netgo -a myprog.go" broke
-// when we changed -a not to apply to the standard library, because
-// if go build doesn't rebuild package net, it uses the non-netgo version.
-//
-// Users worked around this with "go build -tags netgo -installsuffix barf myprog.go".
-// The -installsuffix here is making the go command look for packages
-// in pkg/$GOOS_$GOARCH_barf instead of pkg/$GOOS_$GOARCH.
-// Since the former presumably doesn't exist, go build decides to rebuild
-// everything, including the standard library. Since go build doesn't
-// install anything it builds, nothing is ever written to pkg/$GOOS_$GOARCH_barf,
-// so repeated invocations continue to work.
-//
-// If the use of -a wasn't a red flag, the use of -installsuffix to point to
-// a non-existent directory in a command that installs nothing should
-// have been.
-//
-// (5) Now that (1) and (2) no longer need -a, we have removed the kludge
-// introduced in (3): once again, -a means ``rebuild everything,'' not
-// ``rebuild everything except the standard library.'' Only Go 1.4 had
-// the restricted meaning.
-//
-// In addition to these cases trying to trigger rebuilds, there are
-// special cases trying NOT to trigger rebuilds. The main one is that for
-// a variety of reasons (see above), the install process for a Go release
-// cannot be relied upon to set the mtimes such that the go command will
-// think the standard library is up to date. So the mtime evidence is
-// ignored for the standard library if we find ourselves in a release
-// version of Go. Build ID-based staleness checks still apply to the
-// standard library, even in release versions. This makes
-// 'go build -tags netgo' work, among other things.
-
-// isStale reports whether package p needs to be rebuilt,
-// along with the reason why.
-func isStale(p *Package) (bool, string) {
-	if p.Standard && (p.ImportPath == "unsafe" || cfg.BuildContext.Compiler == "gccgo") {
-		// fake, builtin package
-		return false, "builtin package"
-	}
-	if p.Error != nil {
-		return true, "errors loading package"
-	}
-	if p.Stale {
-		return true, p.StaleReason
-	}
-
-	// If this is a package with no source code, it cannot be rebuilt.
-	// If the binary is missing, we mark the package stale so that
-	// if a rebuild is needed, that rebuild attempt will produce a useful error.
-	// (Some commands, such as 'go list', do not attempt to rebuild.)
-	if p.BinaryOnly {
-		if p.Target == "" {
-			// Fail if a build is attempted.
-			return true, "no source code for package, but no install target"
-		}
-		if _, err := os.Stat(p.Target); err != nil {
-			// Fail if a build is attempted.
-			return true, "no source code for package, but cannot access install target: " + err.Error()
-		}
-		return false, "no source code for package"
-	}
-
-	// If the -a flag is given, rebuild everything.
-	if cfg.BuildA {
-		return true, "build -a flag in use"
-	}
-
-	// If there's no install target, we have to rebuild.
-	if p.Target == "" {
-		return true, "no install target"
-	}
-
-	// Package is stale if completely unbuilt.
-	fi, err := os.Stat(p.Target)
-	if err != nil {
-		return true, "cannot stat install target"
-	}
-
-	// Package is stale if the expected build ID differs from the
-	// recorded build ID. This catches changes like a source file
-	// being removed from a package directory. See issue 3895.
-	// It also catches changes in build tags that affect the set of
-	// files being compiled. See issue 9369.
-	// It also catches changes in toolchain, like when flipping between
-	// two versions of Go compiling a single GOPATH.
-	// See issue 8290 and issue 10702.
-	targetBuildID, err := buildid.ReadFile(p.Target)
-	// The build ID used to be "<actionID>".
-	// Now we've started writing "<actionID>.<contentID>".
-	// Ignore contentID for now and record only "<actionID>" here.
-	if i := strings.Index(targetBuildID, "."); i >= 0 {
-		targetBuildID = targetBuildID[:i]
-	}
-	if err == nil && targetBuildID != p.Internal.BuildID {
-		return true, "build ID mismatch"
-	}
-
-	// Package is stale if a dependency is.
-	for _, p1 := range p.Internal.Imports {
-		if p1.Stale {
-			return true, "stale dependency"
-		}
-	}
-
-	// The checks above are content-based staleness.
-	// We assume they are always accurate.
-	//
-	// The checks below are mtime-based staleness.
-	// We hope they are accurate, but we know that they fail in the case of
-	// prebuilt Go installations that don't preserve the build mtimes
-	// (for example, if the pkg/ mtimes are before the src/ mtimes).
-	// See the large comment above isStale for details.
-
-	// If we are running a release copy of Go and didn't find a content-based
-	// reason to rebuild the standard packages, do not rebuild them.
-	// They may not be writable anyway, but they are certainly not changing.
-	// This makes 'go build' skip the standard packages when
-	// using an official release, even when the mtimes have been changed.
-	// See issue 3036, issue 3149, issue 4106, issue 8290.
-	// (If a change to a release tree must be made by hand, the way to force the
-	// install is to run make.bash, which will remove the old package archives
-	// before rebuilding.)
-	if p.Standard && isGoRelease {
-		return false, "standard package in Go release distribution"
-	}
-
-	// Time-based staleness.
-
-	built := fi.ModTime()
-
-	olderThan := func(file string) bool {
-		fi, err := os.Stat(file)
-		return err != nil || fi.ModTime().After(built)
-	}
-
-	// Package is stale if a dependency is, or if a dependency is newer.
-	for _, p1 := range p.Internal.Imports {
-		if p1.Target != "" && olderThan(p1.Target) {
-			return true, "newer dependency"
-		}
-	}
-
-	// As a courtesy to developers installing new versions of the compiler
-	// frequently, define that packages are stale if they are
-	// older than the compiler, and commands if they are older than
-	// the linker. This heuristic will not work if the binaries are
-	// back-dated, as some binary distributions may do, but it does handle
-	// a very common case.
-	// See issue 3036.
-	// Exclude $GOROOT, under the assumption that people working on
-	// the compiler may want to control when everything gets rebuilt,
-	// and people updating the Go repository will run make.bash or all.bash
-	// and get a full rebuild anyway.
-	// Excluding $GOROOT used to also fix issue 4106, but that's now
-	// taken care of above (at least when the installed Go is a released version).
-	if p.Root != cfg.GOROOT {
-		if olderThan(cfg.BuildToolchainCompiler()) {
-			return true, "newer compiler"
-		}
-		if p.Internal.Build.IsCommand() && olderThan(cfg.BuildToolchainLinker()) {
-			return true, "newer linker"
-		}
-	}
-
-	// Note: Until Go 1.5, we had an additional shortcut here.
-	// We built a list of the workspace roots ($GOROOT, each $GOPATH)
-	// containing targets directly named on the command line,
-	// and if p were not in any of those, it would be treated as up-to-date
-	// as long as it is built. The goal was to avoid rebuilding a system-installed
-	// $GOROOT, unless something from $GOROOT were explicitly named
-	// on the command line (like go install math).
-	// That's now handled by the isGoRelease clause above.
-	// The other effect of the shortcut was to isolate different entries in
-	// $GOPATH from each other. This had the unfortunate effect that
-	// if you had (say), GOPATH listing two entries, one for commands
-	// and one for libraries, and you did a 'git pull' in the library one
-	// and then tried 'go install commands/...', it would build the new libraries
-	// during the first build (because they wouldn't have been installed at all)
-	// but then subsequent builds would not rebuild the libraries, even if the
-	// mtimes indicate they are stale, because the different GOPATH entries
-	// were treated differently. This behavior was confusing when using
-	// non-trivial GOPATHs, which were particularly common with some
-	// code management conventions, like the original godep.
-	// Since the $GOROOT case (the original motivation) is handled separately,
-	// we no longer put a barrier between the different $GOPATH entries.
-	//
-	// One implication of this is that if there is a system directory for
-	// non-standard Go packages that is included in $GOPATH, the mtimes
-	// on those compiled packages must be no earlier than the mtimes
-	// on the source files. Since most distributions use the same mtime
-	// for all files in a tree, they will be unaffected. People using plain
-	// tar x to extract system-installed packages will need to adjust mtimes,
-	// but it's better to force them to get the mtimes right than to ignore
-	// the mtimes and thereby do the wrong thing in common use cases.
-	//
-	// So there is no GOPATH vs GOPATH shortcut here anymore.
-	//
-	// If something needs to come back here, we could try writing a dummy
-	// file with a random name to the $GOPATH/pkg directory (and removing it)
-	// to test for write access, and then skip GOPATH roots we don't have write
-	// access to. But hopefully we can just use the mtimes always.
-
-	srcs := str.StringList(p.GoFiles, p.CFiles, p.CXXFiles, p.MFiles, p.HFiles, p.FFiles, p.SFiles, p.CgoFiles, p.SysoFiles, p.SwigFiles, p.SwigCXXFiles)
-	for _, src := range srcs {
-		if olderThan(filepath.Join(p.Dir, src)) {
-			return true, "newer source file"
-		}
-	}
-
-	return false, ""
-}
-
-func pkgInputFiles(p *Package) []string {
-	return str.StringList(
-		p.GoFiles,
-		p.CgoFiles,
-		p.CFiles,
-		p.CXXFiles,
-		p.FFiles,
-		p.MFiles,
-		p.HFiles,
-		p.SFiles,
-		p.SysoFiles,
-		p.SwigFiles,
-		p.SwigCXXFiles,
-	)
-}
-
-// computeBuildID computes the build ID for p, leaving it in p.Internal.BuildID.
-// Build ID is a hash of the information we want to detect changes in.
-// See the long comment in isStale for details.
-func computeBuildID(p *Package) {
-	h := sha1.New()
-
-	// Include the list of files compiled as part of the package.
-	// This lets us detect removed files. See issue 3895.
-	inputFiles := pkgInputFiles(p)
-	for _, file := range inputFiles {
-		fmt.Fprintf(h, "file %s\n", file)
-	}
-
-	// Include the content of runtime/internal/sys/zversion.go in the hash
-	// for package runtime. This will give package runtime a
-	// different build ID in each Go release.
-	if p.Standard && p.ImportPath == "runtime/internal/sys" && cfg.BuildContext.Compiler != "gccgo" {
-		data, err := ioutil.ReadFile(filepath.Join(p.Dir, "zversion.go"))
-		if os.IsNotExist(err) {
-			p.Stale = true
-			p.StaleReason = fmt.Sprintf("missing zversion.go")
-		} else if err != nil {
-			base.Fatalf("go: %s", err)
-		}
-		fmt.Fprintf(h, "zversion %q\n", string(data))
-
-		// Add environment variables that affect code generation.
-		switch cfg.BuildContext.GOARCH {
-		case "arm":
-			fmt.Fprintf(h, "GOARM=%s\n", cfg.GOARM)
-		case "386":
-			fmt.Fprintf(h, "GO386=%s\n", cfg.GO386)
-		}
-	}
-
-	// Include the build IDs of any dependencies in the hash.
-	// This, combined with the runtime/zversion content,
-	// will cause packages to have different build IDs when
-	// compiled with different Go releases.
-	// This helps the go command know to recompile when
-	// people use the same GOPATH but switch between
-	// different Go releases. See issue 10702.
-	// This is also a better fix for issue 8290.
-	for _, p1 := range p.Internal.Imports {
-		fmt.Fprintf(h, "dep %s %s\n", p1.ImportPath, p1.Internal.BuildID)
-	}
-
-	p.Internal.BuildID = fmt.Sprintf("%x", h.Sum(nil))
 }
 
 var cmdCache = map[string]*Package{}
@@ -1866,7 +1635,6 @@ func PackagesAndErrors(args []string) []*Package {
 		seenPkg[pkg] = true
 		pkgs = append(pkgs, pkg)
 	}
-	ComputeStale(pkgs...)
 
 	return pkgs
 }
@@ -1967,7 +1735,7 @@ func GoFilesPackage(gofiles []string) *Package {
 	bp, err := ctxt.ImportDir(dir, 0)
 	pkg := new(Package)
 	pkg.Internal.Local = true
-	pkg.Internal.Cmdline = true
+	pkg.Internal.CmdlineFiles = true
 	stk.Push("main")
 	pkg.load(&stk, bp, err)
 	stk.Pop()
@@ -1986,9 +1754,149 @@ func GoFilesPackage(gofiles []string) *Package {
 		}
 	}
 
-	pkg.Stale = true
-	pkg.StaleReason = "files named on command line"
-
-	ComputeStale(pkg)
 	return pkg
+}
+
+// TestPackagesFor returns package structs ptest, the package p plus
+// its test files, and pxtest, the external tests of package p.
+// pxtest may be nil. If there are no test files, forceTest decides
+// whether this returns a new package struct or just returns p.
+func TestPackagesFor(p *Package, forceTest bool) (ptest, pxtest *Package, err error) {
+	var imports, ximports []*Package
+	var stk ImportStack
+	stk.Push(p.ImportPath + " (test)")
+	rawTestImports := str.StringList(p.TestImports)
+	for i, path := range p.TestImports {
+		p1 := LoadImport(path, p.Dir, p, &stk, p.Internal.Build.TestImportPos[path], ResolveImport)
+		if p1.Error != nil {
+			return nil, nil, p1.Error
+		}
+		if len(p1.DepsErrors) > 0 {
+			err := p1.DepsErrors[0]
+			err.Pos = "" // show full import stack
+			return nil, nil, err
+		}
+		if str.Contains(p1.Deps, p.ImportPath) || p1.ImportPath == p.ImportPath {
+			// Same error that loadPackage returns (via reusePackage) in pkg.go.
+			// Can't change that code, because that code is only for loading the
+			// non-test copy of a package.
+			err := &PackageError{
+				ImportStack:   testImportStack(stk[0], p1, p.ImportPath),
+				Err:           "import cycle not allowed in test",
+				IsImportCycle: true,
+			}
+			return nil, nil, err
+		}
+		p.TestImports[i] = p1.ImportPath
+		imports = append(imports, p1)
+	}
+	stk.Pop()
+	stk.Push(p.ImportPath + "_test")
+	pxtestNeedsPtest := false
+	rawXTestImports := str.StringList(p.XTestImports)
+	for i, path := range p.XTestImports {
+		p1 := LoadImport(path, p.Dir, p, &stk, p.Internal.Build.XTestImportPos[path], ResolveImport)
+		if p1.Error != nil {
+			return nil, nil, p1.Error
+		}
+		if len(p1.DepsErrors) > 0 {
+			err := p1.DepsErrors[0]
+			err.Pos = "" // show full import stack
+			return nil, nil, err
+		}
+		if p1.ImportPath == p.ImportPath {
+			pxtestNeedsPtest = true
+		} else {
+			ximports = append(ximports, p1)
+		}
+		p.XTestImports[i] = p1.ImportPath
+	}
+	stk.Pop()
+
+	// Test package.
+	if len(p.TestGoFiles) > 0 || forceTest {
+		ptest = new(Package)
+		*ptest = *p
+		ptest.GoFiles = nil
+		ptest.GoFiles = append(ptest.GoFiles, p.GoFiles...)
+		ptest.GoFiles = append(ptest.GoFiles, p.TestGoFiles...)
+		ptest.Target = ""
+		// Note: The preparation of the vet config requires that common
+		// indexes in ptest.Imports, ptest.Internal.Imports, and ptest.Internal.RawImports
+		// all line up (but RawImports can be shorter than the others).
+		// That is, for 0 ≤ i < len(RawImports),
+		// RawImports[i] is the import string in the program text,
+		// Imports[i] is the expanded import string (vendoring applied or relative path expanded away),
+		// and Internal.Imports[i] is the corresponding *Package.
+		// Any implicitly added imports appear in Imports and Internal.Imports
+		// but not RawImports (because they were not in the source code).
+		// We insert TestImports, imports, and rawTestImports at the start of
+		// these lists to preserve the alignment.
+		ptest.Imports = str.StringList(p.TestImports, p.Imports)
+		ptest.Internal.Imports = append(imports, p.Internal.Imports...)
+		ptest.Internal.RawImports = str.StringList(rawTestImports, p.Internal.RawImports)
+		ptest.Internal.ForceLibrary = true
+		ptest.Internal.Build = new(build.Package)
+		*ptest.Internal.Build = *p.Internal.Build
+		m := map[string][]token.Position{}
+		for k, v := range p.Internal.Build.ImportPos {
+			m[k] = append(m[k], v...)
+		}
+		for k, v := range p.Internal.Build.TestImportPos {
+			m[k] = append(m[k], v...)
+		}
+		ptest.Internal.Build.ImportPos = m
+	} else {
+		ptest = p
+	}
+
+	// External test package.
+	if len(p.XTestGoFiles) > 0 {
+		pxtest = &Package{
+			PackagePublic: PackagePublic{
+				Name:       p.Name + "_test",
+				ImportPath: p.ImportPath + "_test",
+				Root:       p.Root,
+				Dir:        p.Dir,
+				GoFiles:    p.XTestGoFiles,
+				Imports:    p.XTestImports,
+			},
+			Internal: PackageInternal{
+				LocalPrefix: p.Internal.LocalPrefix,
+				Build: &build.Package{
+					ImportPos: p.Internal.Build.XTestImportPos,
+				},
+				Imports:    ximports,
+				RawImports: rawXTestImports,
+
+				Asmflags:   p.Internal.Asmflags,
+				Gcflags:    p.Internal.Gcflags,
+				Ldflags:    p.Internal.Ldflags,
+				Gccgoflags: p.Internal.Gccgoflags,
+			},
+		}
+		if pxtestNeedsPtest {
+			pxtest.Internal.Imports = append(pxtest.Internal.Imports, ptest)
+		}
+	}
+
+	return ptest, pxtest, nil
+}
+
+func testImportStack(top string, p *Package, target string) []string {
+	stk := []string{top, p.ImportPath}
+Search:
+	for p.ImportPath != target {
+		for _, p1 := range p.Internal.Imports {
+			if p1.ImportPath == target || str.Contains(p1.Deps, target) {
+				stk = append(stk, p1.ImportPath)
+				p = p1
+				continue Search
+			}
+		}
+		// Can't happen, but in case it does...
+		stk = append(stk, "<lost path to cycle>")
+		break
+	}
+	return stk
 }

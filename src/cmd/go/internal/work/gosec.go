@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"text/template"
 )
 
@@ -67,6 +68,7 @@ func generateMain(outfile string, functions, packages []string) string {
 	if _, err := os.Stat(outfile); os.IsNotExist(err) {
 		log.Fatalf("The file doesn't exist.")
 	}
+
 	return outfile
 }
 
@@ -74,7 +76,7 @@ func generateMain(outfile string, functions, packages []string) string {
 // executable.
 func (b *Builder) gosec(a *Action) (err error) {
 	var functions, packages []string
-	ofile := a.Objdir + "encl.go"
+	ofile := filepath.Dir(a.Objdir) + "encl.go"
 	for p, m := range a.Package.PackagePublic.Gosectargets {
 		if p == "main" {
 			return fmt.Errorf("Invalid gosecure callee defined in main.")

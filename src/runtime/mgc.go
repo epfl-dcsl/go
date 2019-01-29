@@ -230,6 +230,24 @@ func setGCPercent(in int32) (out int32) {
 	// Update pacing in response to gcpercent change.
 	gcSetTriggerRatio(memstats.triggerRatio)
 	unlock(&mheap_.lock)
+
+	// If we just disabled GC, wait for any concurrent GC to
+	// finish so we always return with no GC running.
+	if in < 0 {
+		// Disable phase transitions.
+		lock(&work.sweepWaiters.lock)
+		if gcphase == _GCmark {
+			// GC is active. Wait until we reach sweeping.
+			gp := getg()
+			gp.schedlink = work.sweepWaiters.head
+			work.sweepWaiters.head.set(gp)
+			goparkunlock(&work.sweepWaiters.lock, "wait for GC cycle", traceEvGoBlock, 1)
+		} else {
+			// GC isn't active.
+			unlock(&work.sweepWaiters.lock)
+		}
+	}
+
 	return out
 }
 
@@ -500,47 +518,73 @@ func (c *gcControllerState) startCycle() {
 // is when assists are enabled and the necessary statistics are
 // available).
 func (c *gcControllerState) revise() {
-	// Compute the expected scan work remaining.
+	gcpercent := gcpercent
+	if gcpercent < 0 {
+		// If GC is disabled but we're running a forced GC,
+		// act like GOGC is huge for the below calculations.
+		gcpercent = 100000
+	}
+	live := atomic.Load64(&memstats.heap_live)
+
+	var heapGoal, scanWorkExpected int64
+	if live <= memstats.next_gc {
+		// We're under the soft goal. Pace GC to complete at
+		// next_gc assuming the heap is in steady-state.
+		heapGoal = int64(memstats.next_gc)
+
+		// Compute the expected scan work remaining.
+		//
+		// This is estimated based on the expected
+		// steady-state scannable heap. For example, with
+		// GOGC=100, only half of the scannable heap is
+		// expected to be live, so that's what we target.
+		//
+		// (This is a float calculation to avoid overflowing on
+		// 100*heap_scan.)
+		scanWorkExpected = int64(float64(memstats.heap_scan) * 100 / float64(100+gcpercent))
+	} else {
+		// We're past the soft goal. Pace GC so that in the
+		// worst case it will complete by the hard goal.
+		const maxOvershoot = 1.1
+		heapGoal = int64(float64(memstats.next_gc) * maxOvershoot)
+
+		// Compute the upper bound on the scan work remaining.
+		scanWorkExpected = int64(memstats.heap_scan)
+	}
+
+	// Compute the remaining scan work estimate.
 	//
 	// Note that we currently count allocations during GC as both
 	// scannable heap (heap_scan) and scan work completed
-	// (scanWork), so this difference won't be changed by
-	// allocations during GC.
-	//
-	// This particular estimate is a strict upper bound on the
-	// possible remaining scan work for the current heap.
-	// You might consider dividing this by 2 (or by
-	// (100+GOGC)/100) to counter this over-estimation, but
-	// benchmarks show that this has almost no effect on mean
-	// mutator utilization, heap size, or assist time and it
-	// introduces the danger of under-estimating and letting the
-	// mutator outpace the garbage collector.
-	scanWorkExpected := int64(memstats.heap_scan) - c.scanWork
-	if scanWorkExpected < 1000 {
+	// (scanWork), so allocation will change this difference will
+	// slowly in the soft regime and not at all in the hard
+	// regime.
+	scanWorkRemaining := scanWorkExpected - c.scanWork
+	if scanWorkRemaining < 1000 {
 		// We set a somewhat arbitrary lower bound on
 		// remaining scan work since if we aim a little high,
 		// we can miss by a little.
 		//
 		// We *do* need to enforce that this is at least 1,
 		// since marking is racy and double-scanning objects
-		// may legitimately make the expected scan work
-		// negative.
-		scanWorkExpected = 1000
+		// may legitimately make the remaining scan work
+		// negative, even in the hard goal regime.
+		scanWorkRemaining = 1000
 	}
 
 	// Compute the heap distance remaining.
-	heapDistance := int64(memstats.next_gc) - int64(atomic.Load64(&memstats.heap_live))
-	if heapDistance <= 0 {
+	heapRemaining := heapGoal - int64(live)
+	if heapRemaining <= 0 {
 		// This shouldn't happen, but if it does, avoid
 		// dividing by zero or setting the assist negative.
-		heapDistance = 1
+		heapRemaining = 1
 	}
 
 	// Compute the mutator assist ratio so by the time the mutator
 	// allocates the remaining heap bytes up to next_gc, it will
 	// have done (or stolen) the remaining amount of scan work.
-	c.assistWorkPerByte = float64(scanWorkExpected) / float64(heapDistance)
-	c.assistBytesPerWork = float64(heapDistance) / float64(scanWorkExpected)
+	c.assistWorkPerByte = float64(scanWorkRemaining) / float64(heapRemaining)
+	c.assistBytesPerWork = float64(heapRemaining) / float64(scanWorkRemaining)
 }
 
 // endCycle computes the trigger ratio for the next cycle.
@@ -853,13 +897,19 @@ func gcSetTriggerRatio(triggerRatio float64) {
 
 // gcGoalUtilization is the goal CPU utilization for
 // marking as a fraction of GOMAXPROCS.
-const gcGoalUtilization = 0.25
+const gcGoalUtilization = 0.30
 
 // gcBackgroundUtilization is the fixed CPU utilization for background
 // marking. It must be <= gcGoalUtilization. The difference between
 // gcGoalUtilization and gcBackgroundUtilization will be made up by
 // mark assists. The scheduler will aim to use within 50% of this
 // goal.
+//
+// Setting this to < gcGoalUtilization avoids saturating the trigger
+// feedback controller when there are no assists, which allows it to
+// better control CPU and heap growth. However, the larger the gap,
+// the more mutator assists are expected to happen, which impact
+// mutator latency.
 const gcBackgroundUtilization = 0.25
 
 // gcCreditSlack is the amount of scan work credit that can can
@@ -1250,7 +1300,12 @@ func gcStart(mode gcMode, trigger gcTrigger) {
 
 	gcResetMarkState()
 
-	work.stwprocs, work.maxprocs = gcprocs(), gomaxprocs
+	work.stwprocs, work.maxprocs = gomaxprocs, gomaxprocs
+	if work.stwprocs > ncpu {
+		// This is used to compute CPU time of the STW phases,
+		// so it can't be more than ncpu, even if GOMAXPROCS is.
+		work.stwprocs = ncpu
+	}
 	work.heap0 = atomic.Load64(&memstats.heap_live)
 	work.pauseNS = 0
 	work.mode = mode
@@ -1394,6 +1449,7 @@ top:
 			// workers have exited their loop so we can
 			// start new mark 2 workers.
 			forEachP(func(_p_ *p) {
+				wbBufFlush1(_p_)
 				_p_.gcw.dispose()
 			})
 		})
@@ -2099,9 +2155,14 @@ func clearpools() {
 	unlock(&sched.deferlock)
 }
 
-// Timing
-
-//go:nowritebarrier
+// gchelper runs mark termination tasks on Ps other than the P
+// coordinating mark termination.
+//
+// The caller is responsible for ensuring that this has a P to run on,
+// even though it's running during STW. Because of this, it's allowed
+// to have write barriers.
+//
+//go:yeswritebarrierrec
 func gchelper() {
 	_g_ := getg()
 	_g_.m.traceback = 2
@@ -2135,6 +2196,8 @@ func gchelperstart() {
 		throw("gchelper not running on g0 stack")
 	}
 }
+
+// Timing
 
 // itoaDiv formats val/(10**dec) into buf.
 func itoaDiv(buf []byte, val uint64, dec int) []byte {

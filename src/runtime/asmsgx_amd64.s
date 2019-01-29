@@ -239,15 +239,15 @@ needtls:
 nonsim:
 	// store through it, to make sure it works
 	get_tls(BX)
-
 	MOVQ	$0x123, g(BX)
 	MOVQ	runtime·mglobal(SB), R9
+
 	MOVQ	m_tls(R9), AX
 	CMPQ	AX, $0x123
 	JEQ 2(PC)
 	MOVL	AX, 0	// abort
 
-	// set the per-goroutine and per-mach "registers"
+// set the per-goroutine and per-mach "registers"
 	get_tls(BX)
 	LEAQ	runtime·g0(SB), CX
 	MOVQ	CX, g(BX)
@@ -261,7 +261,6 @@ nonsim:
 
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)
-
 	MOVL	16(SP), AX		// copy argc
 	MOVL	AX, 0(SP)
 	MOVQ	24(SP), AX		// copy argv

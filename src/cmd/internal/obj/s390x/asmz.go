@@ -212,6 +212,7 @@ var optab = []Optab{
 	Optab{ACEFBRA, C_REG, C_NONE, C_NONE, C_FREG, 82, 0},
 	Optab{ACFEBRA, C_FREG, C_NONE, C_NONE, C_REG, 83, 0},
 	Optab{AFIEBR, C_SCON, C_FREG, C_NONE, C_FREG, 48, 0},
+	Optab{ACPSDR, C_FREG, C_FREG, C_NONE, C_FREG, 49, 0},
 
 	// load symbol address (plus offset)
 	Optab{AMOVD, C_SYMADDR, C_NONE, C_NONE, C_REG, 19, 0},
@@ -250,6 +251,9 @@ var optab = []Optab{
 	Optab{ACMPU, C_REG, C_NONE, C_NONE, C_LCON, 71, 0},
 	Optab{AFCMPO, C_FREG, C_NONE, C_NONE, C_FREG, 70, 0},
 	Optab{AFCMPO, C_FREG, C_REG, C_NONE, C_FREG, 70, 0},
+
+	// test under mask
+	Optab{ATMHH, C_REG, C_NONE, C_NONE, C_ANDCON, 91, 0},
 
 	// 32-bit access registers
 	Optab{AMOVW, C_AREG, C_NONE, C_NONE, C_REG, 68, 0},
@@ -897,6 +901,8 @@ func buildop(ctxt *obj.Link) {
 			opset(ABCL, r)
 		case AFABS:
 			opset(AFNABS, r)
+			opset(ALPDFR, r)
+			opset(ALNDFR, r)
 			opset(AFNEG, r)
 			opset(AFNEGS, r)
 			opset(ALEDBR, r)
@@ -948,6 +954,10 @@ func buildop(ctxt *obj.Link) {
 			opset(ACMPW, r)
 		case ACMPU:
 			opset(ACMPWU, r)
+		case ATMHH:
+			opset(ATMHL, r)
+			opset(ATMLH, r)
+			opset(ATMLL, r)
 		case ACEFBRA:
 			opset(ACDFBRA, r)
 			opset(ACEGBRA, r)
@@ -3182,6 +3192,10 @@ func (c *ctxtz) asmout(p *obj.Prog, asm *[]byte) {
 			opcode = op_LPDBR
 		case AFNABS:
 			opcode = op_LNDBR
+		case ALPDFR:
+			opcode = op_LPDFR
+		case ALNDFR:
+			opcode = op_LNDFR
 		case AFNEG:
 			opcode = op_LCDFR
 		case AFNEGS:
@@ -3280,6 +3294,9 @@ func (c *ctxtz) asmout(p *obj.Prog, asm *[]byte) {
 			opcode = op_FIDBR
 		}
 		zRRF(opcode, uint32(m3), 0, uint32(p.To.Reg), uint32(p.Reg), asm)
+
+	case 49: // copysign
+		zRRF(op_CPSDR, uint32(p.From.Reg), 0, uint32(p.To.Reg), uint32(p.Reg), asm)
 
 	case 67: // fmov $0 freg
 		var opcode uint32
@@ -3693,6 +3710,20 @@ func (c *ctxtz) asmout(p *obj.Prog, asm *[]byte) {
 		} else {
 			zRIE(_c, opcode, uint32(p.From.Reg), mask, uint32(v), 0, 0, 0, uint32(c.regoff(p.GetFrom3())), asm)
 		}
+
+	case 91: // test under mask (immediate)
+		var opcode uint32
+		switch p.As {
+		case ATMHH:
+			opcode = op_TMHH
+		case ATMHL:
+			opcode = op_TMHL
+		case ATMLH:
+			opcode = op_TMLH
+		case ATMLL:
+			opcode = op_TMLL
+		}
+		zRI(opcode, uint32(p.From.Reg), uint32(c.vregoff(&p.To)), asm)
 
 	case 93: // GOT lookup
 		v := c.vregoff(&p.To)

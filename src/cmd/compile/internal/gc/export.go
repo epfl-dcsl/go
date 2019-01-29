@@ -112,10 +112,10 @@ func reexportdep(n *Node) {
 	switch n.Op {
 	case ONAME:
 		switch n.Class() {
-		// methods will be printed along with their type
-		// nodes for T.Method expressions
 		case PFUNC:
-			if n.Left != nil && n.Left.Op == OTYPE {
+			// methods will be printed along with their type
+			// nodes for T.Method expressions
+			if n.isMethodExpression() {
 				break
 			}
 
@@ -387,10 +387,10 @@ func dumpasmhdr() {
 			if !t.IsStruct() || t.StructType().Map != nil || t.IsFuncArgStruct() {
 				break
 			}
-			fmt.Fprintf(b, "#define %s__size %d\n", t.Sym.Name, int(t.Width))
-			for _, t := range t.Fields().Slice() {
-				if !t.Sym.IsBlank() {
-					fmt.Fprintf(b, "#define %s_%s %d\n", n.Sym.Name, t.Sym.Name, int(t.Offset))
+			fmt.Fprintf(b, "#define %s__size %d\n", n.Sym.Name, int(t.Width))
+			for _, f := range t.Fields().Slice() {
+				if !f.Sym.IsBlank() {
+					fmt.Fprintf(b, "#define %s_%s %d\n", n.Sym.Name, f.Sym.Name, int(f.Offset))
 				}
 			}
 		}

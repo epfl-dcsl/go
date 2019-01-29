@@ -262,7 +262,7 @@ type MemStats struct {
 	// can only be used for other objects of roughly the same
 	// size.
 	//
-	// HeapInuse minus HeapAlloc esimates the amount of memory
+	// HeapInuse minus HeapAlloc estimates the amount of memory
 	// that has been dedicated to particular size classes, but is
 	// not currently being used. This is an upper bound on
 	// fragmentation, but in general this memory can be reused
@@ -664,7 +664,7 @@ func purgecachedstats(c *mcache) {
 // overflow errors.
 //go:nosplit
 func mSysStatInc(sysStat *uint64, n uintptr) {
-	if sys.BigEndian != 0 {
+	if sys.BigEndian {
 		atomic.Xadd64(sysStat, int64(n))
 		return
 	}
@@ -678,7 +678,7 @@ func mSysStatInc(sysStat *uint64, n uintptr) {
 // mSysStatInc apply.
 //go:nosplit
 func mSysStatDec(sysStat *uint64, n uintptr) {
-	if sys.BigEndian != 0 {
+	if sys.BigEndian {
 		atomic.Xadd64(sysStat, -int64(n))
 		return
 	}

@@ -22,7 +22,6 @@ var (
 	BuildBuildmode         string // -buildmode flag
 	BuildContext           = build.Default
 	BuildI                 bool               // -i flag
-	BuildLdflags           []string           // -ldflags flag
 	BuildLinkshared        bool               // -linkshared flag
 	BuildMSan              bool               // -msan flag
 	BuildN                 bool               // -n flag
@@ -40,6 +39,7 @@ var (
 
 	//@aghosn added for enclave relocation.
 	Relocencl bool
+	CmdName   string // "build", "install", "list", etc.
 
 	DebugActiongraph string // -debug-actiongraph flag (undocumented, unstable)
 )
@@ -78,15 +78,17 @@ func init() {
 }
 
 var (
-	GOROOT    = findGOROOT()
-	GOBIN     = os.Getenv("GOBIN")
-	GOROOTbin = filepath.Join(GOROOT, "bin")
-	GOROOTpkg = filepath.Join(GOROOT, "pkg")
-	GOROOTsrc = filepath.Join(GOROOT, "src")
+	GOROOT       = findGOROOT()
+	GOBIN        = os.Getenv("GOBIN")
+	GOROOTbin    = filepath.Join(GOROOT, "bin")
+	GOROOTpkg    = filepath.Join(GOROOT, "pkg")
+	GOROOTsrc    = filepath.Join(GOROOT, "src")
+	GOROOT_FINAL = findGOROOT_FINAL()
 
 	// Used in envcmd.MkEnv and build ID computations.
-	GOARM = fmt.Sprint(objabi.GOARM)
-	GO386 = objabi.GO386
+	GOARM  = fmt.Sprint(objabi.GOARM)
+	GO386  = objabi.GO386
+	GOMIPS = objabi.GOMIPS
 )
 
 // Update build context to use our computed GOROOT.
@@ -103,22 +105,49 @@ func findGOROOT() string {
 	if env := os.Getenv("GOROOT"); env != "" {
 		return filepath.Clean(env)
 	}
+	def := filepath.Clean(runtime.GOROOT())
 	exe, err := os.Executable()
 	if err == nil {
 		exe, err = filepath.Abs(exe)
 		if err == nil {
 			if dir := filepath.Join(exe, "../.."); isGOROOT(dir) {
+				// If def (runtime.GOROOT()) and dir are the same
+				// directory, prefer the spelling used in def.
+				if isSameDir(def, dir) {
+					return def
+				}
 				return dir
 			}
 			exe, err = filepath.EvalSymlinks(exe)
 			if err == nil {
 				if dir := filepath.Join(exe, "../.."); isGOROOT(dir) {
+					if isSameDir(def, dir) {
+						return def
+					}
 					return dir
 				}
 			}
 		}
 	}
-	return filepath.Clean(runtime.GOROOT())
+	return def
+}
+
+func findGOROOT_FINAL() string {
+	def := GOROOT
+	if env := os.Getenv("GOROOT_FINAL"); env != "" {
+		def = filepath.Clean(env)
+	}
+	return def
+}
+
+// isSameDir reports whether dir1 and dir2 are the same directory.
+func isSameDir(dir1, dir2 string) bool {
+	if dir1 == dir2 {
+		return true
+	}
+	info1, err1 := os.Stat(dir1)
+	info2, err2 := os.Stat(dir2)
+	return err1 == nil && err2 == nil && os.SameFile(info1, info2)
 }
 
 // isGOROOT reports whether path looks like a GOROOT.
@@ -132,41 +161,4 @@ func isGOROOT(path string) bool {
 		return false
 	}
 	return stat.IsDir()
-}
-
-// ExternalLinkingForced reports whether external linking is being
-// forced even for programs that do not use cgo.
-func ExternalLinkingForced() bool {
-	// Some targets must use external linking even inside GOROOT.
-	switch BuildContext.GOOS {
-	case "android":
-		return true
-	case "darwin":
-		switch BuildContext.GOARCH {
-		case "arm", "arm64":
-			return true
-		}
-	}
-
-	if !BuildContext.CgoEnabled {
-		return false
-	}
-	// Currently build modes c-shared, pie (on systems that do not
-	// support PIE with internal linking mode (currently all
-	// systems: issue #18968)), plugin, and -linkshared force
-	// external linking mode, as of course does
-	// -ldflags=-linkmode=external. External linking mode forces
-	// an import of runtime/cgo.
-	pieCgo := BuildBuildmode == "pie"
-	linkmodeExternal := false
-	for i, a := range BuildLdflags {
-		if a == "-linkmode=external" {
-			linkmodeExternal = true
-		}
-		if a == "-linkmode" && i+1 < len(BuildLdflags) && BuildLdflags[i+1] == "external" {
-			linkmodeExternal = true
-		}
-	}
-
-	return BuildBuildmode == "c-shared" || BuildBuildmode == "plugin" || pieCgo || BuildLinkshared || linkmodeExternal
 }

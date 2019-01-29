@@ -330,7 +330,8 @@ func adddynrel(ctxt *ld.Link, s *sym.Symbol, r *sym.Reloc) bool {
 			ld.Adddynsym(ctxt, targ)
 
 			got := ctxt.Syms.Lookup(".got", 0)
-			s.Type = got.Type | sym.SSUB
+			s.Type = got.Type
+			s.Attr |= sym.AttrSubSymbol
 			s.Outer = got
 			s.Sub = got.Sub
 			got.Sub = s
@@ -470,7 +471,7 @@ func pereloc1(arch *sys.Arch, out *ld.OutBuf, s *sym.Symbol, r *sym.Reloc, secto
 	default:
 		return false
 
-	case objabi.R_DWARFREF:
+	case objabi.R_DWARFSECREF:
 		v = ld.IMAGE_REL_I386_SECREL
 
 	case objabi.R_ADDR:

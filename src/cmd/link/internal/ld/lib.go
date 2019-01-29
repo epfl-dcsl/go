@@ -462,14 +462,14 @@ func (ctxt *Link) loadlib() {
 		// recording the value of GOARM.
 		if ctxt.Arch.Family == sys.ARM {
 			s := ctxt.Syms.Lookup("runtime.goarm", 0)
-			s.Type = sym.SRODATA
+			s.Type = sym.SDATA
 			s.Size = 0
 			s.AddUint8(uint8(objabi.GOARM))
 		}
 
 		if objabi.Framepointer_enabled(objabi.GOOS, objabi.GOARCH) {
 			s := ctxt.Syms.Lookup("runtime.framepointer_enabled", 0)
-			s.Type = sym.SRODATA
+			s.Type = sym.SDATA
 			s.Size = 0
 			s.AddUint8(1)
 		}
@@ -509,7 +509,7 @@ func (ctxt *Link) loadlib() {
 		any := false
 		for _, s := range ctxt.Syms.Allsym {
 			for _, r := range s.R {
-				if r.Sym != nil && r.Sym.Type&sym.SMASK == sym.SXREF && r.Sym.Name != ".got" {
+				if r.Sym != nil && r.Sym.Type == sym.SXREF && r.Sym.Name != ".got" {
 					any = true
 					break
 				}
@@ -1074,14 +1074,14 @@ func (ctxt *Link) hostlink() {
 	argv = append(argv, *flagExtld)
 	argv = append(argv, hostlinkArchArgs(ctxt.Arch)...)
 
-	if !*FlagS && !debug_s {
-		argv = append(argv, "-gdwarf-2")
-	} else if ctxt.HeadType == objabi.Hdarwin {
-		// Recent versions of macOS print
-		//	ld: warning: option -s is obsolete and being ignored
-		// so do not pass any arguments.
-	} else {
-		argv = append(argv, "-s")
+	if *FlagS || debug_s {
+		if ctxt.HeadType == objabi.Hdarwin {
+			// Recent versions of macOS print
+			//	ld: warning: option -s is obsolete and being ignored
+			// so do not pass any arguments.
+		} else {
+			argv = append(argv, "-s")
+		}
 	}
 
 	switch ctxt.HeadType {
@@ -1106,7 +1106,13 @@ func (ctxt *Link) hostlink() {
 	switch ctxt.BuildMode {
 	case BuildModeExe:
 		if ctxt.HeadType == objabi.Hdarwin {
-			argv = append(argv, "-Wl,-pagezero_size,4000000")
+			if ctxt.Arch.Family == sys.ARM64 {
+				// __PAGEZERO segment size determined empirically.
+				// XCode 9.0.1 successfully uploads an iOS app with this value.
+				argv = append(argv, "-Wl,-pagezero_size,100000000")
+			} else {
+				argv = append(argv, "-Wl,-pagezero_size,4000000")
+			}
 		}
 	case BuildModePIE:
 		// ELF.
@@ -1260,7 +1266,7 @@ func (ctxt *Link) hostlink() {
 	// does not work, the resulting programs will not run. See
 	// issue #17847. To avoid this problem pass -no-pie to the
 	// toolchain if it is supported.
-	if ctxt.BuildMode == BuildModeExe {
+	if ctxt.BuildMode == BuildModeExe && !ctxt.linkShared {
 		src := filepath.Join(*flagTmpdir, "trivial.c")
 		if err := ioutil.WriteFile(src, []byte("int main() { return 0; }"), 0666); err != nil {
 			Errorf(nil, "WriteFile trivial.c failed: %v", err)
@@ -1469,13 +1475,29 @@ func ldobj(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, pn string,
 		}
 	}
 
-	/* skip over exports and other info -- ends with \n!\n */
+	// Skip over exports and other info -- ends with \n!\n.
+	//
+	// Note: It's possible for "\n!\n" to appear within the binary
+	// package export data format. To avoid truncating the package
+	// definition prematurely (issue 21703), we keep keep track of
+	// how many "$$" delimiters we've seen.
+
 	import0 := f.Offset()
 
 	c1 = '\n' // the last line ended in \n
 	c2 = bgetc(f)
 	c3 = bgetc(f)
-	for c1 != '\n' || c2 != '!' || c3 != '\n' {
+	markers := 0
+	for {
+		if c1 == '\n' {
+			if markers%2 == 0 && c2 == '!' && c3 == '\n' {
+				break
+			}
+			if c2 == '$' && c3 == '$' {
+				markers++
+			}
+		}
+
 		c1 = c2
 		c2 = c3
 		c3 = bgetc(f)
@@ -1943,6 +1965,7 @@ func doversion() {
 type SymbolType int8
 
 const (
+	// see also http://9p.io/magic/man2html/1/nm
 	TextSym      SymbolType = 'T'
 	DataSym                 = 'D'
 	BSSSym                  = 'B'
@@ -1951,6 +1974,9 @@ const (
 	FrameSym                = 'm'
 	ParamSym                = 'p'
 	AutoSym                 = 'a'
+
+	// Deleted auto (not a real sym, just placeholder for type)
+	DeletedAutoSym = 'x'
 )
 
 func genasmsym(ctxt *Link, put func(*Link, *sym.Symbol, string, SymbolType, int64, *sym.Symbol)) {
@@ -2004,7 +2030,7 @@ func genasmsym(ctxt *Link, put func(*Link, *sym.Symbol, string, SymbolType, int6
 		if (s.Name == "" || s.Name[0] == '.') && s.Version == 0 && s.Name != ".rathole" && s.Name != ".TOC." {
 			continue
 		}
-		switch s.Type & sym.SMASK {
+		switch s.Type {
 		case sym.SCONST,
 			sym.SRODATA,
 			sym.SSYMTAB,
@@ -2075,6 +2101,11 @@ func genasmsym(ctxt *Link, put func(*Link, *sym.Symbol, string, SymbolType, int6
 			continue
 		}
 		for _, a := range s.FuncInfo.Autom {
+			if a.Name == objabi.A_DELETED_AUTO {
+				put(ctxt, nil, "", DeletedAutoSym, 0, a.Gotype)
+				continue
+			}
+
 			// Emit a or p according to actual offset, even if label is wrong.
 			// This avoids negative offsets, which cannot be encoded.
 			if a.Name != objabi.A_AUTO && a.Name != objabi.A_PARAM {

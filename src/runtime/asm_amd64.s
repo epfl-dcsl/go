@@ -341,18 +341,6 @@ TEXT runtime·gosave(SB), NOSPLIT, $0-8
 // restore state from Gobuf; longjmp
 TEXT runtime·gogo(SB), NOSPLIT, $16-8
 	MOVQ	buf+0(FP), BX		// gobuf
-
-	// If ctxt is not nil, invoke deletion barrier before overwriting.
-	MOVQ	gobuf_ctxt(BX), AX
-	TESTQ	AX, AX
-	JZ	nilctxt
-	LEAQ	gobuf_ctxt(BX), AX
-	MOVQ	AX, 0(SP)
-	MOVQ	$0, 8(SP)
-	CALL	runtime·writebarrierptr_prewrite(SB)
-	MOVQ	buf+0(FP), BX
-
-nilctxt:
 	MOVQ	gobuf_g(BX), DX
 	MOVQ	0(DX), CX		// make sure g != nil
 	get_tls(CX)
@@ -468,11 +456,12 @@ switch:
 	RET
 
 noswitch:
-	// already on m stack, just call directly
+	// already on m stack; tail call the function
+	// Using a tail call here cleans up tracebacks since we won't stop
+	// at an intermediate systemstack.
 	MOVQ	DI, DX
 	MOVQ	0(DI), DI
-	CALL	DI
-	RET
+	JMP	DI
 
 /*
  * support for morestack
@@ -519,16 +508,14 @@ TEXT runtime·morestack(SB),NOSPLIT,$0-0
 	LEAQ	8(SP), AX // f's SP
 	MOVQ	AX, (g_sched+gobuf_sp)(SI)
 	MOVQ	BP, (g_sched+gobuf_bp)(SI)
-	// newstack will fill gobuf.ctxt.
+	MOVQ	DX, (g_sched+gobuf_ctxt)(SI)
 
 	// Call newstack on m->g0's stack.
 	MOVQ	m_g0(BX), BX
 	MOVQ	BX, g(CX)
 	MOVQ	(g_sched+gobuf_sp)(BX), SP
-	PUSHQ	DX	// ctxt argument
 	CALL	runtime·newstack(SB)
 	MOVQ	$0, 0x1003	// crash if newstack returns
-	POPQ	DX	// keep balance check happy
 	RET
 
 // morestack but not preserving ctxt.
@@ -2428,3 +2415,87 @@ TEXT runtime·addmoduledata(SB),NOSPLIT,$0-0
 	MOVQ	DI, runtime·lastmoduledatap(SB)
 	POPQ	R15
 	RET
+
+// gcWriteBarrier performs a heap pointer write and informs the GC.
+//
+// gcWriteBarrier does NOT follow the Go ABI. It takes two arguments:
+// - DI is the destination of the write
+// - AX is the value being written at DI
+// It clobbers FLAGS. It does not clobber any general-purpose registers,
+// but may clobber others (e.g., SSE registers).
+TEXT runtime·gcWriteBarrier(SB),NOSPLIT,$120
+	// Save the registers clobbered by the fast path. This is slightly
+	// faster than having the caller spill these.
+	MOVQ	R14, 104(SP)
+	MOVQ	R13, 112(SP)
+	// TODO: Consider passing g.m.p in as an argument so they can be shared
+	// across a sequence of write barriers.
+	get_tls(R13)
+	MOVQ	g(R13), R13
+	MOVQ	g_m(R13), R13
+	MOVQ	m_p(R13), R13
+	MOVQ	(p_wbBuf+wbBuf_next)(R13), R14
+	// Increment wbBuf.next position.
+	LEAQ	16(R14), R14
+	MOVQ	R14, (p_wbBuf+wbBuf_next)(R13)
+	CMPQ	R14, (p_wbBuf+wbBuf_end)(R13)
+	// Record the write.
+	MOVQ	AX, -16(R14)	// Record value
+	MOVQ	(DI), R13	// TODO: This turns bad writes into bad reads.
+	MOVQ	R13, -8(R14)	// Record *slot
+	// Is the buffer full? (flags set in CMPQ above)
+	JEQ	flush
+ret:
+	MOVQ	104(SP), R14
+	MOVQ	112(SP), R13
+	// Do the write.
+	MOVQ	AX, (DI)
+	RET
+
+flush:
+	// Save all general purpose registers since these could be
+	// clobbered by wbBufFlush and were not saved by the caller.
+	// It is possible for wbBufFlush to clobber other registers
+	// (e.g., SSE registers), but the compiler takes care of saving
+	// those in the caller if necessary. This strikes a balance
+	// with registers that are likely to be used.
+	//
+	// We don't have type information for these, but all code under
+	// here is NOSPLIT, so nothing will observe these.
+	//
+	// TODO: We could strike a different balance; e.g., saving X0
+	// and not saving GP registers that are less likely to be used.
+	MOVQ	DI, 0(SP)	// Also first argument to wbBufFlush
+	MOVQ	AX, 8(SP)	// Also second argument to wbBufFlush
+	MOVQ	BX, 16(SP)
+	MOVQ	CX, 24(SP)
+	MOVQ	DX, 32(SP)
+	// DI already saved
+	MOVQ	SI, 40(SP)
+	MOVQ	BP, 48(SP)
+	MOVQ	R8, 56(SP)
+	MOVQ	R9, 64(SP)
+	MOVQ	R10, 72(SP)
+	MOVQ	R11, 80(SP)
+	MOVQ	R12, 88(SP)
+	// R13 already saved
+	// R14 already saved
+	MOVQ	R15, 96(SP)
+
+	// This takes arguments DI and AX
+	CALL	runtime·wbBufFlush(SB)
+
+	MOVQ	0(SP), DI
+	MOVQ	8(SP), AX
+	MOVQ	16(SP), BX
+	MOVQ	24(SP), CX
+	MOVQ	32(SP), DX
+	MOVQ	40(SP), SI
+	MOVQ	48(SP), BP
+	MOVQ	56(SP), R8
+	MOVQ	64(SP), R9
+	MOVQ	72(SP), R10
+	MOVQ	80(SP), R11
+	MOVQ	88(SP), R12
+	MOVQ	96(SP), R15
+	JMP	ret

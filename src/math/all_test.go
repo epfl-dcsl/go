@@ -1589,6 +1589,7 @@ var vfpowSC = [][2]float64{
 	{Inf(-1), 1},
 	{Inf(-1), 3},
 	{Inf(-1), Pi},
+	{Inf(-1), 0.5},
 	{Inf(-1), NaN()},
 
 	{-Pi, Inf(-1)},
@@ -1607,9 +1608,11 @@ var vfpowSC = [][2]float64{
 	{-1 / 2, Inf(1)},
 	{Copysign(0, -1), Inf(-1)},
 	{Copysign(0, -1), -Pi},
+	{Copysign(0, -1), -0.5},
 	{Copysign(0, -1), -3},
 	{Copysign(0, -1), 3},
 	{Copysign(0, -1), Pi},
+	{Copysign(0, -1), 0.5},
 	{Copysign(0, -1), Inf(1)},
 
 	{0, Inf(-1)},
@@ -1666,6 +1669,7 @@ var powSC = []float64{
 	Inf(-1),         // pow(-Inf, 1)
 	Inf(-1),         // pow(-Inf, 3)
 	Inf(1),          // pow(-Inf, Pi)
+	Inf(1),          // pow(-Inf, 0.5)
 	NaN(),           // pow(-Inf, NaN)
 	0,               // pow(-Pi, -Inf)
 	NaN(),           // pow(-Pi, -Pi)
@@ -1682,9 +1686,11 @@ var powSC = []float64{
 	0,               // pow(-1/2, +Inf)
 	Inf(1),          // pow(-0, -Inf)
 	Inf(1),          // pow(-0, -Pi)
+	Inf(1),          // pow(-0, -0.5)
 	Inf(-1),         // pow(-0, -3) IEEE 754-2008
 	Copysign(0, -1), // pow(-0, 3) IEEE 754-2008
 	0,               // pow(-0, +Pi)
+	0,               // pow(-0, 0.5)
 	0,               // pow(-0, +Inf)
 	Inf(1),          // pow(+0, -Inf)
 	Inf(1),          // pow(+0, -Pi)
@@ -1774,9 +1780,26 @@ var vfroundSC = [][2]float64{
 	{0.5, 1},
 	{0.5000000000000001, 1}, // 0.5+epsilon
 	{-1.5, -2},
+	{-2.5, -3},
 	{NaN(), NaN()},
 	{Inf(1), Inf(1)},
 	{2251799813685249.5, 2251799813685250}, // 1 bit fraction
+	{2251799813685250.5, 2251799813685251},
+	{4503599627370495.5, 4503599627370496}, // 1 bit fraction, rounding to 0 bit fraction
+	{4503599627370497, 4503599627370497},   // large integer
+}
+var vfroundEvenSC = [][2]float64{
+	{0, 0},
+	{1.390671161567e-309, 0}, // denormal
+	{0.49999999999999994, 0}, // 0.5-epsilon
+	{0.5, 0},
+	{0.5000000000000001, 1}, // 0.5+epsilon
+	{-1.5, -2},
+	{-2.5, -2},
+	{NaN(), NaN()},
+	{Inf(1), Inf(1)},
+	{2251799813685249.5, 2251799813685250}, // 1 bit fraction
+	{2251799813685250.5, 2251799813685250},
 	{4503599627370495.5, 4503599627370496}, // 1 bit fraction, rounding to 0 bit fraction
 	{4503599627370497, 4503599627370497},   // large integer
 }
@@ -2752,6 +2775,19 @@ func TestRound(t *testing.T) {
 	}
 }
 
+func TestRoundToEven(t *testing.T) {
+	for i := 0; i < len(vf); i++ {
+		if f := RoundToEven(vf[i]); !alike(round[i], f) {
+			t.Errorf("RoundToEven(%g) = %g, want %g", vf[i], f, round[i])
+		}
+	}
+	for i := 0; i < len(vfroundEvenSC); i++ {
+		if f := RoundToEven(vfroundEvenSC[i][0]); !alike(vfroundEvenSC[i][1], f) {
+			t.Errorf("RoundToEven(%g) = %g, want %g", vfroundEvenSC[i][0], f, vfroundEvenSC[i][1])
+		}
+	}
+}
+
 func TestSignbit(t *testing.T) {
 	for i := 0; i < len(vf); i++ {
 		if f := Signbit(vf[i]); signbit[i] != f {
@@ -3180,7 +3216,7 @@ func BenchmarkAbs(b *testing.B) {
 func BenchmarkDim(b *testing.B) {
 	x := 0.0
 	for i := 0; i < b.N; i++ {
-		x = Dim(10, 3)
+		x = Dim(GlobalF, x)
 	}
 	GlobalF = x
 }
@@ -3409,6 +3445,14 @@ func BenchmarkRound(b *testing.B) {
 	x := 0.0
 	for i := 0; i < b.N; i++ {
 		x = Round(roundNeg)
+	}
+	GlobalF = x
+}
+
+func BenchmarkRoundToEven(b *testing.B) {
+	x := 0.0
+	for i := 0; i < b.N; i++ {
+		x = RoundToEven(roundNeg)
 	}
 	GlobalF = x
 }

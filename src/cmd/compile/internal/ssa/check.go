@@ -102,7 +102,7 @@ func checkFunc(f *Func) {
 				f.Fatalf("plain/dead block %s has a control value", b)
 			}
 		}
-		if len(b.Succs) > 2 && b.Likely != BranchUnknown {
+		if len(b.Succs) != 2 && b.Likely != BranchUnknown {
 			f.Fatalf("likeliness prediction %d for block %s with %d successors", b.Likely, b, len(b.Succs))
 		}
 
@@ -201,6 +201,10 @@ func checkFunc(f *Func) {
 				if v.Args[0].Op != OpSP && v.Args[0].Op != OpSB {
 					f.Fatalf("bad arg to OpAddr %v", v)
 				}
+			}
+
+			if f.RegAlloc != nil && f.Config.SoftFloat && v.Type.IsFloat() {
+				f.Fatalf("unexpected floating-point type %v", v.LongString())
 			}
 
 			// TODO: check for cycles in values
@@ -456,11 +460,16 @@ func memCheck(f *Func) {
 		for _, b := range f.Blocks {
 			seenNonPhi := false
 			for _, v := range b.Values {
-				if v.Op == OpPhi {
+				switch v.Op {
+				case OpPhi:
 					if seenNonPhi {
 						f.Fatalf("phi after non-phi @ %s: %s", b, v)
 					}
-				} else {
+				case OpRegKill:
+					if f.RegAlloc == nil {
+						f.Fatalf("RegKill seen before register allocation @ %s: %s", b, v)
+					}
+				default:
 					seenNonPhi = true
 				}
 			}

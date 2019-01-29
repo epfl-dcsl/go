@@ -494,6 +494,18 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		p.To.Reg = v.Args[0].Reg()
 	case ssa.OpAMD64MOVLconst, ssa.OpAMD64MOVQconst:
 		x := v.Reg()
+
+		// If flags aren't live (indicated by v.Aux == nil),
+		// then we can rewrite MOV $0, AX into XOR AX, AX.
+		if v.AuxInt == 0 && v.Aux == nil {
+			p := s.Prog(x86.AXORL)
+			p.From.Type = obj.TYPE_REG
+			p.From.Reg = x
+			p.To.Type = obj.TYPE_REG
+			p.To.Reg = x
+			break
+		}
+
 		asm := v.Op.Asm()
 		// Use MOVL to move a small constant into a register
 		// when the constant is positive and fits into 32 bits.
@@ -506,11 +518,6 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		p.From.Offset = v.AuxInt
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = x
-		// If flags are live at this instruction, suppress the
-		// MOV $0,AX -> XOR AX,AX optimization.
-		if v.Aux != nil {
-			p.Mark |= x86.PRESERVEFLAGS
-		}
 	case ssa.OpAMD64MOVSSconst, ssa.OpAMD64MOVSDconst:
 		x := v.Reg()
 		p := s.Prog(v.Op.Asm())
@@ -817,6 +824,12 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = v.Reg()
 
+	case ssa.OpAMD64LoweredWB:
+		p := s.Prog(obj.ACALL)
+		p.To.Type = obj.TYPE_MEM
+		p.To.Name = obj.NAME_EXTERN
+		p.To.Sym = v.Aux.(*obj.LSym)
+
 	case ssa.OpAMD64NEGQ, ssa.OpAMD64NEGL,
 		ssa.OpAMD64BSWAPQ, ssa.OpAMD64BSWAPL,
 		ssa.OpAMD64NOTQ, ssa.OpAMD64NOTL:
@@ -837,6 +850,18 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		p := s.Prog(v.Op.Asm())
 		p.From.Type = obj.TYPE_REG
 		p.From.Reg = v.Args[0].Reg()
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = v.Reg()
+	case ssa.OpAMD64ROUNDSD:
+		p := s.Prog(v.Op.Asm())
+		val := v.AuxInt
+		// 0 means math.RoundToEven, 1 Floor, 2 Ceil, 3 Trunc
+		if val != 0 && val != 1 && val != 2 && val != 3 {
+			v.Fatalf("Invalid rounding mode")
+		}
+		p.From.Offset = val
+		p.From.Type = obj.TYPE_CONST
+		p.SetFrom3(obj.Addr{Type: obj.TYPE_REG, Reg: v.Args[0].Reg()})
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = v.Reg()
 	case ssa.OpAMD64POPCNTQ, ssa.OpAMD64POPCNTL:

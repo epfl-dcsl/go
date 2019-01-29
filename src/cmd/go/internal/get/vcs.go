@@ -647,14 +647,7 @@ var httpPrefixRE = regexp.MustCompile(`^https?:`)
 func repoRootForImportPath(importPath string, security web.SecurityMode) (*repoRoot, error) {
 	rr, err := repoRootFromVCSPaths(importPath, "", security, vcsPaths)
 	if err == errUnknownSite {
-		// If there are wildcards, look up the thing before the wildcard,
-		// hoping it applies to the wildcarded parts too.
-		// This makes 'go get rsc.io/pdf/...' work in a fresh GOPATH.
-		lookup := strings.TrimSuffix(importPath, "/...")
-		if i := strings.Index(lookup, "/.../"); i >= 0 {
-			lookup = lookup[:i]
-		}
-		rr, err = repoRootForImportDynamic(lookup, security)
+		rr, err = repoRootForImportDynamic(importPath, security)
 		if err != nil {
 			err = fmt.Errorf("unrecognized import path %q (%v)", importPath, err)
 		}
@@ -667,6 +660,7 @@ func repoRootForImportPath(importPath string, security web.SecurityMode) (*repoR
 		}
 	}
 
+	// Should have been taken care of above, but make sure.
 	if err == nil && strings.Contains(importPath, "...") && strings.Contains(rr.root, "...") {
 		// Do not allow wildcards in the repo root.
 		rr = nil
@@ -809,8 +803,8 @@ func repoRootForImportDynamic(importPath string, security web.SecurityMode) (*re
 		}
 	}
 
-	if !strings.Contains(mmi.RepoRoot, "://") {
-		return nil, fmt.Errorf("%s: invalid repo root %q; no scheme", urlStr, mmi.RepoRoot)
+	if err := validateRepoRootScheme(mmi.RepoRoot); err != nil {
+		return nil, fmt.Errorf("%s: invalid repo root %q: %v", urlStr, mmi.RepoRoot, err)
 	}
 	rr := &repoRoot{
 		vcs:      vcsByCmd(mmi.VCS),
@@ -822,6 +816,36 @@ func repoRootForImportDynamic(importPath string, security web.SecurityMode) (*re
 		return nil, fmt.Errorf("%s: unknown vcs %q", urlStr, mmi.VCS)
 	}
 	return rr, nil
+}
+
+// validateRepoRootScheme returns an error if repoRoot does not seem
+// to have a valid URL scheme. At this point we permit things that
+// aren't valid URLs, although later, if not using -insecure, we will
+// restrict repoRoots to be valid URLs. This is only because we've
+// historically permitted them, and people may depend on that.
+func validateRepoRootScheme(repoRoot string) error {
+	end := strings.Index(repoRoot, "://")
+	if end <= 0 {
+		return errors.New("no scheme")
+	}
+
+	// RFC 3986 section 3.1.
+	for i := 0; i < end; i++ {
+		c := repoRoot[i]
+		switch {
+		case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
+			// OK.
+		case '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.':
+			// OK except at start.
+			if i == 0 {
+				return errors.New("invalid scheme")
+			}
+		default:
+			return errors.New("invalid scheme")
+		}
+	}
+
+	return nil
 }
 
 var fetchGroup singleflight.Group
@@ -940,10 +964,14 @@ func matchGoImport(imports []metaImport, importPath string) (metaImport, error) 
 
 // expand rewrites s to replace {k} with match[k] for each key k in match.
 func expand(match map[string]string, s string) string {
+	// We want to replace each match exactly once, and the result of expansion
+	// must not depend on the iteration order through the map.
+	// A strings.Replacer has exactly the properties we're looking for.
+	oldNew := make([]string, 0, 2*len(match))
 	for k, v := range match {
-		s = strings.Replace(s, "{"+k+"}", v, -1)
+		oldNew = append(oldNew, "{"+k+"}", v)
 	}
-	return s
+	return strings.NewReplacer(oldNew...).Replace(s)
 }
 
 // vcsPaths defines the meaning of import paths referring to
@@ -970,7 +998,7 @@ var vcsPaths = []*vcsPath{
 
 	// IBM DevOps Services (JazzHub)
 	{
-		prefix: "hub.jazz.net/git",
+		prefix: "hub.jazz.net/git/",
 		re:     `^(?P<root>hub.jazz.net/git/[a-z0-9]+/[A-Za-z0-9_.\-]+)(/[A-Za-z0-9_.\-]+)*$`,
 		vcs:    "git",
 		repo:   "https://{root}",
@@ -979,7 +1007,7 @@ var vcsPaths = []*vcsPath{
 
 	// Git at Apache
 	{
-		prefix: "git.apache.org",
+		prefix: "git.apache.org/",
 		re:     `^(?P<root>git.apache.org/[a-z0-9_.\-]+\.git)(/[A-Za-z0-9_.\-]+)*$`,
 		vcs:    "git",
 		repo:   "https://{root}",
@@ -987,7 +1015,7 @@ var vcsPaths = []*vcsPath{
 
 	// Git at OpenStack
 	{
-		prefix: "git.openstack.org",
+		prefix: "git.openstack.org/",
 		re:     `^(?P<root>git\.openstack\.org/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)(\.git)?(/[A-Za-z0-9_.\-]+)*$`,
 		vcs:    "git",
 		repo:   "https://{root}",
@@ -995,7 +1023,7 @@ var vcsPaths = []*vcsPath{
 
 	// chiselapp.com for fossil
 	{
-		prefix: "chiselapp.com",
+		prefix: "chiselapp.com/",
 		re:     `^(?P<root>chiselapp\.com/user/[A-Za-z0-9]+/repository/[A-Za-z0-9_.\-]+)$`,
 		vcs:    "fossil",
 		repo:   "https://{root}",

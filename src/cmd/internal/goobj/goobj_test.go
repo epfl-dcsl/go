@@ -32,14 +32,6 @@ func TestMain(m *testing.M) {
 		return
 	}
 
-	if runtime.GOARCH == "arm" {
-		switch runtime.GOOS {
-		case "darwin", "android", "nacl":
-		default:
-			return // skip tests due to #19811
-		}
-	}
-
 	if err := buildGoobj(); err != nil {
 		fmt.Println(err)
 		os.RemoveAll(buildDir)
@@ -133,7 +125,7 @@ func buildGoobj() error {
 		if err != nil {
 			return err
 		}
-		cmd := exec.Command(gotool, "install", "mycgo")
+		cmd := exec.Command(gotool, "install", "-gcflags=all="+os.Getenv("GO_GCFLAGS"), "mycgo")
 		cmd.Env = append(os.Environ(), "GOPATH="+gopath)
 		out, err = cmd.CombinedOutput()
 		if err != nil {
