@@ -108,6 +108,12 @@ type CooperativeRuntime struct {
 	Notes            [10]note     // notes for futex calls.
 	OEntry           uintptr
 	ExceptionHandler uint64
+
+	//TODO remove afterwards
+	TimeStats [2]uint64
+	NbEntries [2]uint64
+
+	RegTimes [2][10]uint64
 }
 
 const (

@@ -174,3 +174,50 @@ const DEBUGMASK = 0x060000000000
 //	val := (uint64)(Cooprt.Markers[DBG_ACTUAL_SEND])
 //	atomic.Store64(ptr, val)
 //}
+
+func DbgRegisterTS(start uint64) {
+	if Cooprt == nil {
+		return
+	}
+	if isEnclave {
+		Cooprt.TimeStats[0] += uint64(nanotime()) - start
+		Cooprt.NbEntries[0]++
+		return
+	}
+
+	Cooprt.TimeStats[1] += uint64(nanotime()) - start
+	Cooprt.NbEntries[1]++
+}
+
+func DbgDumpStats() {
+	if Cooprt == nil {
+		return
+	}
+
+	//println("Average Enclave ", Cooprt.TimeStats[0]/Cooprt.NbEntries[0])
+	//println("Average NonTrusted ", Cooprt.TimeStats[1]/Cooprt.NbEntries[1])
+}
+
+func DbgGetArray() [2][10]uint64 {
+	if Cooprt == nil {
+		panic("It's nil bitch")
+	}
+	return Cooprt.RegTimes
+}
+
+func DbgQueueTime(time uint64) {
+	spanSize := uint64(50)
+	if Cooprt == nil {
+		return
+	}
+	tab := &Cooprt.RegTimes[1]
+	if isEnclave {
+		tab = &Cooprt.RegTimes[0]
+	}
+
+	if time/spanSize >= uint64(len(Cooprt.RegTimes[0])) {
+		tab[len(Cooprt.RegTimes)-1]++
+		return
+	}
+	tab[time/spanSize]++
+}

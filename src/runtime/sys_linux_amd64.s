@@ -254,9 +254,9 @@ TEXT runtime·nanotime(SB),NOSPLIT,$0-8
 	CMPB 	R9, $0
 	JE 	normal
 
-	//MOVB 	runtime·isSimulation(SB), R9
-	//CMPB 	R9, $1
-	//JE 	normal 
+	MOVB 	runtime·isSimulation(SB), R9
+	CMPB 	R9, $1
+	JE 	normal 
 
 	MOVQ $1, AX
 	MOVQ AX, ret+0(FP)
