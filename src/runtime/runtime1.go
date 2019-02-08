@@ -50,7 +50,7 @@ var (
 	argc   int32
 	argv   **byte
 	Cooprt *CooperativeRuntime
-	cprtQ  *lfqueue
+	cprtQ  *slqueue
 )
 
 // nosplit for use in linux startup sysargs

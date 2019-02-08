@@ -89,8 +89,8 @@ type CooperativeRuntime struct {
 	argc int32
 	argv **byte
 
-	readyE lfqueue //Ready to be rescheduled in the enclave
-	readyO lfqueue //Ready to be rescheduled outside of the enclave
+	readyE slqueue //Ready to be rescheduled in the enclave
+	readyO slqueue //Ready to be rescheduled outside of the enclave
 
 	//pool of answer channels.
 	sysPool []*poolSysChan
@@ -306,7 +306,7 @@ func migrateCrossDomain(locked bool) {
 		throw("migrateCrossdomain called on un-init cprtQ.")
 	}
 
-	sgq, tail, size := lfqget(cprtQ, locked)
+	sgq, tail, size := slqget(cprtQ, locked)
 	if size == 0 {
 		_g_.m.locks--
 		return
@@ -321,6 +321,7 @@ func migrateCrossDomain(locked bool) {
 		if sgq.schednext != 0 {
 			sgq = sgq.schednext.ptr()
 		} else if sgq != tail {
+			println("Expected size is ", size, tail, sgq)
 			throw("malformed sgqueue, tail does not match tail(q)")
 		}
 		sg.schednext = 0
@@ -366,7 +367,7 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		target = &c.readyO
 	}
 
-	lfqput(target, sg)
+	slqput(target, sg)
 }
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
