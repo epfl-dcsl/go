@@ -227,8 +227,6 @@ func (p *Package) copyBuild(pp *build.Package) {
 	p.Root = pp.Root
 	p.ConflictDir = pp.ConflictDir
 	p.BinaryOnly = pp.BinaryOnly
-
-	// TODO? Target
 	p.Goroot = pp.Goroot
 	p.Standard = p.Goroot && p.ImportPath != "" && isStandardImportPath(p.ImportPath)
 	p.GoFiles = pp.GoFiles

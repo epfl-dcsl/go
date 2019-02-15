@@ -2024,7 +2024,12 @@ func typecheck1(n *Node, top int) *Node {
 
 	case OGOSECURE:
 		ok |= Etop
+		// Let it generate types for the call.
+		// We then try to see if it contains pointers.
+		fmt.Println("Types before ", n.Left.Type)
 		n.Left = typecheck(n.Left, Etop|Erv)
+		fmt.Println("Types after ", n.Left.Type)
+		gosecVerifyArgs(n.Left)
 		checkdefergo(n)
 
 	case OFOR, OFORUNTIL:
@@ -2584,9 +2589,9 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 					for _, tn := range rfs[i:] {
 						if assignop(tn.Type, tl.Type.Elem(), &why) == 0 {
 							if call != nil {
-								yyerror("cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type.Elem(), call, why)
+								yyerror("(1)cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type.Elem(), call, why)
 							} else {
-								yyerror("cannot use %v as type %v in %s%s", tn.Type, tl.Type.Elem(), desc(), why)
+								yyerror("(1b)cannot use %v as type %v in %s%s", tn.Type, tl.Type.Elem(), desc(), why)
 							}
 						}
 					}
@@ -2599,9 +2604,9 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 				tn := rfs[i]
 				if assignop(tn.Type, tl.Type, &why) == 0 {
 					if call != nil {
-						yyerror("cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type, call, why)
+						yyerror("(2)cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type, call, why)
 					} else {
-						yyerror("cannot use %v as type %v in %s%s", tn.Type, tl.Type, desc(), why)
+						yyerror("(2b)cannot use %v as type %v in %s%s", tn.Type, tl.Type, desc(), why)
 					}
 				}
 			}

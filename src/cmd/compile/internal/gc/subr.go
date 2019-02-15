@@ -981,7 +981,8 @@ func assignconvfn(n *Node, t *types.Type, context func() string) *Node {
 	op := assignop(n.Type, t, &why)
 	if op == 0 {
 		if !old.Diag() {
-			yyerror("cannot use %L as type %v in %s%s", n, t, context(), why)
+			fmt.Printf("The value for the node %v, type %v\n", n.Type, t)
+			yyerror("(3)cannot use %L as type %v in %s%s", n, t, context(), why)
 		}
 		op = OCONV
 	}
