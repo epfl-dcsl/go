@@ -85,11 +85,17 @@ func oCallServer() {
 		var r1 uintptr
 		var r2 uintptr
 		var err syscall.Errno
-		//TODO @aghosn maybe do that inside a goroutine.
-		if sys.Big {
-			r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
-		} else {
+		switch sys.Big {
+		case runtime.S3:
 			r1, r2, err = syscall.Syscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+		case runtime.S6:
+			r1, r2, err = syscall.Syscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+		case runtime.RS3:
+			r1, r2, err = syscall.RawSyscall(sys.Trap, sys.A1, sys.A2, sys.A3)
+		case runtime.RS6:
+			r1, r2, err = syscall.RawSyscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+		default:
+			panic("Unsupported syscall forwarding.")
 		}
 		res := runtime.OcallRes{r1, r2, uintptr(err)}
 		go runtime.Cooprt.SysSend(sys.Id, res)

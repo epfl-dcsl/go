@@ -4,6 +4,15 @@ import (
 	"unsafe"
 )
 
+type SysType int
+
+const (
+	S3  SysType = 0
+	S6  SysType = 1
+	RS3 SysType = 2
+	RS6 SysType = 3
+)
+
 //EcallServerRequest type is used to send a request for the enclave to spawn
 //a new dedicated ecall server listening on the provided private PC channel.
 type EcallServerReq struct {
@@ -23,7 +32,7 @@ type EcallReq struct {
 }
 
 type OcallReq struct {
-	Big  bool
+	Big  SysType
 	Trap uintptr
 	A1   uintptr
 	A2   uintptr
@@ -269,7 +278,7 @@ func panicGosec(a string) {
 func sysFutex(addr *uint32, cnt uint32) {
 	syscid, csys := Cooprt.AcquireSysPool()
 	sys_futex := uintptr(202)
-	req := OcallReq{true, sys_futex, uintptr(unsafe.Pointer(addr)),
+	req := OcallReq{S6, sys_futex, uintptr(unsafe.Pointer(addr)),
 		uintptr(_FUTEX_WAKE), uintptr(cnt), 0, 0, 0, syscid}
 	Cooprt.Ocall <- req
 	_ = <-csys
