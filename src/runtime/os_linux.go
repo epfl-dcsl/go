@@ -40,7 +40,7 @@ func futexsleep(addr *uint32, val uint32, ns int64) {
 	}
 	var ts timespec
 	// TODO @aghosn: just a check for the moment. Seems we have a problem here.
-	if !isEnclave && uintptr(unsafe.Pointer(addr)) > ENCLMASK {
+	if _ap := uintptr(unsafe.Pointer(addr)); !isEnclave && _ap >= ENCLMASK && _ap <= ENCLMASK+ENCLSIZE {
 		panic("[DEBUG] trying to futexsleep from untrusted on trusted object.")
 	}
 	// Some Linux kernels have a bug where futex of
