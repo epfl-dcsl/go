@@ -9,6 +9,7 @@ import (
 // Slice of gosecure targets.
 var (
 	secureMap map[string]func(size int32, argp *uint8)
+	tpeMap    map[string]reflect.Type
 )
 
 // We cannot use reflect to get the value of the arguments. Instead, we give
@@ -51,6 +52,7 @@ func EcallServer() {
 func RegisterSecureFunction(f interface{}) {
 	if secureMap == nil {
 		secureMap = make(map[string]func(size int32, argp *uint8))
+		tpeMap = make(map[string]reflect.Type)
 	}
 
 	ptr := reflect.ValueOf(f).Pointer()
@@ -65,4 +67,5 @@ func RegisterSecureFunction(f interface{}) {
 	secureMap[pc.Name()] = func(size int32, argp *uint8) {
 		runtime.Newproc(ptr, argp, size)
 	}
+	tpeMap[pc.Name()] = reflect.TypeOf(f)
 }

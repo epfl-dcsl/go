@@ -2026,10 +2026,7 @@ func typecheck1(n *Node, top int) *Node {
 		ok |= Etop
 		// Let it generate types for the call.
 		// We then try to see if it contains pointers.
-		fmt.Println("Types before ", n.Left.Type)
 		n.Left = typecheck(n.Left, Etop|Erv)
-		fmt.Println("Types after ", n.Left.Type)
-		gosecVerifyArgs(n.Left)
 		checkdefergo(n)
 
 	case OFOR, OFORUNTIL:
