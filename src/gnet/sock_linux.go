@@ -4,9 +4,16 @@
 
 package gnet
 
-import "syscall"
+import (
+	"runtime"
+	"syscall"
+)
 
 func maxListenerBacklog() int {
+	//TODO @aghosn, quick fix for debugging.
+	if runtime.IsEnclave() {
+		return 128
+	}
 	fd, err := open("/proc/sys/net/core/somaxconn")
 	if err != nil {
 		return syscall.SOMAXCONN

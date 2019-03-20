@@ -28,7 +28,6 @@ import(
 func main() {
 	// Starting the functions.
 
-	//go runtime.AvoidDeadlock()
 	{{range .Functions}}
 
 	gosecu.RegisterSecureFunction({{ . }})

@@ -94,6 +94,16 @@ func oCallServer() {
 			r1, r2, err = syscall.RawSyscall(sys.Trap, sys.A1, sys.A2, sys.A3)
 		case runtime.RS6:
 			r1, r2, err = syscall.RawSyscall6(sys.Trap, sys.A1, sys.A2, sys.A3, sys.A4, sys.A5, sys.A6)
+		case runtime.MAL:
+			manon := int32(_MAP_PRIVATE | _MAP_ANON | _MAP_NORESERVE)
+			ur1, e := runtime.RMmap(nil, sys.A2, _PROT_READ|_PROT_WRITE, manon, -1, 0)
+			if e != 0 {
+				log.Fatalln("Unable to mmap big buffer size:", sys.A2, " and error: ", syscall.Errno(e))
+			}
+			r1 = uintptr(ur1)
+		case runtime.FRE:
+			runtime.RMunmap(unsafe.Pointer(sys.A1), sys.A2)
+			return
 		default:
 			panic("Unsupported syscall forwarding.")
 		}

@@ -13,6 +13,7 @@ const (
 	_sgfree         = uint32(0x0)
 	_sglock         = uint32(0x1)
 	_sgcachesize    = uint32(500)
+	_spansize       = _psize
 )
 
 //uspan is an unsafe span of memory from which we perform the allocation.
@@ -123,7 +124,7 @@ func (u *uledger) Initialize(start, size uintptr) {
 		sp.id = uint32(i)
 		sp.bitmask = _uspfree
 		sp.start = start + uintptr(i)*_psize
-		sp.freesize = _psize
+		sp.freesize = _spansize
 		u.freespans.add(sp)
 	}
 
@@ -135,6 +136,14 @@ func (u *uledger) Initialize(start, size uintptr) {
 //go:nosplit
 //go:nowritebarrier
 func (u *uledger) Malloc(size uintptr) uintptr {
+	//slow path, TODO check that no lock is held
+	if size > _spansize {
+		syscid, csys := Cooprt.AcquireSysPool()
+		req := OcallReq{MAL, 0, 0, size, 0, 0, 0, 0, syscid}
+		Cooprt.Ocall <- req
+		res := <-csys
+		return res.R1
+	}
 	u.sl.lock()
 	if u.freespans.isEmpty() {
 		println("Size of allspans ", len(u.allspans))
@@ -169,8 +178,15 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 //go:nosplit
 //go:nowritebarrier
 func (u *uledger) Free(ptr, size uintptr) {
+	// Slow path
+	if size > _spansize {
+		// There is no need to get an answer
+		req := OcallReq{FRE, 0, ptr, size, 0, 0, 0, 0, 0}
+		Cooprt.Ocall <- req
+		return
+	}
 	u.sl.lock()
-	index := (ptr - u.start) / _psize //find the pod
+	index := (ptr - u.start) / _spansize //find the pod
 	move, ok := u.allspans[index].deallocate(ptr, size)
 	if !ok { //Failed de-allocating
 		throw("uledger: error deallocating object!")

@@ -33,7 +33,7 @@ func privateServer(c chan runtime.EcallReq) {
 // server requests.
 func EcallServer() {
 	// Init the cross domain ref pointer for crossed routines.
-	runtime.InitAllcg()
+	//runtime.InitAllcg()
 	for {
 		req := <-runtime.Cooprt.EcallSrv
 		if req == nil || req.PrivChan == nil {

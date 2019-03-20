@@ -188,6 +188,10 @@ skipsysmon:
 		cgocall(_cgo_notify_runtime_init_done, nil)
 	}
 
+	if isEnclave {
+		InitAllcg()
+	}
+
 	fn := main_init // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 
@@ -285,6 +289,9 @@ func goschedguarded() {
 func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason string, traceEv byte, traceskip int) {
 	mp := acquirem()
 	gp := mp.curg
+	if gp == nil {
+		panic("fuck")
+	}
 	status := readgstatus(gp)
 	if status != _Grunning && status != _Gscanrunning {
 		throw("gopark: bad g status")
@@ -529,7 +536,7 @@ func schedinit() {
 	}
 	if isEnclave {
 		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
-		procs = 1
+		procs = 1 //TODO modify this for more threads in enclave.
 	}
 
 	if procresize(procs) != nil {

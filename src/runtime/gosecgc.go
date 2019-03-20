@@ -23,7 +23,7 @@ const (
 	_tls_size          = _psize
 	_tls_reserved_size = _msgx_size + _tls_size
 	_padding_alignment = 2 * _psize
-	EnclaveMaxTls      = 3 // maximum number of concurrent threads in the enclave.
+	EnclaveMaxTls      = 4 // maximum number of concurrent threads in the enclave.
 
 	//Tricky but basically we need this struct to have some extra buffer so that
 	//we have something that is page aligned.

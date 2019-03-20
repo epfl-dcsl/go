@@ -18,6 +18,16 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 		syscid, csys := runtime.Cooprt.AcquireSysPool()
 		_tpe := runtime.S3
 		switch trap {
+		case SYS_CLOSE:
+			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+		case SYS_FCNTL:
+			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
 		case SYS_WRITE:
 			destptr := runtime.UnsafeAllocator.Malloc(a3)
 			memcpy(destptr, a2, a3)
@@ -117,6 +127,25 @@ func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno) 
 		syscid, csys := runtime.Cooprt.AcquireSysPool()
 		_tpe := runtime.S6
 		switch trap {
+		case SYS_ACCEPT4:
+			// copy the sockaddr
+			sasize := unsafe.Sizeof(*(*RawSockaddrAny)(unsafe.Pointer(a2)))
+			sockaddr := runtime.UnsafeAllocator.Malloc(sasize)
+			memcpy(sockaddr, a2, sasize)
+			//copy the socklen
+			slsize := unsafe.Sizeof(*(*_Socklen)(unsafe.Pointer(a3)))
+			socklen := runtime.UnsafeAllocator.Malloc(slsize)
+			memcpy(socklen, a3, slsize)
+			req := runtime.OcallReq{_tpe, trap, a1, sockaddr, socklen, a4, a5, a6, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+			// copy back
+			memcpy(a2, sockaddr, sasize)
+			memcpy(a3, socklen, slsize)
+			// free
+			runtime.UnsafeAllocator.Free(sockaddr, sasize)
+			runtime.UnsafeAllocator.Free(socklen, slsize)
 		case SYS_SETSOCKOPT:
 			// Copy the a4 (opt pointer)
 			opt := runtime.UnsafeAllocator.Malloc(a5)
@@ -137,6 +166,14 @@ func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno) 
 			r1, r2, err = res.R1, res.R2, Errno(res.Err)
 			runtime.UnsafeAllocator.Free(buf, a3)
 			runtime.UnsafeAllocator.Free(sockaddr, a6)
+		case SYS_OPENAT:
+			buf := runtime.UnsafeAllocator.Malloc(a6 + 1)
+			memcpy(buf, a2, a6+1)
+			req := runtime.OcallReq{_tpe, trap, a1, buf, a3, a4, a5, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+			runtime.UnsafeAllocator.Free(buf, a6+1)
 		default:
 			panic("Unallowed system call inside the enclave.")
 		}

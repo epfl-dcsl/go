@@ -254,9 +254,9 @@ TEXT runtime·nanotime(SB),NOSPLIT,$0-8
 	CMPB 	R9, $0
 	JE 	normal
 
-	//MOVB 	runtime·isSimulation(SB), R9
-	//CMPB 	R9, $1
-	//JE 	normal 
+	MOVB 	runtime·isSimulation(SB), R9
+	CMPB 	R9, $1
+	JE 	normal 
 
 	MOVQ $1, AX
 	MOVQ AX, ret+0(FP)
@@ -667,7 +667,7 @@ TEXT runtime·sched_setaffinity(SB),NOSPLIT,$0
 	RET
 
 // int32 runtime·epollcreate(int32 size);
-TEXT runtime·epollcreate(SB),NOSPLIT,$0
+TEXT runtime·eepollcreate(SB),NOSPLIT,$0
 	MOVL    size+0(FP), DI
 	MOVL    $SYS_epoll_create, AX
 	SYSCALL
@@ -675,7 +675,7 @@ TEXT runtime·epollcreate(SB),NOSPLIT,$0
 	RET
 
 // int32 runtime·epollcreate1(int32 flags);
-TEXT runtime·epollcreate1(SB),NOSPLIT,$0
+TEXT runtime·eepollcreate1(SB),NOSPLIT,$0
 	MOVL	flags+0(FP), DI
 	MOVL	$SYS_epoll_create1, AX
 	SYSCALL
@@ -683,7 +683,7 @@ TEXT runtime·epollcreate1(SB),NOSPLIT,$0
 	RET
 
 // func epollctl(epfd, op, fd int32, ev *epollEvent) int
-TEXT runtime·epollctl(SB),NOSPLIT,$0
+TEXT runtime·eepollctl(SB),NOSPLIT,$0
 	MOVL	epfd+0(FP), DI
 	MOVL	op+4(FP), SI
 	MOVL	fd+8(FP), DX
@@ -694,7 +694,7 @@ TEXT runtime·epollctl(SB),NOSPLIT,$0
 	RET
 
 // int32 runtime·epollwait(int32 epfd, EpollEvent *ev, int32 nev, int32 timeout);
-TEXT runtime·epollwait(SB),NOSPLIT,$0
+TEXT runtime·eepollwait(SB),NOSPLIT,$0
 	// This uses pwait instead of wait, because Android O blocks wait.
 	MOVL	epfd+0(FP), DI
 	MOVQ	ev+8(FP), SI
@@ -707,7 +707,7 @@ TEXT runtime·epollwait(SB),NOSPLIT,$0
 	RET
 
 // void runtime·closeonexec(int32 fd);
-TEXT runtime·closeonexec(SB),NOSPLIT,$0
+TEXT runtime·ccloseonexec(SB),NOSPLIT,$0
 	MOVL    fd+0(FP), DI  // fd
 	MOVQ    $2, SI  // F_SETFD
 	MOVQ    $1, DX  // FD_CLOEXEC

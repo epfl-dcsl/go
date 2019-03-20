@@ -35,10 +35,14 @@ func linkat(olddirfd int, oldpath string, newdirfd int, newpath string, flags in
 func openat(dirfd int, path string, flags int, mode uint32) (fd int, err error) {
 	var _p0 *byte
 	_p0, err = BytePtrFromString(path)
+	ssize := uintptr(0)
+	if runtime.IsEnclave() {
+		ssize = uintptr(len(path))
+	}
 	if err != nil {
 		return
 	}
-	r0, _, e1 := Syscall6(SYS_OPENAT, uintptr(dirfd), uintptr(unsafe.Pointer(_p0)), uintptr(flags), uintptr(mode), 0, 0)
+	r0, _, e1 := Syscall6(SYS_OPENAT, uintptr(dirfd), uintptr(unsafe.Pointer(_p0)), uintptr(flags), uintptr(mode), 0, ssize)
 	fd = int(r0)
 	if e1 != 0 {
 		err = errnoErr(e1)

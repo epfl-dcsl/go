@@ -11,6 +11,8 @@ const (
 	S6  SysType = 1
 	RS3 SysType = 2
 	RS6 SysType = 3
+	MAL SysType = 4
+	FRE SysType = 5
 )
 
 //EcallServerRequest type is used to send a request for the enclave to spawn
@@ -134,7 +136,7 @@ const (
 	// TODO this must be the same as in the gosec package.
 	// Later move all of these within a separate package and share it.
 	MEMBUF_START = (ENCLMASK + ENCLSIZE - PSIZE - MEMBUF_SIZE)
-	_unsafeSize  = PSIZE * 100
+	_unsafeSize  = PSIZE * 500
 )
 
 var (
