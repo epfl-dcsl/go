@@ -44,7 +44,12 @@ futsleep:
 	CALL gosec·FutexSleep(SB)
 	JMP end
 futwake:
+	CMPQ R9, $3
+	JNE epoll
 	CALL gosec·FutexWakeup(SB)
+	JMP end
+epoll:
+	CALL gosec·EpollPWait(SB)
 end:
 	POPQ SI
 	RET

@@ -96,7 +96,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			panic("unsupported system call.")
 			//goto UNSUPPORTED
 		}
-
 		runtime.Cooprt.ReleaseSysPool(syscid)
 		return
 	}
@@ -113,6 +112,24 @@ func SRawSyscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			runtime.Cooprt.Ocall <- req
 			res := <-csys
 			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+		case SYS_GETSOCKNAME:
+			ssockaddr := unsafe.Sizeof(RawSockaddrAny{})
+			var _bof _Socklen = 0
+			ssocklen := unsafe.Sizeof(_bof)
+			addr := runtime.UnsafeAllocator.Malloc(ssockaddr)
+			slen := runtime.UnsafeAllocator.Malloc(ssocklen)
+			// copy to
+			memcpy(addr, a2, ssockaddr)
+			memcpy(slen, a3, ssocklen)
+			req := runtime.OcallReq{_tpe, trap, a1, addr, slen, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+			//copy back
+			memcpy(a2, addr, ssockaddr)
+			memcpy(a3, slen, ssocklen)
+			runtime.UnsafeAllocator.Free(addr, ssockaddr)
+			runtime.UnsafeAllocator.Free(slen, ssocklen)
 		default:
 			panic("Not yet implemented")
 		}

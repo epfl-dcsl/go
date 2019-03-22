@@ -177,25 +177,45 @@ func gosecinterpose(trap, a1, a2, a3, a4, a5, a6 uintptr) int32 {
 		UnsafeAllocator.Free(ev, sev)
 		r1 = res.R1
 	case _sys_epoll_wait:
-		//TODO problem is here.
+		// We need to do an exit here.
 		sev := unsafe.Sizeof(epollevent{})
 		ev := UnsafeAllocator.Malloc(sev)
+		req := (*OcallReq)(unsafe.Pointer(UnsafeAllocator.Malloc(unsafe.Sizeof(OcallReq{}))))
+		res := (*OcallRes)(unsafe.Pointer(UnsafeAllocator.Malloc(unsafe.Sizeof(OcallRes{}))))
 		memcpy(ev, a2, sev)
-		req := OcallReq{S6, trap, a1, ev, a3, a4, a5, a6, syscid}
-		Cooprt.Ocall <- req
-		var res OcallRes
-		systemstack(func() {
-			res = <-csys
-		})
-		panic("stop wait")
-		//copy back the results and free.
+		*req = OcallReq{S6, trap, a1, ev, a3, a4, a5, a6, syscid}
+		sgx_ocall_epoll_pwait(req, res)
+		r1 = res.R1
+		UnsafeAllocator.Free(uintptr(unsafe.Pointer(req)), unsafe.Sizeof(*req))
+		UnsafeAllocator.Free(uintptr(unsafe.Pointer(res)), unsafe.Sizeof(*res))
 		memcpy(a2, ev, sev)
 		UnsafeAllocator.Free(ev, sev)
-		r1 = res.R1
 	default:
 		panic("Unsupported gosecinterpose syscall")
 	}
+	Cooprt.ReleaseSysPool(syscid)
+	//TODO might be necessary to get the error instead.
 	return int32(r1)
+}
+
+func sgx_ocall_epoll_pwait(req *OcallReq, res *OcallRes) {
+	if !isEnclave || Cooprt == nil {
+		throw("Wrong call to sgx ocall epoll pwait")
+	}
+	gp := getg()
+	if gp == nil || gp.m == nil || gp.m.g0 == nil {
+		throw("Something is not inited in g struct.")
+	}
+	ustk := gp.m.g0.sched.usp
+	ubp := gp.m.g0.sched.ubp
+	aptr := UnsafeAllocator.Malloc(unsafe.Sizeof(OExitRequest{}))
+	args := (*OExitRequest)(unsafe.Pointer(aptr))
+	args.Cid = EPollWaitRequest
+	args.Sid = gp.m.procid
+	args.EWReq = uintptr(unsafe.Pointer(req))
+	args.EWRes = uintptr(unsafe.Pointer(res))
+	sgx_ocall(Cooprt.OEntry, aptr, ustk, ubp)
+	UnsafeAllocator.Free(aptr, unsafe.Sizeof(OExitRequest{}))
 }
 
 //TODO remove, avoid duplicated code.

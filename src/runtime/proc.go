@@ -2379,6 +2379,7 @@ stop:
 
 	if isEnclave {
 		//We only have one thread so fuck that, go back to beginning
+		//TODO @aghosn move that somewhere else down there.
 		goto top
 	}
 
@@ -2416,7 +2417,7 @@ stop:
 	if cprtQ != nil {
 		rcount := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
 		if rcount == 1 && sched.gcwaiting == 0 {
-			//we are te last and hence should not block.
+			//we are the last and hence should not block.
 			//we still have our p.
 			unlock(&sched.lock)
 			goto top

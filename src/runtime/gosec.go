@@ -62,20 +62,23 @@ const (
 	SpawnRequest       = uint64(1)
 	FutexSleepRequest  = uint64(2)
 	FutexWakeupRequest = uint64(3)
+	EPollWaitRequest   = uint64(4)
 )
 
 //OExitRequest pass when doing an sgx_ocall.
 //It is supposed to have a size of 64bytes, which is the granularity of our
 //unsafe allocator.
 type OExitRequest struct {
-	Cid  uint64  //OExit id
-	Sid  uint64  //tcs source id of requester
-	Did  uint64  // tcs dest id for new thread
-	Gp   uintptr // the g that will be used for the new thread
-	Mp   uintptr // the m that will be used for the new thread
-	Addr uintptr // pointer to futex target
-	Val  uint32  // value that needs to be written with futex
-	Ns   int64   // nano sleep timeout
+	Cid   uint64  //OExit id
+	Sid   uint64  //tcs source id of requester
+	Did   uint64  // tcs dest id for new thread
+	Gp    uintptr // the g that will be used for the new thread
+	Mp    uintptr // the m that will be used for the new thread
+	Addr  uintptr // pointer to futex target
+	Val   uint32  // value that needs to be written with futex
+	Ns    int64   // nano sleep timeout
+	EWReq uintptr // address of the epoll request
+	EWRes uintptr // address of the epoll result
 }
 
 //SgxTCSInfo describes a tcs related information, such as tls.
@@ -533,4 +536,11 @@ func FutexwakeupE(addr unsafe.Pointer, val uint32) {
 		return
 	}
 	throw("Futex wakeup enclave failed.")
+}
+
+//go:nosplit
+//go:nowritebarrier
+func EpollPWait(req *OcallReq, res *OcallRes) {
+	res.R1 = uintptr(eepollwait(int32(req.A1),
+		(*epollevent)(unsafe.Pointer(req.A2)), int32(req.A3), int32(req.A4)))
 }
