@@ -17,6 +17,11 @@ TEXT runtime·sgxtramp_encl(SB),NOSPLIT,$0
 	CALL runtime·sgxsettls(SB)
 	JMP setup
 
+//TODO to fakely balance push pop
+fakebalance:
+	PUSHQ $0xdead
+	PUSHQ $0xdead
+
 nonsim:
 	// check if we are reentering
 	// TODO check the value of gm instead
@@ -32,13 +37,20 @@ nonsim:
 	MOVQ g_sched+gobuf_bp+8(DX), DI
 	MOVQ g_sched+gobuf_bp+16(DX), SI	
 
-	//Save the unsafe stack current location
+	//Save the unsafe stack current location TODO will be able to remove it
 	MOVQ SP, g_sched+gobuf_bp+8(DX)
 	MOVQ BP, g_sched+gobuf_bp+16(DX)
 
 	//switch stacks
 	MOVQ DI, SP
 	MOVQ SI, BP
+
+	//now fix the unsafe stack
+	POPQ R8 // bp
+	POPQ R9 //stk
+
+	MOVQ R8, g_sched+gobuf_bp+16(DX)
+	MOVQ R9, g_sched+gobuf_bp+8(DX)
 
 	RET
 
@@ -304,8 +316,8 @@ TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 	MOVQ g(CX), AX // AX = g
 	MOVQ g_m(AX), BX // BX = m
 	MOVQ m_g0(BX), DX // DX = m.g0
-	MOVQ SP, g_sched+gobuf_bp+8(DX)
-	MOVQ BP, g_sched+gobuf_bp+16(DX)
+	//MOVQ SP, g_sched+gobuf_bp+8(DX)
+	//MOVQ BP, g_sched+gobuf_bp+16(DX)
 
 	//Arguments for the ocall
 	MOVQ trgt+0(FP), BX
@@ -313,7 +325,22 @@ TEXT runtime·sgx_ocall(SB),NOSPLIT,$0
 
 	//restore the rbp and rsp
 	MOVQ nstk+16(FP), R8
-	MOVQ rbp+24(FP), R9 
+	MOVQ rbp+24(FP), R9
+
+	//TODO debugging
+	MOVB runtime·isSimulation(SB), R10
+	CMPB R10, $1
+	JE stackswitch
+
+	// Trying to save the unsafe stack and bp
+	PUSHQ R8 //stk
+	PUSHQ R9 //bp
+
+stackswitch:
+	//save the current stack
+	MOVQ SP, g_sched+gobuf_bp+8(DX)
+	MOVQ BP, g_sched+gobuf_bp+16(DX)
+
 	MOVQ R9, BP
 	MOVQ R8, SP
 
@@ -331,6 +358,8 @@ sgxcall:
 
 	// see if we can come back here.
 	MOVQ $124, 124
+	POPQ R8 // for the balance analyzer
+	POPQ R9 
 
 cleanup: 
 	get_tls(CX)

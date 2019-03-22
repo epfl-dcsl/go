@@ -185,6 +185,17 @@ func FutexWakeup(req *runtime.OExitRequest) {
 }
 
 //go:nosplit
+func EpollPWait(req *runtime.OExitRequest) {
+	request := (*runtime.OcallReq)(unsafe.Pointer(req.EWReq))
+	result := (*runtime.OcallRes)(unsafe.Pointer(req.EWRes))
+	runtime.EpollPWait(request, result)
+	if enclWrap.isSim {
+		return
+	}
+	sgxEResume(req.Sid)
+}
+
+//go:nosplit
 func sgxEResume(id uint64) {
 	tcs := runtime.Cooprt.Tcss[id]
 	xcpt := runtime.Cooprt.ExceptionHandler
