@@ -26,8 +26,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"net"
-	"net/url"
+	"gnet"
+	"gnet/url"
 	"strconv"
 	"strings"
 	"time"
@@ -711,15 +711,15 @@ type Certificate struct {
 	// example, an element of DNSNames may not be a valid DNS domain name.)
 	DNSNames       []string
 	EmailAddresses []string
-	IPAddresses    []net.IP
+	IPAddresses    []gnet.IP
 	URIs           []*url.URL
 
 	// Name constraints
 	PermittedDNSDomainsCritical bool // if true then the name constraints are marked critical.
 	PermittedDNSDomains         []string
 	ExcludedDNSDomains          []string
-	PermittedIPRanges           []*net.IPNet
-	ExcludedIPRanges            []*net.IPNet
+	PermittedIPRanges           []*gnet.IPNet
+	ExcludedIPRanges            []*gnet.IPNet
 	PermittedEmailAddresses     []string
 	ExcludedEmailAddresses      []string
 	PermittedURIDomains         []string
@@ -1124,7 +1124,7 @@ func forEachSAN(extension []byte, callback func(tag int, data []byte) error) err
 	return nil
 }
 
-func parseSANExtension(value []byte) (dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL, err error) {
+func parseSANExtension(value []byte) (dnsNames, emailAddresses []string, ipAddresses []gnet.IP, uris []*url.URL, err error) {
 	err = forEachSAN(value, func(tag int, data []byte) error {
 		switch tag {
 		case nameTypeEmail:
@@ -1144,7 +1144,7 @@ func parseSANExtension(value []byte) (dnsNames, emailAddresses []string, ipAddre
 			uris = append(uris, uri)
 		case nameTypeIP:
 			switch len(data) {
-			case net.IPv4len, net.IPv6len:
+			case gnet.IPv4len, gnet.IPv6len:
 				ipAddresses = append(ipAddresses, data)
 			default:
 				return errors.New("x509: cannot parse IP address of length " + strconv.Itoa(len(data)))
@@ -1217,7 +1217,7 @@ func parseNameConstraintsExtension(out *Certificate, e pkix.Extension) (unhandle
 		return false, errors.New("x509: empty name constraints extension")
 	}
 
-	getValues := func(subtrees cryptobyte.String) (dnsNames []string, ips []*net.IPNet, emails, uriDomains []string, err error) {
+	getValues := func(subtrees cryptobyte.String) (dnsNames []string, ips []*gnet.IPNet, emails, uriDomains []string, err error) {
 		for !subtrees.Empty() {
 			var seq, value cryptobyte.String
 			var tag cryptobyte_asn1.Tag
@@ -1274,7 +1274,7 @@ func parseNameConstraintsExtension(out *Certificate, e pkix.Extension) (unhandle
 					return nil, nil, nil, nil, fmt.Errorf("x509: IP constraint contained invalid mask %x", mask)
 				}
 
-				ips = append(ips, &net.IPNet{IP: net.IP(ip), Mask: net.IPMask(mask)})
+				ips = append(ips, &gnet.IPNet{IP: gnet.IP(ip), Mask: gnet.IPMask(mask)})
 
 			case emailTag:
 				constraint := string(value)
@@ -1306,7 +1306,7 @@ func parseNameConstraintsExtension(out *Certificate, e pkix.Extension) (unhandle
 					return nil, nil, nil, nil, errors.New("x509: invalid constraint value: " + err.Error())
 				}
 
-				if net.ParseIP(domain) != nil {
+				if gnet.ParseIP(domain) != nil {
 					return nil, nil, nil, nil, fmt.Errorf("x509: failed to parse URI constraint %q: cannot be IP address", domain)
 				}
 
@@ -1664,7 +1664,7 @@ func oidInExtensions(oid asn1.ObjectIdentifier, extensions []pkix.Extension) boo
 
 // marshalSANs marshals a list of addresses into a the contents of an X.509
 // SubjectAlternativeName extension.
-func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL) (derBytes []byte, err error) {
+func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []gnet.IP, uris []*url.URL) (derBytes []byte, err error) {
 	var rawValues []asn1.RawValue
 	for _, name := range dnsNames {
 		rawValues = append(rawValues, asn1.RawValue{Tag: nameTypeDNS, Class: 2, Bytes: []byte(name)})
@@ -1838,7 +1838,7 @@ func buildExtensions(template *Certificate, subjectIsEmpty bool, authorityKeyId 
 		ret[n].Id = oidExtensionNameConstraints
 		ret[n].Critical = template.PermittedDNSDomainsCritical
 
-		ipAndMask := func(ipNet *net.IPNet) []byte {
+		ipAndMask := func(ipNet *gnet.IPNet) []byte {
 			maskedIP := ipNet.IP.Mask(ipNet.Mask)
 			ipAndMask := make([]byte, 0, len(maskedIP)+len(ipNet.Mask))
 			ipAndMask = append(ipAndMask, maskedIP...)
@@ -1846,7 +1846,7 @@ func buildExtensions(template *Certificate, subjectIsEmpty bool, authorityKeyId 
 			return ipAndMask
 		}
 
-		serialiseConstraints := func(dns []string, ips []*net.IPNet, emails []string, uriDomains []string) (der []byte, err error) {
+		serialiseConstraints := func(dns []string, ips []*gnet.IPNet, emails []string, uriDomains []string) (der []byte, err error) {
 			var b cryptobyte.Builder
 
 			for _, name := range dns {
@@ -2273,7 +2273,7 @@ type CertificateRequest struct {
 	// Subject Alternate Name values.
 	DNSNames       []string
 	EmailAddresses []string
-	IPAddresses    []net.IP
+	IPAddresses    []gnet.IP
 	URIs           []*url.URL
 }
 

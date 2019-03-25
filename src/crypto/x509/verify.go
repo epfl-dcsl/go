@@ -9,8 +9,8 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
+	"gnet"
+	"gnet/url"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -103,7 +103,7 @@ func (h HostnameError) Error() string {
 	c := h.Certificate
 
 	var valid string
-	if ip := net.ParseIP(h.Host); ip != nil {
+	if ip := gnet.ParseIP(h.Host); ip != nil {
 		// Trying to validate an IP
 		if len(c.IPAddresses) == 0 {
 			return "x509: cannot validate certificate for " + h.Host + " because it doesn't contain any IP SANs"
@@ -417,21 +417,21 @@ func matchURIConstraint(uri *url.URL, constraint string) (bool, error) {
 
 	if strings.Contains(host, ":") && !strings.HasSuffix(host, "]") {
 		var err error
-		host, _, err = net.SplitHostPort(uri.Host)
+		host, _, err = gnet.SplitHostPort(uri.Host)
 		if err != nil {
 			return false, err
 		}
 	}
 
 	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") ||
-		net.ParseIP(host) != nil {
+		gnet.ParseIP(host) != nil {
 		return false, fmt.Errorf("URI with IP (%q) cannot be matched against constraints", uri.String())
 	}
 
 	return matchDomainConstraint(host, constraint)
 }
 
-func matchIPConstraint(ip net.IP, constraint *net.IPNet) (bool, error) {
+func matchIPConstraint(ip gnet.IP, constraint *gnet.IPNet) (bool, error) {
 	if len(ip) != len(constraint.IP) {
 		return false, nil
 	}
@@ -637,14 +637,14 @@ func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *V
 				}
 
 			case nameTypeIP:
-				ip := net.IP(data)
-				if l := len(ip); l != net.IPv4len && l != net.IPv6len {
+				ip := gnet.IP(data)
+				if l := len(ip); l != gnet.IPv4len && l != gnet.IPv6len {
 					return fmt.Errorf("x509: internal error: IP SAN %x failed to parse", data)
 				}
 
 				if err := c.checkNameConstraints(&comparisonCount, maxConstraintComparisons, "IP address", ip.String(), ip,
 					func(parsedName, constraint interface{}) (bool, error) {
-						return matchIPConstraint(parsedName.(net.IP), constraint.(*net.IPNet))
+						return matchIPConstraint(parsedName.(gnet.IP), constraint.(*gnet.IPNet))
 					}, c.PermittedIPRanges, c.ExcludedIPRanges); err != nil {
 					return err
 				}
@@ -943,7 +943,7 @@ func (c *Certificate) VerifyHostname(h string) error {
 	if len(h) >= 3 && h[0] == '[' && h[len(h)-1] == ']' {
 		candidateIP = h[1 : len(h)-1]
 	}
-	if ip := net.ParseIP(candidateIP); ip != nil {
+	if ip := gnet.ParseIP(candidateIP); ip != nil {
 		// We only match IP addresses against IP SANs.
 		// https://tools.ietf.org/html/rfc6125#appendix-B.2
 		for _, candidate := range c.IPAddresses {
