@@ -1,0 +1,368 @@
+diff --git a/src/bufio/bufio.go b/src/bufio/bufio.go
+index ad9c9f5ddf..feeba27206 100644
+--- a/src/bufio/bufio.go
++++ b/src/bufio/bufio.go
+@@ -11,6 +11,7 @@ import (
+ 	"bytes"
+ 	"errors"
+ 	"io"
++	"runtime"
+ 	"unicode/utf8"
+ )
+ 
+@@ -213,7 +214,16 @@ func (b *Reader) Read(p []byte) (n int, err error) {
+ 		// Do not use b.fill, which will loop.
+ 		b.r = 0
+ 		b.w = 0
++		if runtime.DbgIsMarked() {
++			_, _ = b.rd.Read(b.buf)
++			panic("begining of Read bufio Reader 1")
++		}
++
+ 		n, b.err = b.rd.Read(b.buf)
++		if runtime.DbgIsMarked() {
++			panic("begining of Read bufio Reader 2")
++		}
++
+ 		if n < 0 {
+ 			panic(errNegativeRead)
+ 		}
+diff --git a/src/gosec/internal.go b/src/gosec/internal.go
+index f393d7533c..227abce991 100644
+--- a/src/gosec/internal.go
++++ b/src/gosec/internal.go
+@@ -57,10 +57,10 @@ func LoadEnclave() {
+ 	check(err)
+ 
+ 	//Mmap debugging region
+-	//prot := _PROT_READ | _PROT_WRITE
+-	//manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
+-	//_, err = syscall.RMmap(runtime.DEBUGMASK, 0x1000, prot, manon, -1, 0)
+-	//check(err)
++	prot := _PROT_READ | _PROT_WRITE
++	manon := _MAP_PRIVATE | _MAP_ANON | _MAP_FIXED
++	_, err = syscall.RMmap(runtime.DEBUGMASK, 0x1000, prot, manon, -1, 0)
++	check(err)
+ 	defer func() { check(encl.Close()) }()
+ 
+ 	check(os.Chmod(name, 0755))
+@@ -108,7 +108,12 @@ func oCallServer() {
+ 			panic("Unsupported syscall forwarding.")
+ 		}
+ 		res := runtime.OcallRes{r1, r2, uintptr(err)}
+-		go runtime.Cooprt.SysSend(sys.Id, res)
++		go func() {
++			runtime.Cooprt.SysSend(sys.Id, res)
++			if sys.Trap == 318 {
++				log.Println("We got a result from random")
++			}
++		}()
+ 	}
+ }
+ 
+diff --git a/src/runtime/chan.go b/src/runtime/chan.go
+index cab7922a4e..3e1d502f6d 100644
+--- a/src/runtime/chan.go
++++ b/src/runtime/chan.go
+@@ -252,6 +252,9 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
+ 	gp.waiting = mysg
+ 	//gp.param = nil
+ 	c.sendq.enqueue(mysg)
++	if isEnclave && gp.dbgmarker != 0 {
++		dbgRegisterStatus(false)
++	}
+ 	goparkunlock(&c.lock, "chan send", traceEvGoBlockSend, 3)
+ 
+ 	// someone woke us up.
+@@ -528,6 +531,9 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
+ 	}
+ 
+ 	if !block {
++		if gp := getg(); isEnclave && gp.dbgmarker != 0 {
++			dbgRegisterStatus(true)
++		}
+ 		unlock(&c.lock)
+ 		return false, false
+ 	}
+diff --git a/src/runtime/gosec.go b/src/runtime/gosec.go
+index f4d55ed971..e013d44544 100644
+--- a/src/runtime/gosec.go
++++ b/src/runtime/gosec.go
+@@ -1,6 +1,7 @@
+ package runtime
+ 
+ import (
++	"runtime/internal/atomic"
+ 	"unsafe"
+ )
+ 
+@@ -15,6 +16,12 @@ const (
+ 	FRE SysType = 5
+ )
+ 
++// For epoll from the enclave.
++const (
++	ENCL_POLLING  = 0
++	ENCL_NPOLLING = 1
++)
++
+ //EcallServerRequest type is used to send a request for the enclave to spawn
+ //a new dedicated ecall server listening on the provided private PC channel.
+ type EcallServerReq struct {
+@@ -53,7 +60,7 @@ type OcallRes struct {
+ 
+ type poolSysChan struct {
+ 	id        int
+-	available int
++	available uint32
+ 	c         chan OcallRes
+ }
+ 
+@@ -379,8 +386,7 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
+ 
+ func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
+ 	for i, s := range c.sysPool {
+-		if s.available == 1 {
+-			c.sysPool[i].available = 0
++		if s.available == 1 && atomic.Xchg(&c.sysPool[i].available, 0) == 1 {
+ 			c.sysPool[i].id = i
+ 			return i, c.sysPool[i].c
+ 		}
+@@ -397,7 +403,7 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
+ 		panicGosec("Trying to release an available channel")
+ 	}
+ 
+-	//TODO @aghosn make this atomic.
++	//Do we need atomic here?
+ 	c.sysPool[id].available = 1
+ }
+ 
+diff --git a/src/runtime/gosecallocater.go b/src/runtime/gosecallocater.go
+index 527d1c0900..c18ea6fe44 100644
+--- a/src/runtime/gosecallocater.go
++++ b/src/runtime/gosecallocater.go
+@@ -137,7 +137,7 @@ func (u *uledger) Initialize(start, size uintptr) {
+ //go:nowritebarrier
+ func (u *uledger) Malloc(size uintptr) uintptr {
+ 	//slow path, TODO check that no lock is held
+-	if size > _spansize {
++	if size >= _spansize {
+ 		syscid, csys := Cooprt.AcquireSysPool()
+ 		req := OcallReq{MAL, 0, 0, size, 0, 0, 0, 0, syscid}
+ 		Cooprt.Ocall <- req
+@@ -179,7 +179,7 @@ func (u *uledger) Malloc(size uintptr) uintptr {
+ //go:nowritebarrier
+ func (u *uledger) Free(ptr, size uintptr) {
+ 	// Slow path
+-	if size > _spansize {
++	if size >= _spansize {
+ 		// There is no need to get an answer
+ 		req := OcallReq{FRE, 0, ptr, size, 0, 0, 0, 0, 0}
+ 		Cooprt.Ocall <- req
+diff --git a/src/runtime/gosecuredbg.go b/src/runtime/gosecuredbg.go
+index 35be46d0f0..af5ae3e214 100644
+--- a/src/runtime/gosecuredbg.go
++++ b/src/runtime/gosecuredbg.go
+@@ -1,8 +1,8 @@
+ package runtime
+ 
+ import (
+-//	"runtime/internal/atomic"
+-//	"unsafe"
++	"runtime/internal/atomic"
++	"unsafe"
+ )
+ 
+ func gosecassert(b bool) {
+@@ -16,6 +16,64 @@ func gosecassert(b bool) {
+ 
+ const DEBUGMASK = 0x060000000000
+ 
++func dbgEnter() {
++	ptr := (*uint32)(unsafe.Pointer(uintptr(DEBUGMASK)))
++	atomic.Xadd(ptr, 1)
++}
++
++func dbgLeave() {
++	ptr := (*uint32)(unsafe.Pointer(uintptr(DEBUGMASK)))
++	if *ptr > 1 {
++		panic("Too many people, that I'll never meet")
++	}
++	atomic.Xadd(ptr, -1)
++}
++
++func dbgOutputNbAllg() {
++	gp := getg()
++	if gp == nil {
++		panic("This should not be nil")
++	}
++	p := gp.m.p.ptr()
++	if p == nil {
++		panic("This should not be nil")
++	}
++	addr := uintptr(p.id*4) + uintptr(DEBUGMASK) + unsafe.Sizeof(uintptr(1))
++	ptr := (*uint32)(unsafe.Pointer(addr))
++	atomic.Store(ptr, uint32(len(allgs)))
++}
++
++func DbgMarkRoutine(id uint32) {
++	if gp := getg(); gp != nil {
++		gp.dbgmarker = id
++		return
++	}
++	panic("The current routine is nil")
++}
++
++func DbgIsMarked() bool {
++	gp := getg()
++	if gp == nil {
++		panic("nil goroutine")
++	}
++	return gp.dbgmarker != 0
++}
++
++func dbgRegisterStatus(read bool) {
++	gp := getg()
++	if gp == nil {
++		panic("The routine is nil")
++	}
++
++	addr := uintptr(gp.dbgmarker*8) + uintptr(DEBUGMASK)
++	ptr := (*int64)(unsafe.Pointer(addr))
++	if read {
++		*ptr = gp.goid
++	} else {
++		*ptr = gp.goid * -1
++	}
++}
++
+ //
+ ////		DEBUGGING stuff that will need to be removed or replaced
+ //
+diff --git a/src/runtime/netpoll_epoll.go b/src/runtime/netpoll_epoll.go
+index c14d57a078..70cf1912c2 100644
+--- a/src/runtime/netpoll_epoll.go
++++ b/src/runtime/netpoll_epoll.go
+@@ -177,7 +177,8 @@ func gosecinterpose(trap, a1, a2, a3, a4, a5, a6 uintptr) int32 {
+ 		UnsafeAllocator.Free(ev, sev)
+ 		r1 = res.R1
+ 	case _sys_epoll_wait:
+-		// We need to do an exit here.
++		// We need to do an exit here, so lets give up the channel.
++		Cooprt.ReleaseSysPool(syscid)
+ 		sev := unsafe.Sizeof(epollevent{})
+ 		ev := UnsafeAllocator.Malloc(sev)
+ 		req := (*OcallReq)(unsafe.Pointer(UnsafeAllocator.Malloc(unsafe.Sizeof(OcallReq{}))))
+@@ -190,11 +191,11 @@ func gosecinterpose(trap, a1, a2, a3, a4, a5, a6 uintptr) int32 {
+ 		UnsafeAllocator.Free(uintptr(unsafe.Pointer(res)), unsafe.Sizeof(*res))
+ 		memcpy(a2, ev, sev)
+ 		UnsafeAllocator.Free(ev, sev)
++		return int32(r1)
+ 	default:
+ 		panic("Unsupported gosecinterpose syscall")
+ 	}
+ 	Cooprt.ReleaseSysPool(syscid)
+-	//TODO might be necessary to get the error instead.
+ 	return int32(r1)
+ }
+ 
+diff --git a/src/runtime/proc.go b/src/runtime/proc.go
+index fd89c72d89..c69bc402af 100644
+--- a/src/runtime/proc.go
++++ b/src/runtime/proc.go
+@@ -290,7 +290,7 @@ func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason s
+ 	mp := acquirem()
+ 	gp := mp.curg
+ 	if gp == nil {
+-		panic("fuck")
++		panic("gp is nil in gopark")
+ 	}
+ 	status := readgstatus(gp)
+ 	if status != _Grunning && status != _Gscanrunning {
+@@ -536,7 +536,8 @@ func schedinit() {
+ 	}
+ 	if isEnclave {
+ 		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
+-		procs = 1 //TODO modify this for more threads in enclave.
++		procs = 2 //TODO modify this for more threads in enclave.
++		sched.lastpoll = ENCL_NPOLLING
+ 	}
+ 
+ 	if procresize(procs) != nil {
+@@ -2332,7 +2333,9 @@ top:
+ 	// blocked thread (e.g. it has already returned from netpoll, but does
+ 	// not set lastpoll yet), this thread will do blocking netpoll below
+ 	// anyway.
+-	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && atomic.Load64(&sched.lastpoll) != 0 {
++	if netpollinited() && atomic.Load(&netpollWaiters) > 0 &&
++		((!isEnclave && atomic.Load64(&sched.lastpoll) != 0) ||
++			(isEnclave && atomic.Xchg64(&sched.lastpoll, ENCL_POLLING) == ENCL_NPOLLING)) {
+ 		if gp := netpoll(false); gp != nil { // non-blocking
+ 			// netpoll returns list of goroutines linked by schedlink.
+ 			injectglist(gp.schedlink.ptr())
+@@ -2340,8 +2343,14 @@ top:
+ 			if trace.enabled {
+ 				traceGoUnpark(gp, 0)
+ 			}
++			if isEnclave {
++				atomic.Store64(&sched.lastpoll, ENCL_NPOLLING)
++			}
+ 			return gp, false
+ 		}
++		if isEnclave {
++			atomic.Store64(&sched.lastpoll, ENCL_NPOLLING)
++		}
+ 	}
+ 
+ 	// Steal work from other P's.
+diff --git a/src/runtime/runtime2.go b/src/runtime/runtime2.go
+index b9d7cda52d..481f1e6689 100644
+--- a/src/runtime/runtime2.go
++++ b/src/runtime/runtime2.go
+@@ -405,6 +405,7 @@ type g struct {
+ 	isencl        bool
+ 	markednofutex bool
+ 	ecallchan     chan EcallReq
++	dbgmarker     uint32
+ }
+ 
+ type m struct {
+diff --git a/src/syscall/gosec.go b/src/syscall/gosec.go
+index 7faf0baf65..8b5f5d784c 100644
+--- a/src/syscall/gosec.go
++++ b/src/syscall/gosec.go
+@@ -18,6 +18,17 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
+ 		syscid, csys := runtime.Cooprt.AcquireSysPool()
+ 		_tpe := runtime.S3
+ 		switch trap {
++		case SYS_FSTAT:
++			sstat := unsafe.Sizeof(Stat_t{})
++			statbuf := runtime.UnsafeAllocator.Malloc(sstat)
++			memcpy(statbuf, a2, sstat)
++			req := runtime.OcallReq{_tpe, trap, a1, statbuf, a3, 0, 0, 0, syscid}
++			runtime.Cooprt.Ocall <- req
++			res := <-csys
++			//copy back the results
++			memcpy(a2, statbuf, sstat)
++			runtime.UnsafeAllocator.Free(statbuf, sstat)
++			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+ 		case SYS_CLOSE:
+ 			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
+ 			runtime.Cooprt.Ocall <- req
+@@ -43,7 +54,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
+ 			res := <-csys
+ 			memcpy(destptr, a1, a2)
+ 			runtime.UnsafeAllocator.Free(destptr, a2)
+-			return res.R1, res.R2, Errno(res.Err)
++			r1, r2, err = res.R1, res.R2, Errno(res.Err)
+ 		case SYS_GETUID:
+ 			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
+ 			runtime.Cooprt.Ocall <- req
+@@ -94,7 +105,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
+ 			runtime.UnsafeAllocator.Free(buf, a3)
+ 		default:
+ 			panic("unsupported system call.")
+-			//goto UNSUPPORTED
+ 		}
+ 		runtime.Cooprt.ReleaseSysPool(syscid)
+ 		return
