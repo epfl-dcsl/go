@@ -137,7 +137,7 @@ func (u *uledger) Initialize(start, size uintptr) {
 //go:nowritebarrier
 func (u *uledger) Malloc(size uintptr) uintptr {
 	//slow path, TODO check that no lock is held
-	if size > _spansize {
+	if size >= _spansize {
 		syscid, csys := Cooprt.AcquireSysPool()
 		req := OcallReq{MAL, 0, 0, size, 0, 0, 0, 0, syscid}
 		Cooprt.Ocall <- req
@@ -179,7 +179,7 @@ func (u *uledger) Malloc(size uintptr) uintptr {
 //go:nowritebarrier
 func (u *uledger) Free(ptr, size uintptr) {
 	// Slow path
-	if size > _spansize {
+	if size >= _spansize {
 		// There is no need to get an answer
 		req := OcallReq{FRE, 0, ptr, size, 0, 0, 0, 0, 0}
 		Cooprt.Ocall <- req

@@ -177,7 +177,8 @@ func gosecinterpose(trap, a1, a2, a3, a4, a5, a6 uintptr) int32 {
 		UnsafeAllocator.Free(ev, sev)
 		r1 = res.R1
 	case _sys_epoll_wait:
-		// We need to do an exit here.
+		// We need to do an exit here, so lets give up the channel.
+		Cooprt.ReleaseSysPool(syscid)
 		sev := unsafe.Sizeof(epollevent{})
 		ev := UnsafeAllocator.Malloc(sev)
 		req := (*OcallReq)(unsafe.Pointer(UnsafeAllocator.Malloc(unsafe.Sizeof(OcallReq{}))))
@@ -190,11 +191,11 @@ func gosecinterpose(trap, a1, a2, a3, a4, a5, a6 uintptr) int32 {
 		UnsafeAllocator.Free(uintptr(unsafe.Pointer(res)), unsafe.Sizeof(*res))
 		memcpy(a2, ev, sev)
 		UnsafeAllocator.Free(ev, sev)
+		return int32(r1)
 	default:
 		panic("Unsupported gosecinterpose syscall")
 	}
 	Cooprt.ReleaseSysPool(syscid)
-	//TODO might be necessary to get the error instead.
 	return int32(r1)
 }
 

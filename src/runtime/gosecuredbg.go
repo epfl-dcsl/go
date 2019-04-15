@@ -12,165 +12,150 @@ func gosecassert(b bool) {
 	}
 }
 
-//TODO @aghosn remove afterwards.
-
 const DEBUGMASK = 0x060000000000
 
+const DBG_MASK_RT = 0xdead000
+
+const (
+	DBG_BLCK_RC = int64(0x11)
+	DBG_BLCK_WC = int64(0x22)
+	DBG_UNBL_RC = int64(0x33)
+	DBG_UNBL_WC = int64(0x44)
+	DBG_NBLC_RC = int64(0x55)
+	DBG_NBLC_WC = int64(0x66)
+	DBG_NOBL_RC = int64(0x77)
+	DBG_NOBL_WC = int64(0x88)
+	DBG_SEL_WAK = int64(0x99)
+)
+
+type DbgInfo struct {
+	id        int64
+	index     int64
+	markers   [15]int64
+	separator int64
+	addresses [15]uintptr
+}
+
+type DbgRoutineInfo = [10]DbgInfo
+
+type DbgRtThree = uintptr
+
+//var dumper = (*DbgRoutineInfo)(unsafe.Pointer(uintptr(DEBUGMASK)))
 //
-////		DEBUGGING stuff that will need to be removed or replaced
+//var threeDumper = (*DbgRtThree)(unsafe.Pointer((uintptr(unsafe.Pointer(dumper)) + unsafe.Sizeof(*dumper))))
 //
-//func ForceGC() {
-//	for gosweepone() != ^uintptr(0) {
+//func dbgEnter() {
+//	ptr := (*uint32)(unsafe.Pointer(uintptr(DEBUGMASK)))
+//	atomic.Xadd(ptr, 1)
+//}
+//
+//func dbgLeave() {
+//	ptr := (*uint32)(unsafe.Pointer(uintptr(DEBUGMASK)))
+//	if *ptr > 1 {
+//		panic("Too many people, that I'll never meet")
 //	}
+//	atomic.Xadd(ptr, -1)
 //}
 //
-//var addr_debug uintptr = uintptr(DEBUGMASK)
-//
-//func DebugTag(i int) {
-//	if isEnclave {
-//		ptr := (*uint64)(unsafe.Pointer(addr_debug))
-//		*ptr = uint64(i)
-//		addr_debug += unsafe.Sizeof(uint64(0))
+//func dbgOutputNbAllg() {
+//	gp := getg()
+//	if gp == nil {
+//		panic("This should not be nil")
 //	}
+//	p := gp.m.p.ptr()
+//	if p == nil {
+//		panic("This should not be nil")
+//	}
+//	addr := uintptr(p.id*4) + uintptr(DEBUGMASK) + unsafe.Sizeof(uintptr(1))
+//	ptr := (*uint32)(unsafe.Pointer(addr))
+//	atomic.Store(ptr, uint32(len(allgs)))
 //}
 //
-//const (
-//	BASE_WAKE_TRACE = 0x60
-//	BEGINTAG        = iota
-//	PROLOG
-//	POSTSYS
-//	POSTSYS1
-//	POSTGARB
-//	POSTGARB2
-//	POSTRELEASE
-//	ENDTAG
-//	POSTSHIT
-//)
-//
-////go:nosplit
-//func DebugEndTag() {
-//	base := uintptr(DEBUGMASK + BASE_WAKE_TRACE + POSTSHIT*8)
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	*ptr = 0xbeef
-//}
-//
-////go:nosplit
-//func DebugFatTag(begin bool) {
-//	if !isEnclave {
+//func DbgMarkRoutine(id uint32) {
+//	if gp := getg(); gp != nil {
+//		gp.dbgmarker = id
+//		dumper[gp.dbgmarker].id = int64(uintptr(unsafe.Pointer(gp))) //int64(gp.dbgmarker) + DBG_MASK_RT
+//		dumper[gp.dbgmarker].separator = 0xFFFFFFFFFFF
 //		return
 //	}
-//	var base uintptr
-//	if begin {
-//		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + BEGINTAG*8)
+//	panic("The current routine is nil")
+//}
+//
+//func DbgIsMarked() bool {
+//	gp := getg()
+//	if gp == nil {
+//		panic("nil goroutine")
+//	}
+//	return gp.dbgmarker != 0
+//}
+//
+//func DbgMarkThree(trap uintptr) {
+//	gp := getg()
+//	if gp == nil {
+//		panic("nil goroutine")
+//	}
+//	if gp.dbgmarker != 3 {
+//		return
+//	}
+//	*threeDumper = trap
+//	threeDumper = (*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(threeDumper)) + unsafe.Sizeof(uintptr(0))))
+//}
+//
+//func DbgMarkThreePost(trap uintptr) {
+//	gp := getg()
+//	if gp == nil {
+//		panic("nil goroutine")
+//	}
+//	if gp.dbgmarker != 3 || trap != 0x1 {
+//		return
+//	}
+//	*threeDumper = 0x666
+//	threeDumper = (*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(threeDumper)) + unsafe.Sizeof(uintptr(0))))
+//}
+//
+//func DbgMarkThreeGet() uintptr {
+//	gp := getg()
+//	if gp == nil || gp.dbgmarker == 0 {
+//		return 0
+//	}
+//	return uintptr(gp.dbgmarker)
+//}
+//
+//func DbgGetDiff() uintptr {
+//	gp := getg()
+//	if gp == nil {
+//		return 0
+//	}
+//
+//	return (uintptr(unsafe.Pointer(&gp.atomicstatus))) - (uintptr(unsafe.Pointer(gp)))
+//}
+//
+//func DbgTakePoint(value int64, c *hchan) {
+//	if !DbgIsMarked() {
+//		return
+//	}
+//	gp := getg()
+//	entry := &dumper[gp.dbgmarker]
+//	if int(entry.index) >= len(entry.markers) {
+//		entry.index = entry.index % int64(len(entry.markers))
+//		//panic("ran out of space for markers")
+//	}
+//	entry.markers[entry.index] = value
+//	entry.addresses[entry.index] = uintptr(unsafe.Pointer(c))
+//	entry.index++
+//}
+//
+//func dbgRegisterStatus(read bool) {
+//	gp := getg()
+//	if gp == nil {
+//		panic("The routine is nil")
+//	}
+//
+//	addr := uintptr(gp.dbgmarker*8) + uintptr(DEBUGMASK)
+//	ptr := (*int64)(unsafe.Pointer(addr))
+//	if read {
+//		*ptr = gp.goid
 //	} else {
-//		base = uintptr(DEBUGMASK + BASE_WAKE_TRACE + ENDTAG*8)
+//		*ptr = gp.goid * -1
 //	}
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	*ptr = 0xbeef
-//}
-//
-////go:nosplit
-//func DebugTagAt(offset, value int) {
-//	base := uintptr(DEBUGMASK + offset*8)
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	*ptr = uint64(value)
-//}
-//
-////go:nosplit
-//func DebugIncreaseAt(offset int) {
-//	base := uintptr(DEBUGMASK + offset*8)
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	*ptr += 1
-//}
-//
-//// DebugCheckFailAt throws a panic if value is == to expected
-////go:nosplit
-//func DebugCheckFailAt(offset, expected int) {
-//	base := uintptr(DEBUGMASK + offset*8)
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	if *ptr == uint64(expected) {
-//		panic("CheckFailAt")
-//	}
-//}
-//
-////go:nosplit
-//func DebugGetAt(offset int) int {
-//	base := uintptr(DEBUGMASK + offset*8)
-//	ptr := (*uint64)(unsafe.Pointer(base))
-//	return int(*ptr)
-//}
-//
-//// DebugCheckFailAt throws a panic if value is == to expected
-////go:nosplit
-//func DebugTraceAt(id int) {
-//	if !isEnclave {
-//		return
-//	}
-//	DebugIncreaseAt(BASE_WAKE_TRACE/8 + id)
-//}
-//
-//const (
-//	DBG_BEFORE_GOSECALL = iota
-//	DBG_IN_GOSECALL
-//	DBG_GOSEC_SEND
-//	DBG_GOSEC_SEND_DONE
-//	DBG_ACTUAL_SEND
-//	DBG_ACTUAL_SEND_DONE
-//	DBG_AFTER_GOSECALL
-//	DBG_RETURNED_GOSEC
-//	DBG_READ_CHAN
-//	DBG_ECALL_SRV
-//	DBG_ECALL_SRV2
-//	DBG_PRIV_SRV
-//	DBG_PRIV_SRV2
-//	DBG_ERROR_ECALL
-//	DBG_ENCL_GC
-//	DBG_NENCL_GC
-//	DBG_PRE_MOVE
-//	DBG_POST_MOVE
-//)
-//
-//var DBG_NAMES = [20]string{
-//	"BEFORE GOSEC",
-//	"IN GOSEC FUNC",
-//	"IN GOSECSEND",
-//	"DONE GOSECSEND",
-//	"ACTUAL SEND",
-//	"ACTUAL SEND DONE",
-//	"AFTER GOSEC",
-//	"RETURNED GOSEC",
-//	"READ FROM CHAN",
-//	"ECALL SERVER",
-//	"ECALL SERVER2",
-//	"PRIVATE SERVER",
-//	"PRIVATE SERVER2",
-//	"ERROR ECALL",
-//	"ENCLAVE GC",
-//	"UNTRUST GC",
-//	"PRE MOVE",
-//	"POST MOVE",
-//}
-//
-//func DebuggIncrease(i int) {
-//	atomic.Xaddint64(&Cooprt.Markers[i], 1)
-//}
-//
-//func DebuggDumpMarkers() {
-//	for i, v := range Cooprt.Markers {
-//		println(DBG_NAMES[i], ":", i, ") ", v)
-//	}
-//}
-//
-//func DebuggResetMarkers() {
-//	for i := range Cooprt.Markers {
-//		if i < DBG_ECALL_SRV && i > DBG_ECALL_SRV2 {
-//			Cooprt.Markers[i] = 0
-//		}
-//	}
-//}
-//
-//func DebuggGCTS(i int) {
-//	ptr := (*uint64)(unsafe.Pointer(&Cooprt.Markers[i]))
-//	val := (uint64)(Cooprt.Markers[DBG_ACTUAL_SEND])
-//	atomic.Store64(ptr, val)
 //}

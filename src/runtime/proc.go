@@ -290,7 +290,7 @@ func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason s
 	mp := acquirem()
 	gp := mp.curg
 	if gp == nil {
-		panic("fuck")
+		panic("gp is nil in gopark")
 	}
 	status := readgstatus(gp)
 	if status != _Grunning && status != _Gscanrunning {
@@ -536,7 +536,8 @@ func schedinit() {
 	}
 	if isEnclave {
 		UnsafeAllocator.Initialize(Cooprt.StartUnsafe, Cooprt.SizeUnsafe)
-		procs = 1 //TODO modify this for more threads in enclave.
+		procs = 2 //TODO modify this for more threads in enclave.
+		sched.lastpoll = ENCL_NPOLLING
 	}
 
 	if procresize(procs) != nil {
@@ -2332,7 +2333,9 @@ top:
 	// blocked thread (e.g. it has already returned from netpoll, but does
 	// not set lastpoll yet), this thread will do blocking netpoll below
 	// anyway.
-	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && atomic.Load64(&sched.lastpoll) != 0 {
+	if netpollinited() && atomic.Load(&netpollWaiters) > 0 &&
+		((!isEnclave && atomic.Load64(&sched.lastpoll) != 0) ||
+			(isEnclave && atomic.Xchg64(&sched.lastpoll, ENCL_POLLING) == ENCL_NPOLLING)) {
 		if gp := netpoll(false); gp != nil { // non-blocking
 			// netpoll returns list of goroutines linked by schedlink.
 			injectglist(gp.schedlink.ptr())
@@ -2340,7 +2343,13 @@ top:
 			if trace.enabled {
 				traceGoUnpark(gp, 0)
 			}
+			if isEnclave {
+				atomic.Store64(&sched.lastpoll, ENCL_NPOLLING)
+			}
 			return gp, false
+		}
+		if isEnclave {
+			atomic.Store64(&sched.lastpoll, ENCL_NPOLLING)
 		}
 	}
 

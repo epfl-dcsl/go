@@ -103,13 +103,14 @@ func oCallServer() {
 			r1 = uintptr(ur1)
 		case runtime.FRE:
 			runtime.RMunmap(unsafe.Pointer(sys.A1), sys.A2)
-			return
+			continue
 		default:
 			panic("Unsupported syscall forwarding.")
 		}
 		res := runtime.OcallRes{r1, r2, uintptr(err)}
 		go runtime.Cooprt.SysSend(sys.Id, res)
 	}
+	panic("Should never exit")
 }
 
 func bufcopy(dest []uint8, src *uint8, size int32) {

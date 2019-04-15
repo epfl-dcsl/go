@@ -18,6 +18,17 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 		syscid, csys := runtime.Cooprt.AcquireSysPool()
 		_tpe := runtime.S3
 		switch trap {
+		case SYS_FSTAT:
+			sstat := unsafe.Sizeof(Stat_t{})
+			statbuf := runtime.UnsafeAllocator.Malloc(sstat)
+			memcpy(statbuf, a2, sstat)
+			req := runtime.OcallReq{_tpe, trap, a1, statbuf, a3, 0, 0, 0, syscid}
+			runtime.Cooprt.Ocall <- req
+			res := <-csys
+			//copy back the results
+			memcpy(a2, statbuf, sstat)
+			runtime.UnsafeAllocator.Free(statbuf, sstat)
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
 		case SYS_CLOSE:
 			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
 			runtime.Cooprt.Ocall <- req
@@ -43,7 +54,7 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			res := <-csys
 			memcpy(destptr, a1, a2)
 			runtime.UnsafeAllocator.Free(destptr, a2)
-			return res.R1, res.R2, Errno(res.Err)
+			r1, r2, err = res.R1, res.R2, Errno(res.Err)
 		case SYS_GETUID:
 			req := runtime.OcallReq{_tpe, trap, a1, a2, a3, 0, 0, 0, syscid}
 			runtime.Cooprt.Ocall <- req
@@ -94,7 +105,6 @@ func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno) {
 			runtime.UnsafeAllocator.Free(buf, a3)
 		default:
 			panic("unsupported system call.")
-			//goto UNSUPPORTED
 		}
 		runtime.Cooprt.ReleaseSysPool(syscid)
 		return

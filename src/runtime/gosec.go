@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -13,6 +14,12 @@ const (
 	RS6 SysType = 3
 	MAL SysType = 4
 	FRE SysType = 5
+)
+
+// For epoll from the enclave.
+const (
+	ENCL_POLLING  = 0
+	ENCL_NPOLLING = 1
 )
 
 //EcallServerRequest type is used to send a request for the enclave to spawn
@@ -53,7 +60,7 @@ type OcallRes struct {
 
 type poolSysChan struct {
 	id        int
-	available int
+	available uint32
 	c         chan OcallRes
 }
 
@@ -379,8 +386,7 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 
 func (c *CooperativeRuntime) AcquireSysPool() (int, chan OcallRes) {
 	for i, s := range c.sysPool {
-		if s.available == 1 {
-			c.sysPool[i].available = 0
+		if s.available == 1 && atomic.Xchg(&c.sysPool[i].available, 0) == 1 {
 			c.sysPool[i].id = i
 			return i, c.sysPool[i].c
 		}
@@ -397,7 +403,7 @@ func (c *CooperativeRuntime) ReleaseSysPool(id int) {
 		panicGosec("Trying to release an available channel")
 	}
 
-	//TODO @aghosn make this atomic.
+	//Do we need atomic here?
 	c.sysPool[id].available = 1
 }
 
