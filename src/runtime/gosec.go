@@ -380,7 +380,8 @@ func (c *CooperativeRuntime) crossGoready(sg *sudog) {
 		}
 		target = &c.readyO
 	}
-
+	// warn that it needs copy
+	sg.needcpy = true
 	slqput(target, sg)
 }
 

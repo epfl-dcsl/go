@@ -568,6 +568,12 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	if mysg.releasetime > 0 {
 		blockevent(mysg.releasetime-t0, 2)
 	}
+	// perform a deep copy
+	if mysg.needcpy && DeepCopier != nil && mysg.elem != nil {
+		storeCopy(mysg.elem, DeepCopier(mysg.elem, c.elemtype), c.elemsize)
+		mysg.needcpy = false
+	}
+
 	closed := gp.param == nil
 	gp.param = nil
 	mysg.c = nil

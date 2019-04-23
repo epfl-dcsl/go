@@ -3,6 +3,7 @@ package gosec
 import (
 	"bytes"
 	"debug/elf"
+	"gosecommon"
 	"log"
 	"os"
 	"reflect"
@@ -70,6 +71,10 @@ func LoadEnclave() {
 
 	//Setup the OEntry in Cooprt for extra threads
 	runtime.Cooprt.OEntry = reflect.ValueOf(asm_oentry).Pointer()
+
+	// Set the deep copier
+	runtime.SetCopier(gosecommon.DeepCopier)
+
 	//Start loading the program within the correct address space.
 	if s := os.Getenv("SIM"); s != "" {
 		simLoadProgram(name)

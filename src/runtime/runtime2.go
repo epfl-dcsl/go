@@ -305,6 +305,7 @@ type sudog struct {
 
 	id          int32     //TODO @aghosn id in the pool (-1) if does not apply
 	schednext   sguintptr //TODO @aghosn using this for lists compatible with WB
+	needcpy     bool      // @aghosn, for interdomain deepcopy
 	acquiretime int64
 	releasetime int64
 	ticket      uint32
