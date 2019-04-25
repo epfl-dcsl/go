@@ -130,8 +130,7 @@ type CooperativeRuntime struct {
 	OEntry           uintptr
 	ExceptionHandler uint64
 
-	// for types
-	fmdata *moduledata
+	Uach chan uintptr
 }
 
 const (
@@ -186,7 +185,7 @@ func InitCooperativeRuntime() {
 	}
 	Cooprt.StartUnsafe = uintptr(ptr)
 	Cooprt.SizeUnsafe = _unsafeSize
-	Cooprt.fmdata = &firstmoduledata
+	Cooprt.Uach = make(chan uintptr)
 }
 
 // SetHeapValue allows to let Cooprt register enclave heap value.

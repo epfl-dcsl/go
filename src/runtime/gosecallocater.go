@@ -51,6 +51,7 @@ type sgentry struct {
 	buff     unsafe.Pointer
 	sbuff    uintptr
 	elemtype *_type
+	tracker  AllocTracker
 }
 
 type spanlist struct {
@@ -71,6 +72,7 @@ type uledger struct {
 
 	inited bool
 	sl     slock
+	toFree map[uintptr]AllocTracker
 }
 
 //go:nowritebarrier
@@ -127,10 +129,10 @@ func (u *uledger) Initialize(start, size uintptr) {
 		sp.freesize = _spansize
 		u.freespans.add(sp)
 	}
-
 	// Now initialize the workEnclave
 	workEnclave = u.Malloc(unsafe.Sizeof(work))
 	schedEnclave = u.Malloc(unsafe.Sizeof(sched))
+	u.toFree = make(map[uintptr]AllocTracker)
 }
 
 //go:nosplit
@@ -198,6 +200,12 @@ func (u *uledger) Free(ptr, size uintptr) {
 	u.sl.unlock()
 }
 
+func (u *uledger) FreeAll(tracker AllocTracker) {
+	for _, v := range tracker {
+		u.Free(v.Src, v.Size)
+	}
+}
+
 // AcquireUnsafeSudog returns an unsafe sudog and an unsafe buffer as
 // requested.
 //go:nosplit
@@ -238,6 +246,41 @@ func (u *uledger) AcquireUnsafeSudog(elem unsafe.Pointer, isrcv bool, size uint1
 	return sg, buff
 }
 
+func (u *uledger) AcquireUnsafeSudogSend(elem unsafe.Pointer, size uint16, elemtype *_type) (*sudog, unsafe.Pointer) {
+	if !isEnclave {
+		throw("Error in AcquireUnsafeSudogSend")
+	}
+	var sg *sudog
+	//Quick check if the queue is empty
+	if u.psgsize > 0 {
+		u.psglock.lock()
+		sg = u.poolsg.dequeue()
+		if sg != nil {
+			u.psgsize--
+		}
+		u.psglock.unlock()
+	}
+
+	//Need to allocate a new one.
+	if sg == nil {
+		sg = (*sudog)(unsafe.Pointer(u.Malloc(unsafe.Sizeof(sgentry{}))))
+	}
+	sg.id = 1
+	buff, tracker := DeepCopierSend(elem, elemtype)
+	sg.schednext = 0
+	//book-keeping for the release.
+	sge := (*sgentry)(unsafe.Pointer(sg))
+	sge.isrcv = false
+	sge.orig = elem
+	sge.buff = buff
+	sge.sbuff = uintptr(size)
+	sge.elemtype = elemtype
+	sge.tracker = tracker
+	// register the g
+	allcgadd(getg())
+	return sg, buff
+}
+
 //go:nosplit
 func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	if sg.id != -1 && !isEnclave {
@@ -255,9 +298,13 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 		dst := sge.orig
 		typeBitsBulkBarrier(sge.elemtype, uintptr(dst), uintptr(sge.buff), sge.elemtype.size)
 		memmove(sge.orig, sge.buff, sge.sbuff)
+	} else if sge.isrcv == false && sge.tracker != nil {
+		u.FreeAll(sge.tracker)
+		goto skipfree
 	}
 	u.Free(uintptr(sge.buff), sge.sbuff)
 
+skipfree:
 	//caching size
 	if u.psgsize < _sgcachesize {
 		u.psglock.lock()
@@ -269,6 +316,29 @@ func (u *uledger) ReleaseUnsafeSudog(sg *sudog, size uint16) {
 	}
 	// unregister the routine
 	allcgremove(getg())
+}
+
+func (u *uledger) registerTracker(tracker AllocTracker) {
+	if len(tracker) < 2 {
+		panic("registering invalid tracker")
+	}
+	u.sl.lock()
+	u.toFree[tracker[1].Src] = tracker
+	u.sl.unlock()
+}
+
+func (u *uledger) FreeTracker(src uintptr) {
+	u.sl.lock()
+	v, ok := u.toFree[src]
+	if !ok {
+		if isSimulation {
+			println(src)
+		}
+		panic("Trying to free a tracker that does not exist")
+	}
+	delete(u.toFree, src)
+	u.sl.unlock()
+	u.FreeAll(v)
 }
 
 //go:nosplit

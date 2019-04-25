@@ -73,7 +73,7 @@ func LoadEnclave() {
 	runtime.Cooprt.OEntry = reflect.ValueOf(asm_oentry).Pointer()
 
 	// Set the deep copier
-	runtime.SetCopier(gosecommon.DeepCopier)
+	runtime.SetCopier(gosecommon.DeepCopier, gosecommon.CanShallowCopy)
 
 	//Start loading the program within the correct address space.
 	if s := os.Getenv("SIM"); s != "" {

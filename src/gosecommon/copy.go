@@ -6,6 +6,8 @@ import (
 	"unsafe"
 )
 
+type CA func(size uintptr) uintptr
+
 type Copy struct {
 	start uintptr
 	size  uintptr
@@ -22,6 +24,32 @@ func memcpy(dest, source, l uintptr) {
 		s := (*byte)(unsafe.Pointer(source + i))
 		*d = *s
 	}
+}
+
+func CanShallowCopy(rtpe *r.DPTpe) bool {
+	tpe := reflect.ConvDPTpeToType(rtpe)
+	switch tpe.Kind() {
+	case reflect.Map:
+		panic("Trying to deep copy a map...")
+	case reflect.Array:
+		return CanShallowCopy(reflect.ConvTypeToDPTpe(tpe.Elem()))
+	case reflect.Struct:
+		needed := false
+		for i := 0; i < tpe.NumField(); i++ {
+			if !CanShallowCopy(reflect.ConvTypeToDPTpe(tpe.Field(i).Type)) {
+				needed = true
+				break
+			}
+		}
+		return !needed
+	case reflect.UnsafePointer:
+		fallthrough
+	case reflect.Ptr:
+		return false
+	case reflect.Slice:
+		panic("slice is hard to copy")
+	}
+	return true
 }
 
 // needsCopy checks the given type against the supported once and returns
@@ -61,18 +89,33 @@ func extractValue(ptr uintptr) uintptr {
 	return val
 }
 
+func copyIn(size uintptr) uintptr {
+	v := make([]uint8, size)
+	return uintptr(unsafe.Pointer(&v[0]))
+}
+
+func DeepCopierSend(src unsafe.Pointer, tpe *r.DPTpe) (unsafe.Pointer, r.AllocTracker) {
+	store := make(Store)
+	gtpe := reflect.ConvTypePtr(tpe)
+	var tracker r.AllocTracker
+	allocater := func(size uintptr) uintptr {
+		res := r.UnsafeAllocator.Malloc(size)
+		tracker = append(tracker, r.TrackerEntry{res, size})
+		return res
+	}
+	cpy := unsafe.Pointer(DeepCopy(uintptr(src), gtpe, store, allocater))
+	return cpy, tracker
+}
+
 func DeepCopier(src unsafe.Pointer, tpe *r.DPTpe) unsafe.Pointer {
 	store := make(Store)
-	if store == nil {
-		panic("Oh no")
-	}
 	gtpe := reflect.ConvTypePtr(tpe)
-	return unsafe.Pointer(DeepCopy(uintptr(src), gtpe, store))
+	return unsafe.Pointer(DeepCopy(uintptr(src), gtpe, store, copyIn))
 }
 
 // deepCopy entry point for deepCopy.
 // Takes a pointer type as element, returns pointer to the same type.
-func DeepCopy(src uintptr, tpe reflect.Type, store Store) uintptr {
+func DeepCopy(src uintptr, tpe reflect.Type, store Store, alloc CA) uintptr {
 	if tpe.Kind() != reflect.Ptr {
 		panic("Call to deepCopy does not respect calling convention.")
 	}
@@ -80,18 +123,17 @@ func DeepCopy(src uintptr, tpe reflect.Type, store Store) uintptr {
 		return v.start
 	}
 	// Initial shallow copy.
-	destRoot := make([]uint8, tpe.Elem().Size())
-	dest := uintptr(unsafe.Pointer(&destRoot[0]))
+	dest := alloc(tpe.Elem().Size()) //make([]uint8, tpe.Elem().Size())
 	memcpy(dest, src, tpe.Elem().Size())
 	store[src] = Copy{dest, tpe.Elem().Size()}
 
 	// Go into the type's deep copy
-	deepCopy1(dest, src, tpe.Elem(), store)
+	deepCopy1(dest, src, tpe.Elem(), store, alloc)
 	return dest
 }
 
 // deepCopy1 dest and src are pointers to type tpe.
-func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store) {
+func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store, alloc CA) {
 	b, k := needsCopy(tpe)
 	if !b {
 		// flat type, not interesting.
@@ -100,14 +142,14 @@ func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store) {
 	switch k {
 	case reflect.Ptr:
 		// at that point dest and ptr should be ptrs to ptrs
-		val := DeepCopy(extractValue(src), tpe, store)
+		val := DeepCopy(extractValue(src), tpe, store, alloc)
 		setPtrValue(dest, val)
 	case reflect.Struct:
 		offset := uintptr(0)
 		for i := 0; i < tpe.NumField(); i++ {
 			f := tpe.Field(i)
 			if b, _ := needsCopy(f.Type); b {
-				deepCopy1(dest+offset, src+offset, f.Type, store)
+				deepCopy1(dest+offset, src+offset, f.Type, store, alloc)
 			}
 			offset += f.Type.Size()
 		}
@@ -117,7 +159,7 @@ func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store) {
 		}
 		offset := uintptr(0)
 		for i := 0; i < tpe.Len(); i++ {
-			deepCopy1(dest+offset, src+offset, tpe.Elem(), store)
+			deepCopy1(dest+offset, src+offset, tpe.Elem(), store, alloc)
 			offset += tpe.Elem().Size()
 		}
 	// TODO The case for the slice is weird, not sure how to handle it.
@@ -153,7 +195,7 @@ func DeepCopyStackFrame(size int32, argp *uint8, ftpe reflect.Type) []byte {
 		if ok, _ := needsCopy(ftpe.In(i)); !ok {
 			goto endloop
 		}
-		deepCopy1(fptr, srcptr, ftpe.In(i), store)
+		deepCopy1(fptr, srcptr, ftpe.In(i), store, copyIn)
 	endloop:
 		fptr += ftpe.In(i).Size()
 		srcptr += ftpe.In(i).Size()

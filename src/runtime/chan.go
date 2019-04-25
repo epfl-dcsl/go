@@ -226,7 +226,11 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if checkinterdomain(gp.isencl, c.isencl) {
 		// Blocking on a send from enclave.
 		// take a sudog from the free list and use it.
-		mysg, ep = UnsafeAllocator.AcquireUnsafeSudog(ep, false, c.elemsize, c.elemtype)
+		if c.encltpe == nil {
+			mysg, ep = UnsafeAllocator.AcquireUnsafeSudog(ep, false, c.elemsize, c.elemtype)
+		} else {
+			mysg, ep = UnsafeAllocator.AcquireUnsafeSudogSend(ep, c.elemsize, c.encltpe)
+		}
 		if !gp.isencl || !isEnclave {
 			panic("Acquiring sudog from the pool in wrong environment.")
 		}
@@ -303,7 +307,9 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		}
 	}
 	if sg.elem != nil {
-		sendDirect(c.elemtype, sg, ep)
+		if !sendCopy(sg, ep, c) {
+			sendDirect(c.elemtype, sg, ep)
+		}
 		sg.elem = nil
 	}
 
@@ -570,13 +576,8 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 		blockevent(mysg.releasetime-t0, 2)
 	}
 	// perform a deep copy
-	if mysg.needcpy && DeepCopier != nil && ep != nil && (!isEnclave || c.encltpe != nil) {
-		tpe := c.elemtype
-		if isEnclave && !c.isencl {
-			tpe = c.encltpe
-		}
-		typedmemmove(c.elemtype, ep, DeepCopier(ep, tpe))
-		mysg.needcpy = false
+	if mysg.needcpy {
+		doCopy(mysg, ep, c)
 	}
 
 	closed := gp.param == nil
@@ -634,14 +635,7 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
 	// Do we need to copy
-	// TODO @aghosn problem here with reflection.
-	if ((isEnclave && sg.id == -1 && c.encltpe != nil) || (!isEnclave && sg.id != -1)) && ep != nil && DeepCopier != nil {
-		tpe := c.elemtype
-		if isEnclave && sg.id == -1 {
-			tpe = c.encltpe
-		}
-		typedmemmove(tpe, ep, DeepCopier(ep, tpe))
-	}
+	doCopy(sg, ep, c)
 
 	sg.elem = nil
 	if !isReschedulable(sg) {
