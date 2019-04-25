@@ -129,6 +129,9 @@ type CooperativeRuntime struct {
 	Notes            [10]note     // notes for futex calls.
 	OEntry           uintptr
 	ExceptionHandler uint64
+
+	// for types
+	fmdata *moduledata
 }
 
 const (
@@ -183,6 +186,7 @@ func InitCooperativeRuntime() {
 	}
 	Cooprt.StartUnsafe = uintptr(ptr)
 	Cooprt.SizeUnsafe = _unsafeSize
+	Cooprt.fmdata = &firstmoduledata
 }
 
 // SetHeapValue allows to let Cooprt register enclave heap value.
@@ -350,6 +354,7 @@ func migrateCrossDomain(locked bool) {
 // crossReleaseSudog calls the appropriate releaseSudog version depending on whether
 // the sudog is a crossdomain one or not.
 func crossReleaseSudog(sg *sudog, size uint16) {
+	sg.needcpy = false
 	// Check if this is not from the pool and is same domain (regular path)
 	if isReschedulable(sg) {
 		releaseSudog(sg)
@@ -550,4 +555,9 @@ func FutexwakeupE(addr unsafe.Pointer, val uint32) {
 func EpollPWait(req *OcallReq, res *OcallRes) {
 	res.R1 = uintptr(eepollwait(int32(req.A1),
 		(*epollevent)(unsafe.Pointer(req.A2)), int32(req.A3), int32(req.A4)))
+}
+
+func SetChanType(cptr uintptr, tpe *DPTpe) {
+	c := (*hchan)(unsafe.Pointer(cptr))
+	c.encltpe = tpe
 }

@@ -90,7 +90,6 @@ func DeepCopy(src uintptr, tpe reflect.Type, store Store) uintptr {
 	return dest
 }
 
-// TODO Add a store.
 // deepCopy1 dest and src are pointers to type tpe.
 func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store) {
 	b, k := needsCopy(tpe)
@@ -126,7 +125,43 @@ func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store) {
 		panic("Slices are not handled.")
 	case reflect.UnsafePointer:
 		panic("Unsafe pointers are not allowed!")
+	case reflect.Chan:
+		panic("Must implement the channel registration")
 	default:
 		panic("Unhandled type")
 	}
+}
+
+func DeepCopyStackFrame(size int32, argp *uint8, ftpe reflect.Type) []byte {
+	if ftpe.Kind() != reflect.Func {
+		panic("Wrong call to DeepCopyStackFrame")
+	}
+	if size == 0 {
+		return nil
+	}
+	store := make(Store)
+	nframe := make([]byte, int(size))
+	fptr := uintptr(unsafe.Pointer(&nframe[0]))
+	srcptr := uintptr(unsafe.Pointer(argp))
+	memcpy(fptr, srcptr, uintptr(size))
+	for i := 0; i < ftpe.NumIn(); i++ {
+		// handle cross-domain channels
+		if ftpe.In(i).Kind() == reflect.Chan {
+			extendUnsafeChanType(fptr, ftpe.In(i))
+			goto endloop
+		}
+		if ok, _ := needsCopy(ftpe.In(i)); !ok {
+			goto endloop
+		}
+		deepCopy1(fptr, srcptr, ftpe.In(i), store)
+	endloop:
+		fptr += ftpe.In(i).Size()
+		srcptr += ftpe.In(i).Size()
+	}
+	return nframe
+}
+
+func extendUnsafeChanType(cptr uintptr, ctype reflect.Type) {
+	rdpte := reflect.ConvTypeToDPTpe(ctype.Elem())
+	r.SetChanType(extractValue(cptr), rdpte)
 }

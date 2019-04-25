@@ -48,7 +48,8 @@ type hchan struct {
 	// with stack shrinking.
 	lock mutex
 
-	isencl bool
+	isencl  bool
+	encltpe *_type // pointer to the enclave type
 }
 
 type waitq struct {
@@ -569,8 +570,12 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 		blockevent(mysg.releasetime-t0, 2)
 	}
 	// perform a deep copy
-	if mysg.needcpy && DeepCopier != nil && mysg.elem != nil {
-		storeCopy(mysg.elem, DeepCopier(mysg.elem, c.elemtype), c.elemsize)
+	if mysg.needcpy && DeepCopier != nil && ep != nil && (!isEnclave || c.encltpe != nil) {
+		tpe := c.elemtype
+		if isEnclave && !c.isencl {
+			tpe = c.encltpe
+		}
+		typedmemmove(c.elemtype, ep, DeepCopier(ep, tpe))
 		mysg.needcpy = false
 	}
 
@@ -628,6 +633,16 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		}
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
+	// Do we need to copy
+	// TODO @aghosn problem here with reflection.
+	if ((isEnclave && sg.id == -1 && c.encltpe != nil) || (!isEnclave && sg.id != -1)) && ep != nil && DeepCopier != nil {
+		tpe := c.elemtype
+		if isEnclave && sg.id == -1 {
+			tpe = c.encltpe
+		}
+		typedmemmove(tpe, ep, DeepCopier(ep, tpe))
+	}
+
 	sg.elem = nil
 	if !isReschedulable(sg) {
 		//TODO @aghosn don't know what to do with gp.param

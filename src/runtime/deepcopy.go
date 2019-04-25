@@ -17,5 +17,5 @@ func SetCopier(cp CopyTpe) {
 }
 
 func storeCopy(dst unsafe.Pointer, val unsafe.Pointer, size uint16) {
-	//TODO implement
+	panic("bitch")
 }

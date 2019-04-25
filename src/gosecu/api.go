@@ -5,6 +5,7 @@ import (
 	"gosecommon"
 	"reflect"
 	"runtime"
+	"unsafe"
 )
 
 // Slice of gosecure targets.
@@ -65,6 +66,13 @@ func RegisterSecureFunction(f interface{}) {
 	//TODO @aghosn that will not be enough probably. Should have a pointer instead?
 	// or copy memory in a buffer inside the anonymous function?
 	secureMap[pc.Name()] = func(size int32, argp *uint8) {
-		runtime.Newproc(ptr, argp, size)
+		// TODO deep copy the stack frame
+		if size == 0 {
+			runtime.Newproc(ptr, argp, size)
+			return
+		}
+		sl := gosecommon.DeepCopyStackFrame(size, argp, reflect.ValueOf(f).Type())
+		argpcpy := (*uint8)(unsafe.Pointer(&sl[0]))
+		runtime.Newproc(ptr, argpcpy, size)
 	}
 }
