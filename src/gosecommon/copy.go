@@ -6,6 +6,12 @@ import (
 	"unsafe"
 )
 
+type rslice struct {
+	array unsafe.Pointer
+	l     int
+	c     int
+}
+
 type CA func(size uintptr) uintptr
 
 type Copy struct {
@@ -47,7 +53,7 @@ func CanShallowCopy(rtpe *r.DPTpe) bool {
 	case reflect.Ptr:
 		return false
 	case reflect.Slice:
-		panic("slice is hard to copy")
+		return false
 	}
 	return true
 }
@@ -162,9 +168,19 @@ func deepCopy1(dest, src uintptr, tpe reflect.Type, store Store, alloc CA) {
 			deepCopy1(dest+offset, src+offset, tpe.Elem(), store, alloc)
 			offset += tpe.Elem().Size()
 		}
-	// TODO The case for the slice is weird, not sure how to handle it.
+	// TODO handle slices.
 	case reflect.Slice:
-		panic("Slices are not handled.")
+		rs := (*rslice)(unsafe.Pointer(src))
+		//now allocate the new array
+		ndest := alloc(uintptr(rs.c))
+		memcpy(ndest, uintptr(rs.array), uintptr(rs.l))
+		cs := (*rslice)(unsafe.Pointer(dest))
+		cs.array = unsafe.Pointer(ndest)
+		cs.l = rs.l
+		cs.c = rs.c
+		if b, _ := needsCopy(tpe.Elem()); b {
+			deepCopy1(ndest, uintptr(rs.array), reflect.ArrayOf(rs.c, tpe.Elem()), store, alloc)
+		}
 	case reflect.UnsafePointer:
 		panic("Unsafe pointers are not allowed!")
 	case reflect.Chan:
